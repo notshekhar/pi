@@ -4,6 +4,7 @@ import {
   CombinedAutocompleteProvider,
   Container,
   Editor,
+  Loader,
   matchesKey,
   ProcessTerminal,
   SelectList,
@@ -110,12 +111,40 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const editorContainer = new Container();
   editorContainer.addChild(editor);
 
+  // pi pattern: status container between chat and editor for the "Working..." spinner.
+  // We keep it at a fixed height (1 row spacer when idle) so editor never shifts.
+  const statusContainer = new Container();
+  const statusIdleSpacer = new Spacer(1);
+  statusContainer.addChild(statusIdleSpacer);
+
   const root = new Container();
   root.addChild(history);
-  root.addChild(new Spacer(1));
+  root.addChild(statusContainer);
   root.addChild(editorContainer);
   root.addChild(footer);
   tui.addChild(root);
+
+  let workingLoader: Loader | null = null;
+  function showWorking(message = "Generating…"): void {
+    const fullMsg = `${message} ${chalk.dim("(Esc to interrupt)")}`;
+    if (workingLoader) {
+      workingLoader.setMessage(fullMsg);
+      return;
+    }
+    workingLoader = new Loader(tui, (s) => chalk.cyan(s), (s) => chalk.dim(s), fullMsg);
+    statusContainer.clear();
+    statusContainer.addChild(workingLoader);
+    workingLoader.start();
+    tui.requestRender();
+  }
+  function hideWorking(): void {
+    if (!workingLoader) return;
+    workingLoader.stop();
+    statusContainer.clear();
+    statusContainer.addChild(statusIdleSpacer);
+    workingLoader = null;
+    tui.requestRender();
+  }
 
   // Pi-style selector swap: replaces editor area with selector component
   function showSelector(component: Container, focusable: Container | SelectList): () => void {
@@ -242,6 +271,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     newSession: async () => {
       session = await manager.create({ cwd, provider, model: modelId });
       footer.setSession(session.id);
+      tracker.reset();
+      footer.setCost(tracker.format());
       history.reset();
       history.addSystem(`new session ${session.id}`);
       tui.requestRender();
@@ -249,6 +280,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     clearScreen: () => {
       // ANSI: clear scrollback + screen, then full redraw
       process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
+      tracker.reset();
+      footer.setCost(tracker.format());
       history.reset();
       tui.invalidate();
       tui.requestRender(true);
@@ -570,6 +603,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         abort.abort();
         abort = new AbortController();
         busy = false;
+        hideWorking();
         history.addSystem("[aborted]");
         tui.requestRender();
         return { consume: true };
@@ -612,6 +646,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     busy = true;
     history.addUser(finalInput);
+    showWorking("Generating");
     tui.requestRender();
 
     const { provider: turnProvider } = parseModelId(modelId);
@@ -624,10 +659,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     emitter.on("tool-call", (part: { toolName?: string; input?: unknown; toolCallId?: string }) => {
       const id = part.toolCallId ?? `${part.toolName}-${Date.now()}`;
       history.addToolCall(part.toolName ?? "tool", id, (part.input ?? {}) as Record<string, unknown>);
+      showWorking(`Running ${part.toolName}…`);
       tui.requestRender();
     });
     emitter.on("tool-result", (part: { output?: unknown; toolCallId?: string }) => {
       history.addToolResult(part.toolCallId ?? "", part.output);
+      showWorking("Generating");
       tui.requestRender();
     });
     emitter.on("compact-start", () => {
@@ -663,6 +700,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     } finally {
       busy = false;
       history.finishAssistant();
+      hideWorking();
       tui.requestRender();
     }
   };

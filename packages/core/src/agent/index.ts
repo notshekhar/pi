@@ -1,4 +1,4 @@
-import { streamText, stepCountIs } from "ai";
+import { streamText, stepCountIs, smoothStream } from "ai";
 import type { ModelMessage } from "ai";
 import { EventEmitter } from "node:events";
 import { getModel } from "../providers";
@@ -77,6 +77,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     tools,
     stopWhen: stepCountIs(maxSteps),
     abortSignal,
+    experimental_transform: smoothStream({ delayInMs: 20, chunking: "word" }),
   });
 
   let assistantText = "";

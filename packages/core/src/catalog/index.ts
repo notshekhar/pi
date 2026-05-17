@@ -106,12 +106,11 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
     const available = provAvail ? provAvail.includes(id) : true;
     out[id] = { ...m, available };
   }
-  // mark live availability on fallbacks where provider answered
-  for (const m of FALLBACK_MODELS) {
-    const live = availability[m.provider];
-    if (live) out[m.id].available = live.includes(m.id);
-  }
-  void XAI_FALLBACK_MODELS; // retain re-export reference
+  // Note: we do NOT downmark fallback models based on /v1/models availability.
+  // Subscription-only / preview models (e.g. grok-build, grok-4.20-*) are not
+  // returned by xai's public /v1/models endpoint but ARE callable with an
+  // OAuth bearer token. So fallback entries stay available unconditionally.
+  void XAI_FALLBACK_MODELS;
 
   // custom providers' declared models — falls back to sdk defaults if empty
   for (const cfg of listCustomProviders()) {

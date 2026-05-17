@@ -49,6 +49,10 @@ export class CostTracker {
     return costStore.get("lifetime") as { usd: number; byProvider: Record<ProviderId, number> };
   }
 
+  reset(): void {
+    this.session = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, usd: 0 };
+  }
+
   format(): string {
     const s = this.session;
     return `$${s.usd.toFixed(4)} · in:${s.inputTokens} out:${s.outputTokens} cache:${s.cachedInputTokens}`;

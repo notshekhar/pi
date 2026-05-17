@@ -8,8 +8,8 @@ import {
   getActiveProvider,
   SessionManager,
   getCatalog,
-} from "@pi-agent/core";
-import type { ProviderId } from "@pi-agent/core";
+} from "@pi/core";
+import type { ProviderId } from "@pi/core";
 import { runInteractive } from "./interactive/app";
 import { runPrint } from "./print";
 
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
       }
       if (args.flags.socket) {
         const { socketPath } = startSocketServer();
-        console.log(`pi-agent RPC daemon listening on ${socketPath}`);
+        console.log(`pi RPC daemon listening on ${socketPath}`);
         return;
       }
       startStdioServer();

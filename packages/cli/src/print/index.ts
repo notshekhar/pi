@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import { CostTracker, SessionManager, runTurn, getActiveProvider, settingsStore } from "@pi-agent/core";
-import type { ProviderId } from "@pi-agent/core";
+import { CostTracker, SessionManager, runTurn, getActiveProvider, settingsStore } from "@pi/core";
+import type { ProviderId } from "@pi/core";
 
 export interface PrintOptions {
   prompt: string;

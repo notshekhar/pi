@@ -41,7 +41,7 @@ import {
   type CustomProviderSdk,
   type ProviderId,
   type Session,
-} from "@pi-agent/core";
+} from "@pi/core";
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { ChatHistory } from "./components/chat-history";
@@ -97,6 +97,14 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   footer.setModel(modelId);
   footer.setSession(session.id);
   footer.setCost(tracker.format());
+
+  async function refreshFooterCtx(): Promise<void> {
+    const cat = await getCatalog();
+    const info = cat[modelId];
+    const used = tracker.sessionBreakdown().inputTokens + tracker.sessionBreakdown().cachedInputTokens;
+    footer.setContext(used, info?.contextWindow ?? 0);
+  }
+  void refreshFooterCtx();
 
   const editor = new Editor(tui, editorTheme, { paddingX: 1 });
 
@@ -199,7 +207,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       };
     });
 
-  history.addSystem(`pi-agent · ${modelId} · session ${session.id}`);
+  history.addSystem(`pi · ${modelId} · session ${session.id}`);
   history.addSystem(`Type /help for commands. Ctrl+C twice to quit.`);
 
   let abort = new AbortController();
@@ -229,6 +237,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       modelId = resolved;
       settingsStore.set("defaultModel", resolved);
       footer.setModel(resolved);
+      await refreshFooterCtx();
       history.addSystem(`model → ${resolved}`);
       tui.requestRender();
     },
@@ -273,6 +282,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       footer.setSession(session.id);
       tracker.reset();
       footer.setCost(tracker.format());
+      await refreshFooterCtx();
       history.reset();
       history.addSystem(`new session ${session.id}`);
       tui.requestRender();
@@ -282,6 +292,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
       tracker.reset();
       footer.setCost(tracker.format());
+      void refreshFooterCtx();
       history.reset();
       tui.invalidate();
       tui.requestRender(true);
@@ -586,12 +597,19 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const isCtrlC = (d: string) => d === CTRL_C || matchesKey(d, "ctrl+c");
   const isCtrlD = (d: string) => d === CTRL_D || matchesKey(d, "ctrl+d");
   const isCtrlL = (d: string) => d === "\x0c" || matchesKey(d, "ctrl+l");
+  const isCtrlO = (d: string) => d === "\x0f" || matchesKey(d, "ctrl+o");
   const isEsc = (d: string) => d === ESC || matchesKey(d, "escape");
 
   // Input listeners (run before editor)
   tui.addInputListener((data) => {
     if (isCtrlL(data)) {
       ctx.clearScreen();
+      return { consume: true };
+    }
+    if (isCtrlO(data)) {
+      const now = history.toggleToolsExpanded();
+      history.addSystem(`tools ${now ? "expanded" : "collapsed"}`);
+      tui.requestRender();
       return { consume: true };
     }
     if (isCtrlD(data) && !busy) {
@@ -678,6 +696,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     emitter.on("finish", () => {
       history.finishAssistant();
       footer.setCost(tracker.format());
+      void refreshFooterCtx();
       tui.requestRender();
     });
     emitter.on("error", (err: unknown) => {

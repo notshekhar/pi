@@ -1,5 +1,5 @@
 {
-  "name": "pi-agent-monorepo",
+  "name": "pi-monorepo",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -7,9 +7,9 @@
   ],
   "scripts": {
     "dev": "tsx packages/cli/src/cli.ts",
-    "build": "npm run gen:catalog && npm -w @pi-agent/core run build && npm -w @pi-agent/cli run build",
+    "build": "npm run gen:catalog && npm -w @pi/core run build && npm -w @pi/cli run build",
     "gen:catalog": "tsx packages/core/src/catalog/scripts/generate.ts",
-    "link": "npm -w @pi-agent/cli run build && npm -w @pi-agent/cli link",
+    "link": "npm -w @pi/cli run build && npm -w @pi/cli link",
     "typecheck": "tsc -b --noEmit"
   },
   "devDependencies": {

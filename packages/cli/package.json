@@ -1,9 +1,10 @@
 {
-  "name": "@pi-agent/cli",
+  "name": "@pi/cli",
   "version": "0.0.1",
   "type": "module",
   "bin": {
-    "piagent": "./dist/cli.js"
+    "pi": "./dist/cli.js",
+    "agent": "./dist/cli.js"
   },
   "files": ["dist"],
   "scripts": {
@@ -14,7 +15,7 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.74.1",
     "@earendil-works/pi-tui": "^0.74.1",
-    "@pi-agent/core": "*",
+    "@pi/core": "*",
     "chalk": "^5.5.0"
   },
   "devDependencies": {

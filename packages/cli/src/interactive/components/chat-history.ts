@@ -48,7 +48,18 @@ export class ChatHistory extends Container {
   private liveMsg: PiAssistantMessage | null = null;
   private liveComponent: AssistantMessageComponent | null = null;
   private toolComponents = new Map<string, ToolExecutionComponent>();
+  private allToolComponents: ToolExecutionComponent[] = [];
   private assistantTurn: Container | null = null;
+  private expanded = false;
+
+  setToolsExpanded(expanded: boolean): void {
+    this.expanded = expanded;
+    for (const c of this.allToolComponents) c.setExpanded(expanded);
+  }
+  toggleToolsExpanded(): boolean {
+    this.setToolsExpanded(!this.expanded);
+    return this.expanded;
+  }
 
   constructor(private tui: TUI, private cwd: string) {
     super();
@@ -59,6 +70,7 @@ export class ChatHistory extends Container {
     this.liveMsg = null;
     this.liveComponent = null;
     this.toolComponents.clear();
+    this.allToolComponents = [];
     this.assistantTurn = null;
   }
 
@@ -134,8 +146,10 @@ export class ChatHistory extends Container {
     );
     comp.markExecutionStarted();
     comp.setArgsComplete();
+    if (this.expanded) comp.setExpanded(true);
     (this.assistantTurn ?? this).addChild(comp);
     this.toolComponents.set(toolCallId, comp);
+    this.allToolComponents.push(comp);
   }
 
   addToolResult(toolCallId: string, output: unknown, isError = false): void {

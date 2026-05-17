@@ -48,6 +48,7 @@ import {
   type CustomProviderSdk,
   type ProviderId,
   type Session,
+  type UsageBlock,
 } from "@pi/core";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -98,9 +99,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   let cwd = opts.cwd;
 
   const manager = new SessionManager();
-  let session: Session = opts.sessionId
-    ? await manager.open(opts.sessionId)
-    : await manager.create({ cwd, provider, model: modelId });
+  let session: Session | null = opts.sessionId ? await manager.open(opts.sessionId) : null;
+  if (session?.info.model) modelId = session.info.model;
 
   const tracker = new CostTracker();
   const commands = new CommandRegistry();
@@ -112,14 +112,33 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const history = new ChatHistory(tui, cwd);
   const footer = new CostFooter();
   footer.setModel(modelId);
-  footer.setSession(session.id);
+  footer.setSession(session?.id ?? "unsaved");
   footer.setCost(tracker.format());
+  let latestContextTokens = 0;
 
-  async function refreshFooterCtx(): Promise<void> {
+  async function ensureSession(): Promise<Session> {
+    if (session) return session;
+    session = await manager.create({ cwd, provider, model: modelId });
+    footer.setSession(session.id);
+    return session;
+  }
+
+  async function refreshFooterCtx(usage?: UsageBlock): Promise<void> {
+    if (usage) {
+      latestContextTokens = (usage.inputTokens ?? 0) + (usage.cachedInputTokens ?? 0);
+    }
     const cat = await getCatalog();
     const info = cat[modelId];
-    const used = tracker.sessionBreakdown().inputTokens + tracker.sessionBreakdown().cachedInputTokens;
-    footer.setContext(used, info?.contextWindow ?? 0);
+    footer.setContext(latestContextTokens, info?.contextWindow ?? 0);
+  }
+
+  async function refreshFooter(usage?: UsageBlock): Promise<void> {
+    footer.setCost(tracker.format());
+    await refreshFooterCtx(usage);
+    tui.requestRender();
+  }
+  function pickContextUsage(event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }): UsageBlock | undefined {
+    return event.lastStepUsage ?? event.usage;
   }
   void refreshFooterCtx();
 
@@ -237,7 +256,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       };
     });
 
-  history.addSystem(`pi · ${modelId} · session ${session.id}`);
+  history.addSystem(`pi · ${modelId} · session ${session?.id ?? "unsaved"}`);
   history.addSystem(`Type /help for commands. Ctrl+C twice to quit.`);
 
   // Show workspace context + skills loaded on boot
@@ -294,7 +313,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       modelId = resolved;
       settingsStore.set("defaultModel", resolved);
       footer.setModel(resolved);
-      await refreshFooterCtx();
+      await refreshFooter();
       history.addSystem(`model → ${resolved}`);
       tui.requestRender();
     },
@@ -335,30 +354,45 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       tui.requestRender();
     },
     newSession: async () => {
-      session = await manager.create({ cwd, provider, model: modelId });
-      footer.setSession(session.id);
+      session = null;
+      footer.setSession("unsaved");
       tracker.reset();
-      footer.setCost(tracker.format());
-      await refreshFooterCtx();
+      latestContextTokens = 0;
+      await refreshFooter();
       queuedMessages.length = 0;
       renderPending();
       history.reset();
-      history.addSystem(`new session ${session.id}`);
+      history.addSystem("new session unsaved");
       tui.requestRender();
     },
     clearScreen: () => {
       // ANSI: clear scrollback + screen, then full redraw
       process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
       tracker.reset();
-      footer.setCost(tracker.format());
-      void refreshFooterCtx();
+      latestContextTokens = 0;
+      void refreshFooter();
       history.reset();
       tui.invalidate();
       tui.requestRender(true);
     },
     manualCompact: async () => {
-      const result = await runCompact({ session, modelId });
-      history.addSystem(`compacted ${result.cutAt} turns: ${result.tokensBefore} → ${result.tokensAfter} tokens`);
+      if (!session) {
+        history.addSystem("nothing to compact");
+        tui.requestRender();
+        return;
+      }
+      showWorking("Compacting");
+      tui.requestRender();
+      try {
+        const result = await runCompact({ session, modelId, keepTurns: 0 });
+        if (result.summary) {
+          history.addCompactionSummary(result.summary, result.tokensBefore);
+        } else {
+          history.addSystem("nothing to compact");
+        }
+      } finally {
+        hideWorking();
+      }
       tui.requestRender();
     },
     showCost: () => {
@@ -382,13 +416,36 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       const pick = await selectOnce(items);
       if (!pick) return;
       try {
+        const selectedPath = pick.value;
         session = await manager.open(pick.value);
+        if (session.info.model) {
+          modelId = session.info.model;
+          settingsStore.set("defaultModel", modelId);
+          footer.setModel(modelId);
+        }
         footer.setSession(session.id);
         history.reset();
-        history.addSystem(`resumed session ${session.id}`);
-        // replay messages briefly
-        for (const e of session.entries()) {
+        if (session.path !== selectedPath) {
+          history.addSystem(`resumed fork ${session.id}`);
+          history.addSystem(chalk.dim("selected legacy session was forked; new messages and compactions save to this session"));
+        } else {
+          history.addSystem(`resumed session ${session.id}`);
+        }
+        const entries = session.entries();
+        let latestCompact: Extract<ReturnType<Session["entries"]>[number], { type: "compact" }> | undefined;
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const entry = entries[i];
+          if (entry?.type === "compact") {
+            latestCompact = entry;
+            break;
+          }
+        }
+        if (latestCompact) history.addCompactionSummary(latestCompact.summary, latestCompact.tokensBefore, latestCompact.ts);
+        let messageIndex = 0;
+        for (const e of entries) {
           if (e.type === "message") {
+            const currentMessageIndex = messageIndex++;
+            if (latestCompact && currentMessageIndex < latestCompact.cutAt) continue;
             const role = (e as { role: string }).role;
             const content = String((e as { content: unknown }).content ?? "");
             if (role === "user") history.addUser(content);
@@ -397,6 +454,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
               history.appendAssistantDelta(content, parseModelId(modelId).provider, modelId);
               history.finishAssistant();
             }
+          } else if (e.type === "compact" && !latestCompact) {
+            history.addCompactionSummary(e.summary, e.tokensBefore, e.ts);
           }
         }
       } catch (err) {
@@ -565,7 +624,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         { value: "theme", label: `theme: ${settingsStore.get("theme") ?? "dark"}` },
         { value: "maxSteps", label: `maxSteps: ${settingsStore.get("maxSteps") ?? 32}` },
         { value: "autoCompactThreshold", label: `autoCompactThreshold: ${settingsStore.get("autoCompactThreshold") ?? 0.8}` },
-        { value: "piCompatMode", label: `piCompatMode: ${settingsStore.get("piCompatMode") ?? "fork"}` },
+        { value: "piCompatMode", label: `piCompatMode: ${settingsStore.get("piCompatMode") ?? "direct"}` },
         { value: "workspaceContext", label: `workspaceContext: ${settingsStore.get("workspaceContext") ?? true}` },
       ];
       const pick = await selectOnce(items);
@@ -610,7 +669,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     },
     showSessionInfo: () => {
       const s = tracker.sessionBreakdown();
-      history.addSystem(`session id   ${session.id}`);
+      history.addSystem(`session id   ${session?.id ?? "unsaved"}`);
       history.addSystem(`model        ${modelId}`);
       history.addSystem(`provider     ${provider}`);
       history.addSystem(`cwd          ${cwd}`);
@@ -634,6 +693,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       tui.requestRender();
     },
     copyLastAssistant: async () => {
+      if (!session) {
+        history.addSystem("no assistant message to copy");
+        tui.requestRender();
+        return;
+      }
       const entries = session.entries();
       const last = [...entries].reverse().find((e) => e.type === "message" && (e as { role?: string }).role === "assistant");
       if (!last) {
@@ -691,11 +755,21 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       tui.requestRender();
     },
     setSessionName: (name: string) => {
+      if (!session) {
+        history.addSystem("session is unsaved");
+        tui.requestRender();
+        return;
+      }
       settingsStore.set(`sessionName.${session.id}`, name);
       history.addSystem(`session name → ${name}`);
       tui.requestRender();
     },
     exportSession: async (target?: string) => {
+      if (!session) {
+        history.addSystem("session is unsaved");
+        tui.requestRender();
+        return;
+      }
       const out = target ?? `${session.id}.jsonl`;
       const entries = session.entries();
       const content = entries.map((e) => JSON.stringify(e)).join("\n");
@@ -856,6 +930,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const finalInput = pendingInjection ? `${pendingInjection}\n\n${text}` : text;
     pendingInjection = null;
 
+    const activeSession = await ensureSession();
     busy = true;
     history.addUser(finalInput);
     showWorking("Generating");
@@ -884,17 +959,18 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       tui.requestRender();
     });
     emitter.on("compact-start", () => {
-      history.addSystem("[compacting…]");
+      showWorking("Compacting");
       tui.requestRender();
     });
-    emitter.on("compact-end", (r: { tokensBefore: number; tokensAfter: number }) => {
-      history.addSystem(`[compacted ${r.tokensBefore} → ${r.tokensAfter} tokens]`);
+    emitter.on("compact-end", async (r: { summary: string; tokensBefore: number; tokensAfter?: number }) => {
+      if (r.summary) history.addCompactionSummary(r.summary, r.tokensBefore);
+      if (typeof r.tokensAfter === "number") latestContextTokens = r.tokensAfter;
+      await refreshFooter();
       tui.requestRender();
     });
-    emitter.on("finish", () => {
+    emitter.on("finish", (event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }) => {
       history.finishAssistant();
-      footer.setCost(tracker.format());
-      void refreshFooterCtx();
+      void refreshFooter(pickContextUsage(event));
       tui.requestRender();
     });
     emitter.on("error", (err: unknown) => {
@@ -904,7 +980,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     try {
       await runTurn({
-        session,
+        session: activeSession,
         modelId,
         userInput: finalInput,
         cwd,

@@ -11,7 +11,7 @@ import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
 import { CostTracker } from "./cost";
-import { runCompact } from "./compact";
+import { compactedContextMessages, runCompact } from "./compact";
 import { getProviderKind } from "../types";
 import type { Session } from "../sessions";
 import type { UsageBlock } from "../types";
@@ -42,7 +42,7 @@ function estimateContextTokens(messages: ModelMessage[]): number {
 
 function toModelMessages(session: Session): ModelMessage[] {
   const out: ModelMessage[] = [];
-  for (const m of session.messages()) {
+  for (const m of compactedContextMessages(session)) {
     if (m.role === "tool") continue;
     out.push({ role: m.role as "user" | "assistant", content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) });
   }
@@ -129,6 +129,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
   let assistantText = "";
   let lastUsage: UsageBlock | undefined;
+  let lastStepUsage: UsageBlock | undefined;
 
   for await (const part of result.fullStream) {
     if (abortSignal?.aborted) break;
@@ -152,20 +153,28 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
       case "tool-result":
         emitter.emit("tool-result", part);
         break;
+      case "finish-step": {
+        const u = (part as { usage?: UsageBlock }).usage;
+        if (u) lastStepUsage = u;
+        break;
+      }
       case "finish": {
         const u = (part as { totalUsage?: UsageBlock }).totalUsage;
         lastUsage = u;
         if (u) {
           const breakdown = tracker.add(modelId, u);
-          emitter.emit("finish", { usage: u, breakdown });
+          emitter.emit("finish", { usage: u, lastStepUsage, breakdown });
         } else {
-          emitter.emit("finish", { usage: undefined });
+          emitter.emit("finish", { usage: undefined, lastStepUsage });
         }
         break;
       }
-      case "error":
+      case "error": {
+        const msg = String((part as { error?: unknown }).error ?? "");
+        if (/^(reasoning|text) part .* not found$/.test(msg)) break;
         emitter.emit("error", part.error);
         break;
+      }
     }
   }
 

@@ -146,7 +146,7 @@ export class RpcServer {
       case "session.compact": {
         const id = String(params.sessionId);
         const ctx = this.requireSession(id);
-        const result = await runCompact({ session: ctx.session, modelId: ctx.modelId });
+        const result = await runCompact({ session: ctx.session, modelId: ctx.modelId, keepTurns: 0 });
         return result;
       }
       case "auth.status":

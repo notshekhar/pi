@@ -168,7 +168,7 @@ export class SessionManager {
     const session = Session.load(path, peek);
 
     if (peek.source === "pi") {
-      const mode = (settingsStore.get("piCompatMode") as string) ?? "fork";
+      const mode = (settingsStore.get("piCompatMode") as string) ?? "direct";
       if (mode === "fork") {
         return this.fork(session);
       }

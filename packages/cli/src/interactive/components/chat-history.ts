@@ -1,6 +1,7 @@
 import { Container, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import {
   AssistantMessageComponent,
+  CompactionSummaryMessageComponent,
   parseSkillBlock,
   SkillInvocationMessageComponent,
   ToolExecutionComponent,
@@ -56,6 +57,7 @@ export class ChatHistory extends Container {
   private toolComponents = new Map<string, ToolExecutionComponent>();
   private allToolComponents: ToolExecutionComponent[] = [];
   private skillComponents: SkillInvocationMessageComponent[] = [];
+  private compactionComponents: CompactionSummaryMessageComponent[] = [];
   private assistantTurn: Container | null = null;
   private expanded = false;
 
@@ -69,6 +71,7 @@ export class ChatHistory extends Container {
     this.expanded = expanded;
     for (const c of this.allToolComponents) c.setExpanded(expanded);
     for (const c of this.skillComponents) c.setExpanded(expanded);
+    for (const c of this.compactionComponents) c.setExpanded(expanded);
   }
   toggleToolsExpanded(): boolean {
     this.setToolsExpanded(!this.expanded);
@@ -82,6 +85,7 @@ export class ChatHistory extends Container {
     this.toolComponents.clear();
     this.allToolComponents = [];
     this.skillComponents = [];
+    this.compactionComponents = [];
     this.assistantTurn = null;
   }
 
@@ -182,6 +186,15 @@ export class ChatHistory extends Container {
 
   addSystem(text: string): void {
     this.addChild(new Text(chalk.dim(text), 1, 0));
+  }
+
+  addCompactionSummary(summary: string, tokensBefore: number, timestamp = Date.now()): void {
+    const comp = new CompactionSummaryMessageComponent({ role: "compactionSummary", summary, tokensBefore, timestamp });
+    comp.setExpanded(this.expanded);
+    this.addChild(new Spacer(1));
+    this.addChild(comp);
+    this.compactionComponents.push(comp);
+    this.assistantTurn = null;
   }
 
   addError(text: string): void {

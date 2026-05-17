@@ -2,6 +2,13 @@ import { generateText } from "ai";
 import { getModel } from "../providers";
 import type { Session } from "../sessions";
 
+export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
+
+<summary>
+`;
+export const COMPACTION_SUMMARY_SUFFIX = `
+</summary>`;
+
 const COMPACT_PROMPT = `You are summarizing a developer's coding session. Produce a dense factual summary that preserves:
 - User intent across the segment.
 - Files touched (paths + nature of edits).
@@ -22,6 +29,27 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+function latestCompact(session: Session) {
+  let latest: { summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number } | undefined;
+  for (const entry of session.entries()) {
+    if (entry.type === "compact") latest = entry;
+  }
+  return latest;
+}
+
+function messageToText(message: { role: "user" | "assistant" | "tool"; content: unknown }): string {
+  return `[${message.role}] ${typeof message.content === "string" ? message.content : JSON.stringify(message.content)}`;
+}
+
+export function compactedContextMessages(session: Session): Array<{ role: "user" | "assistant" | "tool"; content: unknown }> {
+  const messages = session.messages();
+  const compact = latestCompact(session);
+  if (!compact) return messages;
+
+  const summary = `${COMPACTION_SUMMARY_PREFIX}${compact.summary}${COMPACTION_SUMMARY_SUFFIX}`;
+  return [{ role: "user", content: summary }, ...messages.slice(compact.cutAt)];
+}
+
 export async function runCompact(opts: {
   session: Session;
   modelId: string;
@@ -29,14 +57,20 @@ export async function runCompact(opts: {
 }): Promise<CompactResult> {
   const keep = opts.keepTurns ?? 4;
   const messages = opts.session.messages();
-  const cut = Math.max(0, messages.length - keep);
-  if (cut <= 0) {
+  const previousCompact = latestCompact(opts.session);
+  const previousCut = previousCompact?.cutAt ?? 0;
+  const cut = Math.max(previousCut, messages.length - keep);
+  if (cut <= previousCut) {
     return { summary: "", cutAt: 0, tokensBefore: 0, tokensAfter: 0 };
   }
 
-  const head = messages.slice(0, cut);
-  const headText = head.map((m) => `[${m.role}] ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`).join("\n");
-  const tokensBefore = estimateTokens(headText);
+  const head = messages.slice(previousCut, cut);
+  const previousSummary = previousCompact
+    ? `${COMPACTION_SUMMARY_PREFIX}${previousCompact.summary}${COMPACTION_SUMMARY_SUFFIX}\n`
+    : "";
+  const headText = previousSummary + head.map(messageToText).join("\n");
+  const fullContextText = previousSummary + messages.slice(previousCut).map(messageToText).join("\n");
+  const tokensBefore = estimateTokens(fullContextText);
 
   const model = await getModel(opts.modelId);
   const { text } = await generateText({

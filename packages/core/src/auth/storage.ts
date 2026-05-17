@@ -17,7 +17,7 @@ export const settingsStore = new Configstore(
     theme: "dark",
     maxSteps: 32,
     autoCompactThreshold: 0.8,
-    piCompatMode: "fork",
+    piCompatMode: "direct",
     workspaceContext: true,
   },
   { configPath: join(PI_DIR, "settings.json") },

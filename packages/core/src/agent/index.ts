@@ -8,6 +8,7 @@ import { createTools } from "../tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
+import { extractImagesFromInput } from "./images";
 import { CostTracker } from "./cost";
 import { runCompact } from "./compact";
 import type { Session } from "../sessions";
@@ -50,6 +51,12 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const { session, modelId, userInput, cwd, abortSignal, tracker, emitter } = opts;
   const maxSteps = opts.maxSteps ?? (settingsStore.get("maxSteps") as number) ?? 32;
 
+  // Extract any image paths from the user input → ai-sdk image parts
+  const { textWithoutPaths, images } = extractImagesFromInput(userInput, cwd);
+  if (images.length > 0) {
+    emitter.emit("attached-images", images.map((i) => i.path));
+  }
+  // Persist user message verbatim (paths intact for reference in transcripts)
   await session.append({ type: "message", ts: Date.now(), role: "user", content: userInput });
 
   // auto-compact check
@@ -74,10 +81,26 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const tools = createTools({ cwd, abortSignal });
   const model = await getModel(modelId);
 
+  // If we extracted image paths, override the last user message with a multipart
+  // content array (text + image parts) so vision models actually see the image.
+  const messages = toModelMessages(session);
+  if (images.length > 0) {
+    const lastUserIdx = (() => {
+      for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "user") return i;
+      return -1;
+    })();
+    if (lastUserIdx >= 0) {
+      const parts: Array<{ type: "text"; text: string } | { type: "image"; image: Buffer; mediaType: string }> = [];
+      if (textWithoutPaths) parts.push({ type: "text", text: textWithoutPaths });
+      for (const img of images) parts.push({ type: "image", image: img.data, mediaType: img.mediaType });
+      messages[lastUserIdx] = { role: "user", content: parts as never };
+    }
+  }
+
   const result = streamText({
     model,
     system,
-    messages: toModelMessages(session),
+    messages,
     tools,
     stopWhen: stepCountIs(maxSteps),
     abortSignal,

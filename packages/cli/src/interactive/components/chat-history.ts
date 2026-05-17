@@ -1,6 +1,7 @@
 import { Container, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import {
   AssistantMessageComponent,
+  createAllToolDefinitions,
   parseSkillBlock,
   SkillInvocationMessageComponent,
   ToolExecutionComponent,
@@ -65,8 +66,11 @@ export class ChatHistory extends Container {
     return this.expanded;
   }
 
+  private toolDefs: ReturnType<typeof createAllToolDefinitions>;
+
   constructor(private tui: TUI, private cwd: string) {
     super();
+    this.toolDefs = createAllToolDefinitions(cwd);
   }
 
   reset(): void {
@@ -151,12 +155,13 @@ export class ChatHistory extends Container {
     this.liveMsg = null;
     this.liveComponent = null;
 
+    const def = (this.toolDefs as Record<string, unknown>)[toolName] as never;
     const comp = new ToolExecutionComponent(
       toolName,
       toolCallId,
       args,
       { showImages: false },
-      undefined,
+      def,
       this.tui,
       this.cwd,
     );

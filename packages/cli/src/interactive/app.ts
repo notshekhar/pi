@@ -4,14 +4,17 @@ import {
   CombinedAutocompleteProvider,
   Container,
   Editor,
+  KeybindingsManager,
   Loader,
   matchesKey,
   ProcessTerminal,
   SelectList,
   type SelectItem,
+  setKeybindings,
   Spacer,
   Text,
   TUI,
+  TUI_KEYBINDINGS,
   type EditorTheme,
   type SlashCommand as TuiSlashCommand,
 } from "@earendil-works/pi-tui";
@@ -77,6 +80,15 @@ function buildSelectorWrapper(items: SelectItem[], title: string | undefined, li
 
 export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   initTheme();
+
+  // Register pi-style app keybindings so keyText("app.tools.expand") resolves to "Ctrl+O"
+  // in tool / skill collapsed labels. Combine pi-tui defaults with our app actions.
+  const APP_KEYBINDINGS = {
+    "app.tools.expand": { defaultKeys: "ctrl+o", description: "Toggle tool output" },
+    "app.interrupt": { defaultKeys: "escape", description: "Interrupt agent" },
+    "app.clear": { defaultKeys: "ctrl+c", description: "Clear / exit" },
+  } as const;
+  setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS, ...APP_KEYBINDINGS } as never));
 
   const provider = (opts.provider ?? getActiveProvider() ?? "xai") as ProviderId;
   let modelId = opts.modelId ?? (settingsStore.get("defaultModel") as string) ?? `${provider}/grok-4`;
@@ -699,6 +711,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const { provider: turnProvider } = parseModelId(modelId);
     history.ensureAssistant(turnProvider, modelId);
     const emitter = new EventEmitter();
+    emitter.on("attached-images", (paths: string[]) => {
+      for (const p of paths) {
+        history.addSystem(chalk.cyan(`📎 attached image: ${p.replace(process.env.HOME ?? "", "~")}`));
+      }
+      tui.requestRender();
+    });
     emitter.on("text-delta", (t: string) => {
       history.appendAssistantDelta(t, turnProvider, modelId);
       tui.requestRender();

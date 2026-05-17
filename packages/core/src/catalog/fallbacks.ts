@@ -93,3 +93,12 @@ export const FALLBACK_MODELS: ModelInfo[] = [
 ];
 
 export const XAI_FALLBACK_MODELS = XAI;
+export const ANTHROPIC_FALLBACK_MODELS = ANTHROPIC;
+export const OPENAI_FALLBACK_MODELS = OPENAI;
+export const GOOGLE_FALLBACK_MODELS = GOOGLE;
+
+export function fallbackModelsForSdk(sdk: "openai" | "anthropic" | "google" | "openai-compatible"): ModelInfo[] {
+  if (sdk === "anthropic") return ANTHROPIC;
+  if (sdk === "google") return GOOGLE;
+  return OPENAI; // openai + openai-compatible default to OpenAI list
+}

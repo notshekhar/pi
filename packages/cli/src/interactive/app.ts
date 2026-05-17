@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import {
+  Box,
   CombinedAutocompleteProvider,
   Container,
   Editor,
@@ -8,11 +9,12 @@ import {
   SelectList,
   type SelectItem,
   Spacer,
+  Text,
   TUI,
   type EditorTheme,
   type SlashCommand as TuiSlashCommand,
 } from "@earendil-works/pi-tui";
-import { getMarkdownTheme, getSelectListTheme, initTheme } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder, getMarkdownTheme, getSelectListTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import chalk from "chalk";
 import {
   CommandRegistry,
@@ -26,10 +28,16 @@ import {
   loginApiKey,
   loginXaiOAuth,
   logout,
+  saveCustomProvider,
+  listAuthorizedProviders,
+  listCustomProviders,
+  fallbackModelsForSdk,
   settingsStore,
   PROVIDER_IDS,
   getCatalog,
   parseModelId,
+  type CustomProviderConfig,
+  type CustomProviderSdk,
   type ProviderId,
   type Session,
 } from "@pi-agent/core";
@@ -54,32 +62,14 @@ const CTRL_C = "\x03";
 const CTRL_D = "\x04";
 const ESC = "\x1b";
 
-function promptOnce(tui: TUI, editor: Editor, _label: string): Promise<string> {
-  return new Promise((resolve) => {
-    const prevSubmit = editor.onSubmit;
-    editor.onSubmit = (text: string) => {
-      editor.onSubmit = prevSubmit;
-      tui.requestRender();
-      resolve(text.trim());
-    };
-  });
-}
-
-function selectOnce(tui: TUI, items: SelectItem[]): Promise<SelectItem | null> {
-  return new Promise((resolve) => {
-    const list = new SelectList(items, Math.min(items.length, 8), getSelectListTheme());
-    let settled = false;
-    const settle = (v: SelectItem | null) => {
-      if (settled) return;
-      settled = true;
-      handle.hide();
-      tui.requestRender();
-      resolve(v);
-    };
-    list.onSelect = (item) => settle(item);
-    list.onCancel = () => settle(null);
-    const handle = tui.showOverlay(list, { anchor: "center", width: "60%", maxHeight: "60%" });
-  });
+function buildSelectorWrapper(items: SelectItem[], title: string | undefined, list: SelectList): Container {
+  const wrapper = new Container();
+  if (title) wrapper.addChild(new Text(chalk.bold.cyan(` ${title}`), 0, 0));
+  wrapper.addChild(new DynamicBorder());
+  wrapper.addChild(list);
+  wrapper.addChild(new DynamicBorder());
+  wrapper.addChild(new Text(chalk.dim(" ↑↓ navigate · Enter select · Esc cancel"), 0, 0));
+  return wrapper;
 }
 
 export async function runInteractive(opts: InteractiveOptions): Promise<void> {
@@ -100,7 +90,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, true);
-  tui.setClearOnShrink(false);
 
   const history = new ChatHistory(tui, cwd);
   const footer = new CostFooter();
@@ -117,12 +106,69 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   }));
   editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashItems, cwd));
 
+  // pi pattern: editor lives in its own container so we can swap it out for selectors
+  const editorContainer = new Container();
+  editorContainer.addChild(editor);
+
   const root = new Container();
   root.addChild(history);
   root.addChild(new Spacer(1));
-  root.addChild(editor);
+  root.addChild(editorContainer);
   root.addChild(footer);
   tui.addChild(root);
+
+  // Pi-style selector swap: replaces editor area with selector component
+  function showSelector(component: Container, focusable: Container | SelectList): () => void {
+    editorContainer.clear();
+    editorContainer.addChild(component);
+    tui.setFocus(focusable as never);
+    tui.invalidate();
+    tui.requestRender();
+    return () => {
+      editorContainer.clear();
+      editorContainer.addChild(editor);
+      tui.setFocus(editor);
+      tui.invalidate();
+      tui.requestRender();
+    };
+  }
+
+  const selectOnce = (items: SelectItem[], title?: string): Promise<SelectItem | null> =>
+    new Promise((resolve) => {
+      if (!items.length) {
+        resolve(null);
+        return;
+      }
+      const visible = Math.min(items.length, 10);
+      const list = new SelectList(items, visible, getSelectListTheme());
+      const wrapper = buildSelectorWrapper(items, title, list);
+      const close = showSelector(wrapper, list);
+      let done = false;
+      const finish = (v: SelectItem | null) => {
+        if (done) return;
+        done = true;
+        close();
+        resolve(v);
+      };
+      list.onSelect = (item) => finish(item);
+      list.onCancel = () => finish(null);
+    });
+
+  const promptOnceLocal = (label?: string): Promise<string> =>
+    new Promise((resolve) => {
+      const tempEditor = new Editor(tui, editorTheme, { paddingX: 1 });
+      const wrapper = new Container();
+      if (label) wrapper.addChild(new Text(chalk.cyan(` ${label}`), 0, 0));
+      wrapper.addChild(new DynamicBorder());
+      wrapper.addChild(tempEditor);
+      wrapper.addChild(new DynamicBorder());
+      wrapper.addChild(new Text(chalk.dim(" Enter to submit · Esc to cancel"), 0, 0));
+      const close = showSelector(wrapper, tempEditor as never);
+      tempEditor.onSubmit = (text) => {
+        close();
+        resolve(text.trim());
+      };
+    });
 
   history.addSystem(`pi-agent · ${modelId} · session ${session.id}`);
   history.addSystem(`Type /help for commands. Ctrl+C twice to quit.`);
@@ -157,8 +203,40 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       history.addSystem(`model → ${resolved}`);
       tui.requestRender();
     },
-    setProvider: (p: string) => {
-      history.addSystem(`provider → ${p} (use /model to change model)`);
+    setProvider: async (p?: string) => {
+      const authed = listAuthorizedProviders();
+      const all = [...authed];
+      if (all.length === 0) {
+        history.addSystem(chalk.yellow("no providers authenticated. /login first."));
+        tui.requestRender();
+        return;
+      }
+      let target = p;
+      if (!target) {
+        const items: SelectItem[] = all.map((id) => ({
+          value: id,
+          label: id,
+          description: id === getActiveProvider() ? "(active)" : "",
+        }));
+        const pick = await selectOnce(items);
+        if (!pick) return;
+        target = pick.value;
+      }
+      if (!all.includes(target)) {
+        history.addSystem(chalk.red(`not authorized: ${target}. /login ${target} first.`));
+        tui.requestRender();
+        return;
+      }
+      setActiveProvider(target);
+      // pick a default model for this provider
+      const cat = await getCatalog();
+      const first = Object.values(cat).find((m) => m.provider === target && m.available);
+      if (first) {
+        modelId = first.id;
+        settingsStore.set("defaultModel", modelId);
+        footer.setModel(modelId);
+      }
+      history.addSystem(`provider → ${target}${first ? `, model → ${first.id}` : ""}`);
       tui.requestRender();
     },
     newSession: async () => {
@@ -187,8 +265,39 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       tui.requestRender();
     },
     showSessions: async () => {
-      for (const s of manager.list(cwd)) {
-        history.addSystem(`${s.id}  ${s.model}  ${s.firstUserMessage ?? ""}`);
+      const sessions = manager.list(cwd);
+      if (sessions.length === 0) {
+        history.addSystem("no sessions in this cwd");
+        tui.requestRender();
+        return;
+      }
+      const items: SelectItem[] = sessions.map((s) => ({
+        value: s.path,
+        label: `${s.id.slice(0, 12)}  ${s.model || "?"}`,
+        description: `${new Date(s.mtime).toLocaleString()}  ·  ${s.firstUserMessage?.slice(0, 80) ?? "(no messages)"}${s.source === "pi" ? "  [pi]" : ""}`,
+      }));
+      const pick = await selectOnce(items);
+      if (!pick) return;
+      try {
+        session = await manager.open(pick.value);
+        footer.setSession(session.id);
+        history.reset();
+        history.addSystem(`resumed session ${session.id}`);
+        // replay messages briefly
+        for (const e of session.entries()) {
+          if (e.type === "message") {
+            const role = (e as { role: string }).role;
+            const content = String((e as { content: unknown }).content ?? "");
+            if (role === "user") history.addUser(content);
+            else if (role === "assistant") {
+              history.ensureAssistant(parseModelId(modelId).provider, modelId);
+              history.appendAssistantDelta(content, parseModelId(modelId).provider, modelId);
+              history.finishAssistant();
+            }
+          }
+        }
+      } catch (err) {
+        history.addError(`open failed: ${(err as Error).message}`);
       }
       tui.requestRender();
     },
@@ -201,24 +310,26 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     startLogin: async (target?: string) => {
       let p: ProviderId | null = null;
       if (target) {
-        if (!PROVIDER_IDS.includes(target as ProviderId)) {
+        if (!(PROVIDER_IDS as readonly string[]).includes(target)) {
           history.addSystem(`unknown provider: ${target}. options: ${PROVIDER_IDS.join(", ")}`);
           tui.requestRender();
           return;
         }
         p = target as ProviderId;
       } else {
-        const pick = await selectOnce(
-          tui,
-          PROVIDER_IDS.map((id) => ({ value: id, label: id, description: providerLabel(id) })),
-        );
+        const items: SelectItem[] = PROVIDER_IDS.map((id) => ({
+          value: id,
+          label: id,
+          description: providerLabel(id),
+        }));
+        const pick = await selectOnce(items, "Sign in to provider");
         if (!pick) return;
         p = pick.value as ProviderId;
       }
 
       if (p === "xai") {
         // ask subscription vs api key
-        const mode = await selectOnce(tui, [
+        const mode = await selectOnce([
           {
             value: "oauth",
             label: "Sign in with xAI (SuperGrok subscription)",
@@ -247,7 +358,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       }
       history.addSystem(`${p}: paste API key, then press Enter.`);
       tui.requestRender();
-      const key = await promptOnce(tui, editor, `${p.toUpperCase()}_API_KEY: `);
+      const key = await promptOnceLocal(`${p.toUpperCase()}_API_KEY: `);
       if (key) {
         loginApiKey(p, key);
         setActiveProvider(p);
@@ -255,9 +366,30 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.requestRender();
       }
     },
-    startLogout: (target?: string) => {
-      logout(target as ProviderId | undefined);
-      history.addSystem(target ? `signed out of ${target}` : "signed out of all providers");
+    startLogout: async (target?: string) => {
+      let pick = target;
+      if (!pick) {
+        const authed = listAuthorizedProviders();
+        if (authed.length === 0) {
+          history.addSystem("no providers to sign out from");
+          tui.requestRender();
+          return;
+        }
+        const items: SelectItem[] = [
+          ...authed.map((id) => ({ value: id, label: id, description: id === getActiveProvider() ? "(active)" : "" })),
+          { value: "__all__", label: chalk.red("all providers"), description: "Sign out from every provider" },
+        ];
+        const sel = await selectOnce(items);
+        if (!sel) return;
+        pick = sel.value;
+      }
+      if (pick === "__all__") {
+        logout();
+        history.addSystem("signed out of all providers");
+      } else {
+        logout(pick as ProviderId);
+        history.addSystem(`signed out of ${pick}`);
+      }
       tui.requestRender();
     },
     openSettings: async () => {
@@ -268,11 +400,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         { value: "piCompatMode", label: `piCompatMode: ${settingsStore.get("piCompatMode") ?? "fork"}` },
         { value: "workspaceContext", label: `workspaceContext: ${settingsStore.get("workspaceContext") ?? true}` },
       ];
-      const pick = await selectOnce(tui, items);
+      const pick = await selectOnce(items);
       if (!pick) return;
       history.addSystem(`enter new value for ${pick.value}:`);
       tui.requestRender();
-      const v = await promptOnce(tui, editor, "");
+      const v = await promptOnceLocal("");
       if (!v) return;
       const key = pick.value;
       const cur = settingsStore.get(key);
@@ -297,7 +429,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.requestRender();
         return;
       }
-      const pick = await selectOnce(tui, items);
+      const pick = await selectOnce(items);
       if (!pick) return;
       modelId = pick.value;
       settingsStore.set("defaultModel", modelId);

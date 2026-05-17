@@ -4,15 +4,19 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createXai } from "@ai-sdk/xai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
-import { getAccessToken, getApiKey } from "../auth";
-import type { ProviderId } from "../types";
+import { getAccessToken, getApiKey, getCustomProvider, isCustomProvider, parseCustomProviderId } from "../auth";
+import type { CustomProviderConfig, ProviderId } from "../types";
 
 export function parseModelId(full: string): { provider: ProviderId; model: string } {
+  // custom provider ids look like "custom:bifrost/claude-opus-4-7"
+  if (full.startsWith("custom:")) {
+    const slash = full.indexOf("/", "custom:".length);
+    if (slash < 0) throw new Error(`custom model id must be "custom:<name>/model": ${full}`);
+    return { provider: full.slice(0, slash), model: full.slice(slash + 1) };
+  }
   const idx = full.indexOf("/");
   if (idx < 0) throw new Error(`model id must be "provider/model": ${full}`);
-  const provider = full.slice(0, idx) as ProviderId;
-  const model = full.slice(idx + 1);
-  return { provider, model };
+  return { provider: full.slice(0, idx) as ProviderId, model: full.slice(idx + 1) };
 }
 
 function xaiAuthFetch(): typeof fetch {
@@ -41,8 +45,58 @@ function xaiAuthFetch(): typeof fetch {
   };
 }
 
+function customFetch(extraHeaders?: Record<string, string>): typeof fetch | undefined {
+  if (!extraHeaders || Object.keys(extraHeaders).length === 0) return undefined;
+  return async (input, init) => {
+    const headers = new Headers(init?.headers);
+    for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
+    return fetch(input, { ...(init as RequestInit), headers });
+  };
+}
+
+function normalizeBaseURL(sdk: CustomProviderConfig["sdk"], baseURL: string): string {
+  const trimmed = baseURL.replace(/\/+$/, "");
+  // ai-sdk providers expect baseURL to already include the API version segment.
+  // Auto-append the conventional path when missing so users don't have to know.
+  const hasVersion = /\/v\d+(\b|\/)/.test(trimmed);
+  if (hasVersion) return trimmed;
+  switch (sdk) {
+    case "anthropic":
+      return `${trimmed}/v1`;
+    case "openai":
+    case "openai-compatible":
+      return `${trimmed}/v1`;
+    case "google":
+      return `${trimmed}/v1beta`;
+    default:
+      return trimmed;
+  }
+}
+
+function customModel(cfg: CustomProviderConfig, model: string): LanguageModel {
+  const fetchOverride = customFetch(cfg.headers);
+  const baseURL = normalizeBaseURL(cfg.sdk, cfg.baseURL);
+  switch (cfg.sdk) {
+    case "openai":
+    case "openai-compatible":
+      return createOpenAI({ apiKey: cfg.apiKey, baseURL, fetch: fetchOverride })(model);
+    case "anthropic":
+      return createAnthropic({ apiKey: cfg.apiKey, baseURL, fetch: fetchOverride })(model);
+    case "google":
+      return createGoogleGenerativeAI({ apiKey: cfg.apiKey, baseURL, fetch: fetchOverride })(model);
+    default:
+      throw new Error(`Unknown custom SDK: ${cfg.sdk}`);
+  }
+}
+
 export async function getModel(fullId: string): Promise<LanguageModel> {
   const { provider, model } = parseModelId(fullId);
+  if (isCustomProvider(provider)) {
+    const name = parseCustomProviderId(provider)!;
+    const cfg = getCustomProvider(name);
+    if (!cfg) throw new Error(`Custom provider not configured: ${name}`);
+    return customModel(cfg, model);
+  }
   switch (provider) {
     case "xai": {
       const xai = createXai({

@@ -2,9 +2,9 @@ import Configstore from "configstore";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
-import { FALLBACK_MODELS, XAI_FALLBACK_MODELS } from "./fallbacks";
+import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
 import { getPiDir } from "../auth/storage";
-import { getApiKey, getAccessToken } from "../auth";
+import { getApiKey, getAccessToken, listCustomProviders } from "../auth";
 import type { ModelInfo, ProviderId } from "../types";
 
 const cacheStore = new Configstore(
@@ -113,6 +113,44 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
   }
   void XAI_FALLBACK_MODELS; // retain re-export reference
 
+  // custom providers' declared models — falls back to sdk defaults if empty
+  for (const cfg of listCustomProviders()) {
+    const provId = `custom:${cfg.name}`;
+    const userModels = cfg.models ?? [];
+    let entries = userModels;
+    if (entries.length === 0) {
+      entries = fallbackModelsForSdk(cfg.sdk).map((m) => {
+        const localId = m.id.split("/").slice(1).join("/");
+        return {
+          id: localId,
+          name: m.name,
+          contextWindow: m.contextWindow,
+          maxOutput: m.maxOutput,
+          cost: m.cost,
+        };
+      });
+    }
+    for (const m of entries) {
+      const fullId = `${provId}/${m.id}`;
+      out[fullId] = {
+        id: fullId,
+        provider: provId,
+        name: m.name ?? m.id,
+        contextWindow: m.contextWindow ?? 200_000,
+        maxOutput: m.maxOutput ?? 16_000,
+        cost: {
+          input: m.cost?.input ?? 0,
+          output: m.cost?.output ?? 0,
+          cacheRead: m.cost?.cacheRead ?? 0,
+          cacheWrite: m.cost?.cacheWrite ?? 0,
+        },
+        reasoning: false,
+        modalities: ["text"],
+        available: true,
+      };
+    }
+  }
+
   const overrides = readUserOverrides();
   for (const [id, patch] of Object.entries(overrides)) {
     out[id] = { ...(out[id] ?? ({} as ModelInfo)), ...patch, id } as ModelInfo;
@@ -132,3 +170,4 @@ export function getModelSync(id: string): ModelInfo | undefined {
 }
 
 export { GENERATED_MODELS };
+export { fallbackModelsForSdk, FALLBACK_MODELS } from "./fallbacks";

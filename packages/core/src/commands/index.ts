@@ -5,7 +5,7 @@ import { getPiDir } from "../auth/storage";
 export interface CommandContext {
   emit(event: string, data?: unknown): void;
   setModel(modelId: string): Promise<void> | void;
-  setProvider(p: string): void;
+  setProvider(p?: string): Promise<void> | void;
   newSession(): Promise<void>;
   manualCompact(): Promise<void>;
   showCost(): void;
@@ -14,7 +14,7 @@ export interface CommandContext {
   cwd: string;
   setCwd(p: string): void;
   startLogin(provider?: string): Promise<void>;
-  startLogout(provider?: string): void;
+  startLogout(provider?: string): Promise<void> | void;
   openSettings(): Promise<void>;
   openModelPicker(): Promise<void>;
   showSessionInfo(): void;
@@ -70,16 +70,15 @@ export function registerBuiltins(reg: CommandRegistry): void {
     { name: "login", description: "Configure provider authentication", handler: async (ctx, args) => {
       await ctx.startLogin(args || undefined);
     } },
-    { name: "logout", description: "Remove provider authentication", handler: (ctx, args) => {
-      ctx.startLogout(args || undefined);
+    { name: "logout", description: "Remove provider authentication (opens picker)", handler: async (ctx, args) => {
+      await ctx.startLogout(args || undefined);
     } },
     { name: "model", description: "Select model (opens picker, or /model provider/id)", handler: async (ctx, args) => {
       if (args) await ctx.setModel(args);
       else await ctx.openModelPicker();
     } },
-    { name: "provider", description: "Switch active provider", handler: (ctx, args) => {
-      if (!args) return ctx.emit("error", "usage: /provider <id>");
-      ctx.setProvider(args);
+    { name: "provider", description: "Switch active provider (opens picker, or /provider <id>)", handler: async (ctx, args) => {
+      await ctx.setProvider(args || undefined);
     } },
     { name: "new", description: "Start a new session", handler: async (ctx) => {
       await ctx.newSession();

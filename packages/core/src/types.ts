@@ -1,6 +1,26 @@
-export type ProviderId = "xai" | "anthropic" | "openai" | "google" | "openrouter";
+export type BuiltinProviderId = "xai" | "anthropic" | "openai" | "google" | "openrouter";
+export type ProviderId = BuiltinProviderId | (string & {});
 
-export const PROVIDER_IDS: ProviderId[] = ["xai", "anthropic", "openai", "google", "openrouter"];
+export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = ["xai", "anthropic", "openai", "google", "openrouter"];
+export const PROVIDER_IDS = BUILTIN_PROVIDER_IDS;
+
+export type CustomProviderSdk = "openai" | "anthropic" | "google" | "openai-compatible";
+
+export interface CustomProviderConfig {
+  name: string;
+  sdk: CustomProviderSdk;
+  baseURL: string;
+  apiKey: string;
+  headers?: Record<string, string>;
+  /** Model IDs the user wants to expose, with optional name + pricing overrides */
+  models?: Array<{
+    id: string;
+    name?: string;
+    contextWindow?: number;
+    maxOutput?: number;
+    cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  }>;
+}
 
 export interface ModelInfo {
   id: string;

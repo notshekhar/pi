@@ -1,7 +1,7 @@
 import { authStore } from "./storage";
 import { login as xaiLogin, refresh as xaiRefresh } from "./xai-oauth";
 import { XaiErrorCode, XaiOAuthError } from "./errors";
-import type { AuthEntry, ProviderId, XaiOAuthCredentials } from "../types";
+import type { AuthEntry, CustomProviderConfig, ProviderId, XaiOAuthCredentials } from "../types";
 
 export { XaiOAuthError, XaiErrorCode } from "./errors";
 export { authStore, settingsStore, costStore, getPiDir } from "./storage";
@@ -89,4 +89,46 @@ export function getAuthMode(provider: ProviderId): "apikey" | "oauth" | "missing
   const entry = readProviders()[provider];
   if (!entry) return "missing";
   return entry.mode;
+}
+
+// ─── Custom providers ─────────────────────────────────────────────────────────
+
+function readCustom(): Record<string, CustomProviderConfig> {
+  return (authStore.get("customProviders") as Record<string, CustomProviderConfig>) ?? {};
+}
+
+function writeCustom(p: Record<string, CustomProviderConfig>): void {
+  authStore.set("customProviders", p);
+}
+
+export function listCustomProviders(): CustomProviderConfig[] {
+  return Object.values(readCustom());
+}
+
+export function getCustomProvider(name: string): CustomProviderConfig | undefined {
+  return readCustom()[name];
+}
+
+export function saveCustomProvider(config: CustomProviderConfig): void {
+  const all = readCustom();
+  all[config.name] = config;
+  writeCustom(all);
+  if (!getActiveProvider()) setActiveProvider(`custom:${config.name}`);
+}
+
+export function deleteCustomProvider(name: string): void {
+  const all = readCustom();
+  delete all[name];
+  writeCustom(all);
+  if (getActiveProvider() === `custom:${name}`) {
+    authStore.set("active", null);
+  }
+}
+
+export function isCustomProvider(id: string): boolean {
+  return id.startsWith("custom:");
+}
+
+export function parseCustomProviderId(id: string): string | null {
+  return isCustomProvider(id) ? id.slice("custom:".length) : null;
 }

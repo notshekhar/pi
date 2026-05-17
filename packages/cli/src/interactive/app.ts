@@ -140,11 +140,17 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const statusIdleSpacer = new Spacer(1);
   statusContainer.addChild(statusIdleSpacer);
 
-  // pi-mono parity: pending messages queue shown above editor while agent runs
+  // pi-mono parity: pending messages queue + staged image attachments shown above editor
   const pendingContainer = new Container();
   const queuedMessages: string[] = [];
+  const stagedImages: string[] = []; // file paths attached but not yet sent
   function renderPending(): void {
     pendingContainer.clear();
+    for (const p of stagedImages) {
+      pendingContainer.addChild(
+        new Text(chalk.cyan(` 📎 ${p.replace(process.env.HOME ?? "", "~")}`), 0, 0),
+      );
+    }
     for (let i = 0; i < queuedMessages.length; i++) {
       pendingContainer.addChild(
         new Text(chalk.dim(` ⏸  queued ${i + 1}/${queuedMessages.length}: `) + chalk.gray(queuedMessages[i]), 0, 0),
@@ -339,6 +345,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       footer.setCost(tracker.format());
       await refreshFooterCtx();
       queuedMessages.length = 0;
+      stagedImages.length = 0;
       renderPending();
       history.reset();
       history.addSystem(`new session ${session.id}`);
@@ -611,10 +618,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.requestRender();
         return;
       }
-      const current = editor.getText?.() ?? "";
-      const sep = current && !current.endsWith(" ") ? " " : "";
-      editor.setText?.(`${current}${sep}${path} `);
-      history.addSystem(chalk.cyan(`📎 staged: ${path}`));
+      // Stage the path internally — DO NOT touch the editor. The image is
+      // included with the next send (image bytes read at submit time).
+      if (!stagedImages.includes(path)) stagedImages.push(path);
+      renderPending();
       tui.requestRender();
     },
     setSessionName: (name: string) => {
@@ -733,6 +740,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         busy = false;
         hideWorking();
         queuedMessages.length = 0;
+        stagedImages.length = 0;
         renderPending();
         tui.requestRender();
         return { consume: true };
@@ -760,7 +768,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   editor.onSubmit = async (text: string) => {
     text = text.trim();
-    if (!text) return;
+    // Allow submit with just staged images (no text). Provide a default prompt.
+    if (!text && stagedImages.length === 0) return;
+    if (!text && stagedImages.length > 0) text = "describe these images";
 
     // Slash commands always run inline (no queueing)
     if (text.startsWith("/")) {
@@ -780,8 +790,16 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       return;
     }
 
-    const finalInput = pendingInjection ? `${pendingInjection}\n\n${text}` : text;
+    let finalInput = pendingInjection ? `${pendingInjection}\n\n${text}` : text;
     pendingInjection = null;
+    // Append any staged image paths so runTurn (extractImagesFromInput) picks
+    // them up at submit time. Paths are quoted to survive spaces.
+    if (stagedImages.length > 0) {
+      const paths = stagedImages.map((p) => `"${p}"`).join(" ");
+      finalInput = finalInput ? `${finalInput} ${paths}` : paths;
+      stagedImages.length = 0;
+      renderPending();
+    }
 
     busy = true;
     history.addUser(finalInput);

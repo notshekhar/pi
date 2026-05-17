@@ -7,8 +7,14 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)\b/i;
-// matches absolute / relative / ~/ paths ending in an image ext
-const PATH_RE = /(?:^|[\s,()'"]|@)((?:~|\.{0,2}\/[^\s,()'"]+|\/[^\s,()'"]+)\.(?:png|jpe?g|gif|webp|bmp))/gi;
+// Match these forms (each ending in an image extension):
+//   /abs/path/foo.png
+//   ./rel/foo.png  ../rel/foo.png
+//   ~/foo.png
+//   'foo bar.png'  "foo bar.png"       (quoted, may contain spaces)
+//   foo\ bar.png                       (backslash-escaped spaces — drag-and-drop on macOS)
+const PATH_RE =
+  /(?:'([^']+\.(?:png|jpe?g|gif|webp|bmp))'|"([^"]+\.(?:png|jpe?g|gif|webp|bmp))"|((?:~|\.{0,2}\/|\/)(?:\\.|[^\s,()'"])+?\.(?:png|jpe?g|gif|webp|bmp)))/gi;
 
 export interface ExtractedImages {
   textWithoutPaths: string;
@@ -49,8 +55,13 @@ export function extractImagesFromInput(input: string, cwd: string): ExtractedIma
   }
 
   for (const m of input.matchAll(PATH_RE)) {
-    const raw = m[1];
-    const abs = resolve(cwd, expandHome(raw));
+    const matchedText = m[0];
+    // Capture group 1: single-quoted, 2: double-quoted, 3: bare/escaped
+    const captured = m[1] ?? m[2] ?? m[3];
+    if (!captured) continue;
+    // Unescape backslash-escaped chars (drag-and-drop produces "foo\ bar.png")
+    const unescaped = captured.replace(/\\(.)/g, "$1");
+    const abs = resolve(cwd, expandHome(unescaped));
     if (seen.has(abs)) continue;
     seen.add(abs);
     if (!existsSync(abs)) continue;
@@ -58,7 +69,7 @@ export function extractImagesFromInput(input: string, cwd: string): ExtractedIma
       if (!statSync(abs).isFile()) continue;
       const data = readFileSync(abs);
       images.push({ data, mediaType: mediaTypeFromPath(abs), path: abs });
-      cleaned = cleaned.split(raw).join(""); // strip the path from text
+      cleaned = cleaned.split(matchedText).join("");
     } catch {}
   }
 

@@ -37,6 +37,8 @@ import {
   PROVIDER_IDS,
   getCatalog,
   parseModelId,
+  loadWorkspaceContext,
+  loadProjectSkills,
   type CustomProviderConfig,
   type CustomProviderSdk,
   type ProviderId,
@@ -209,6 +211,28 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   history.addSystem(`pi · ${modelId} · session ${session.id}`);
   history.addSystem(`Type /help for commands. Ctrl+C twice to quit.`);
+
+  // Show workspace context + skills loaded on boot
+  if ((settingsStore.get("workspaceContext") as boolean) !== false) {
+    const ws = loadWorkspaceContext(cwd);
+    if (ws.files.length > 0) {
+      history.addSystem(chalk.dim(`workspace context (${ws.files.length}):`));
+      for (const f of ws.files) {
+        history.addSystem(chalk.dim(`  • ${f.replace(process.env.HOME ?? "", "~")}`));
+      }
+    } else {
+      history.addSystem(chalk.dim("workspace context: none (AGENTS.md, CLAUDE.md not found)"));
+    }
+  }
+  if ((settingsStore.get("skills") as boolean) !== false) {
+    const sk = loadProjectSkills(cwd);
+    if (sk.skills.length > 0) {
+      history.addSystem(chalk.dim(`skills (${sk.skills.length}):`));
+      for (const s of sk.skills) {
+        history.addSystem(chalk.dim(`  • ${s.name} — ${s.description.slice(0, 80)}`));
+      }
+    }
+  }
 
   let abort = new AbortController();
   let busy = false;

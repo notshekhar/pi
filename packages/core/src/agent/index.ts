@@ -7,6 +7,7 @@ import { settingsStore } from "../auth/storage";
 import { createTools } from "../tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { loadWorkspaceContext } from "./context";
+import { loadProjectSkills } from "./skills";
 import { CostTracker } from "./cost";
 import { runCompact } from "./compact";
 import type { Session } from "../sessions";
@@ -15,6 +16,7 @@ import type { UsageBlock } from "../types";
 export { CostTracker } from "./cost";
 export { runCompact } from "./compact";
 export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
+export { loadProjectSkills, type Skill } from "./skills";
 
 export interface RunTurnOptions {
   session: Session;
@@ -66,7 +68,9 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
   const workspaceContext =
     (settingsStore.get("workspaceContext") as boolean) !== false ? loadWorkspaceContext(cwd) : { text: "", files: [] };
-  const system = buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text });
+  const skillsEnabled = (settingsStore.get("skills") as boolean) !== false;
+  const skills = skillsEnabled ? loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
+  const system = buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text }) + (skills.promptBlock ?? "");
   const tools = createTools({ cwd, abortSignal });
   const model = await getModel(modelId);
 

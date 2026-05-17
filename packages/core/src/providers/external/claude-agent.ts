@@ -91,19 +91,33 @@ export const runClaudeAgentTurn: ExternalAgentRunner = async (opts) => {
       }
 
       if (m.type === "stream_event" || m.type === "partial_assistant") {
-        const ev = (m.event ?? m) as { type?: string; delta?: { type?: string; text?: string }; content_block?: { type?: string; text?: string } };
+        const ev = (m.event ?? m) as {
+          type?: string;
+          delta?: { type?: string; text?: string; thinking?: string };
+          content_block?: { type?: string; text?: string; thinking?: string };
+        };
         if (ev?.delta?.type === "text_delta" && typeof ev.delta.text === "string") {
           assistantText += ev.delta.text;
           opts.emitter.emit("text-delta", ev.delta.text);
+        } else if (ev?.delta?.type === "thinking_delta" && typeof ev.delta.thinking === "string") {
+          opts.emitter.emit("reasoning-delta", ev.delta.thinking);
+        } else if (ev?.type === "content_block_start" && ev.content_block?.type === "thinking") {
+          opts.emitter.emit("reasoning-start");
+        } else if (ev?.type === "content_block_stop") {
+          // thinking blocks end via stop; we don't know block index here so emit a soft hint
+          opts.emitter.emit("reasoning-end");
         }
         continue;
       }
 
       if (m.type === "assistant") {
-        const content = (m.message as { content?: Array<{ type: string; text?: string; name?: string; input?: unknown; id?: string }> })?.content ?? [];
+        const content = (m.message as { content?: Array<{ type: string; text?: string; thinking?: string; name?: string; input?: unknown; id?: string }> })?.content ?? [];
         for (const block of content) {
           if (block.type === "text" && typeof block.text === "string") {
-            // text already streamed via partial; skip duplicate
+            // text streamed via partial; skip
+          } else if (block.type === "thinking" && typeof block.thinking === "string") {
+            // emit full thinking block if partials weren't enabled
+            opts.emitter.emit("reasoning-delta", block.thinking);
           } else if (block.type === "tool_use") {
             opts.emitter.emit("tool-call", {
               toolName: block.name,

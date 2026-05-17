@@ -40,6 +40,7 @@ import {
   settingsStore,
   PROVIDER_IDS,
   getCatalog,
+  bustCatalogCache,
   parseModelId,
   loadWorkspaceContext,
   loadProjectSkills,
@@ -480,6 +481,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
             },
           });
           setActiveProvider("github-copilot");
+          bustCatalogCache();
           history.addSystem(chalk.green("✓ GitHub Copilot connected."));
         } catch (err) {
           history.addError(`Copilot login failed: ${(err as Error).message}`);
@@ -511,6 +513,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
               },
             });
             setActiveProvider("claude-agent");
+            bustCatalogCache();
             history.addSystem(chalk.green("✓ Claude Pro/Max connected."));
           } catch (err) {
             history.addError(`Claude OAuth failed: ${(err as Error).message}`);
@@ -526,6 +529,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       if (key) {
         loginApiKey(p, key);
         setActiveProvider(p);
+        bustCatalogCache();
         history.addSystem(chalk.green(`✓ ${p} key saved.`));
         tui.requestRender();
       }
@@ -862,6 +866,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const emitter = new EventEmitter();
     emitter.on("text-delta", (t: string) => {
       history.appendAssistantDelta(t, turnProvider, modelId);
+      tui.requestRender();
+    });
+    emitter.on("reasoning-delta", (t: string) => {
+      history.appendAssistantThinking(t, turnProvider, modelId);
       tui.requestRender();
     });
     emitter.on("tool-call", (part: { toolName?: string; input?: unknown; toolCallId?: string }) => {

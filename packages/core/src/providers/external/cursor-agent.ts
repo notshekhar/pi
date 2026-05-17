@@ -72,11 +72,28 @@ export const runCursorAgentTurn: ExternalAgentRunner = async (opts) => {
       if (opts.abortSignal?.aborted) break;
       const e = event as { type?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown; id?: string; tool_call_id?: string; output?: unknown }> }; usage?: { input_tokens?: number; output_tokens?: number }; status?: string };
 
+      if (e.type === "thinking") {
+        const t = (e as unknown) as { message?: { content?: Array<{ type: string; text?: string }> }; text?: string };
+        if (Array.isArray(t.message?.content)) {
+          for (const block of t.message.content) {
+            if (block.type === "text" && typeof block.text === "string") {
+              opts.emitter.emit("reasoning-delta", block.text);
+            }
+          }
+        } else if (typeof t.text === "string") {
+          opts.emitter.emit("reasoning-delta", t.text);
+        }
+        continue;
+      }
+
       if (e.type === "assistant" && Array.isArray(e.message?.content)) {
         for (const block of e.message.content) {
           if (block.type === "text" && typeof block.text === "string") {
             assistantText += block.text;
             opts.emitter.emit("text-delta", block.text);
+          } else if (block.type === "thinking") {
+            const th = (block as unknown) as { text?: string };
+            if (typeof th.text === "string") opts.emitter.emit("reasoning-delta", th.text);
           } else if (block.type === "tool_call") {
             opts.emitter.emit("tool-call", {
               toolName: block.name,

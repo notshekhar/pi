@@ -17,6 +17,10 @@ const TTL_MS = 60 * 60 * 1000; // 1h
 
 let mergedCache: Record<string, ModelInfo> | null = null;
 
+export function bustCatalogCache(): void {
+  mergedCache = null;
+}
+
 async function fetchAvailability(provider: ProviderId): Promise<Set<string> | null> {
   try {
     if (provider === "xai") {

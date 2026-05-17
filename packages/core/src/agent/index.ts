@@ -137,6 +137,15 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         assistantText += part.text;
         emitter.emit("text-delta", part.text);
         break;
+      case "reasoning-delta":
+        emitter.emit("reasoning-delta", (part as { text: string }).text);
+        break;
+      case "reasoning-start":
+        emitter.emit("reasoning-start");
+        break;
+      case "reasoning-end":
+        emitter.emit("reasoning-end");
+        break;
       case "tool-call":
         emitter.emit("tool-call", part);
         break;

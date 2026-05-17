@@ -1,8 +1,33 @@
-export type BuiltinProviderId = "xai" | "anthropic" | "openai" | "google" | "openrouter";
+export type BuiltinProviderId =
+  | "xai"
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "openrouter"
+  | "github-copilot"
+  | "claude-agent"
+  | "cursor-agent";
 export type ProviderId = BuiltinProviderId | (string & {});
 
-export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = ["xai", "anthropic", "openai", "google", "openrouter"];
+export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
+  "xai",
+  "anthropic",
+  "openai",
+  "google",
+  "openrouter",
+  "github-copilot",
+  "claude-agent",
+  "cursor-agent",
+];
 export const PROVIDER_IDS = BUILTIN_PROVIDER_IDS;
+
+export type ProviderKind = "language-model" | "external-agent";
+
+export const EXTERNAL_AGENT_PROVIDERS: BuiltinProviderId[] = ["claude-agent", "cursor-agent"];
+
+export function getProviderKind(id: ProviderId): ProviderKind {
+  return (EXTERNAL_AGENT_PROVIDERS as string[]).includes(id) ? "external-agent" : "language-model";
+}
 
 export type CustomProviderSdk = "openai" | "anthropic" | "google" | "openai-compatible";
 
@@ -32,6 +57,7 @@ export interface ModelInfo {
   reasoning: boolean;
   modalities: string[];
   available: boolean;
+  kind?: ProviderKind;
 }
 
 export interface UsageBlock {
@@ -61,9 +87,18 @@ export interface XaiOAuthCredentials {
   baseUrl?: string;
 }
 
+export interface GenericOAuthCredentials {
+  refresh: string;
+  access: string;
+  expires: number;
+  enterpriseUrl?: string;
+  [key: string]: unknown;
+}
+
 export type AuthEntry =
   | { mode: "apikey"; provider: ProviderId; apiKey: string }
-  | { mode: "oauth"; provider: "xai"; xai: XaiOAuthCredentials };
+  | { mode: "oauth"; provider: "xai"; xai: XaiOAuthCredentials }
+  | { mode: "oauth"; provider: ProviderId; creds: GenericOAuthCredentials };
 
 export interface SessionInfoData {
   id: string;

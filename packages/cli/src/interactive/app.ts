@@ -31,6 +31,7 @@ import {
   setActiveProvider,
   loginApiKey,
   loginXaiOAuth,
+  loginOAuth,
   logout,
   saveCustomProvider,
   listAuthorizedProviders,
@@ -457,9 +458,71 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
           return;
         }
       }
+
+      if (p === "github-copilot") {
+        history.addSystem("GitHub Copilot: starting device flow…");
+        tui.requestRender();
+        try {
+          await loginOAuth("github-copilot", {
+            onAuth: ({ url, instructions }) => {
+              if (instructions) history.addSystem(instructions);
+              history.addSystem(chalk.cyan(url));
+              tui.requestRender();
+            },
+            onPrompt: async ({ message }) => {
+              history.addSystem(message);
+              tui.requestRender();
+              return promptOnceLocal("");
+            },
+            onProgress: (msg) => {
+              history.addSystem(msg);
+              tui.requestRender();
+            },
+          });
+          setActiveProvider("github-copilot");
+          history.addSystem(chalk.green("✓ GitHub Copilot connected."));
+        } catch (err) {
+          history.addError(`Copilot login failed: ${(err as Error).message}`);
+        }
+        tui.requestRender();
+        return;
+      }
+
+      if (p === "claude-agent") {
+        const mode = await selectOnce([
+          { value: "apikey", label: "API key", description: "Paste your ANTHROPIC_API_KEY" },
+          { value: "oauth", label: "Claude Pro/Max OAuth", description: "Subscription bearer (no API spend)" },
+        ]);
+        if (!mode) return;
+        if (mode.value === "oauth") {
+          history.addSystem("Anthropic OAuth: opening browser…");
+          tui.requestRender();
+          try {
+            await loginOAuth("claude-agent", {
+              onAuth: ({ url, instructions }) => {
+                if (instructions) history.addSystem(instructions);
+                history.addSystem(chalk.cyan(url));
+                tui.requestRender();
+              },
+              onPrompt: async ({ message }) => {
+                history.addSystem(message);
+                tui.requestRender();
+                return promptOnceLocal("");
+              },
+            });
+            setActiveProvider("claude-agent");
+            history.addSystem(chalk.green("✓ Claude Pro/Max connected."));
+          } catch (err) {
+            history.addError(`Claude OAuth failed: ${(err as Error).message}`);
+          }
+          tui.requestRender();
+          return;
+        }
+      }
+
       history.addSystem(`${p}: paste API key, then press Enter.`);
       tui.requestRender();
-      const key = await promptOnceLocal(`${p.toUpperCase()}_API_KEY: `);
+      const key = await promptOnceLocal(`${p.toUpperCase().replace(/-/g, "_")}_API_KEY: `);
       if (key) {
         loginApiKey(p, key);
         setActiveProvider(p);
@@ -520,11 +583,14 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       const items: SelectItem[] = Object.values(cat)
         .filter((m) => m.provider === active && m.available)
         .sort((a, b) => a.id.localeCompare(b.id))
-        .map((m) => ({
-          value: m.id,
-          label: m.id.slice(active.length + 1),
-          description: `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`,
-        }));
+        .map((m) => {
+          const isExternal = m.kind === "external-agent";
+          const label = m.id.slice(active.length + 1) + (isExternal ? chalk.dim(" [agent]") : "");
+          const description = isExternal
+            ? `${m.name}  ·  external SDK runtime`
+            : `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`;
+          return { value: m.id, label, description };
+        });
       if (items.length === 0) {
         history.addSystem(chalk.yellow(`no models available for ${active}. Try /login ${active} first.`));
         tui.requestRender();
@@ -871,6 +937,12 @@ function providerLabel(id: string): string {
       return "Google — API key";
     case "openrouter":
       return "OpenRouter — API key";
+    case "github-copilot":
+      return "GitHub Copilot — OAuth (device flow)";
+    case "claude-agent":
+      return "Claude Agent SDK — API key or Claude Pro/Max OAuth";
+    case "cursor-agent":
+      return "Cursor Agent SDK — API key (Pro pool billing)";
     default:
       return "";
   }

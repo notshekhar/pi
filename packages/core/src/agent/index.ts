@@ -1,7 +1,8 @@
 import { streamText, stepCountIs, smoothStream } from "ai";
 import type { ModelMessage } from "ai";
 import { EventEmitter } from "node:events";
-import { getModel } from "../providers";
+import { getModel, parseModelId } from "../providers";
+import { runExternalAgentTurn } from "../providers/external";
 import { getCatalog } from "../catalog";
 import { settingsStore } from "../auth/storage";
 import { createTools } from "../tools";
@@ -11,6 +12,7 @@ import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
 import { CostTracker } from "./cost";
 import { runCompact } from "./compact";
+import { getProviderKind } from "../types";
 import type { Session } from "../sessions";
 import type { UsageBlock } from "../types";
 
@@ -77,6 +79,24 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     (settingsStore.get("workspaceContext") as boolean) !== false ? loadWorkspaceContext(cwd) : { text: "", files: [] };
   const skillsEnabled = (settingsStore.get("skills") as boolean) !== false;
   const skills = skillsEnabled ? loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
+
+  // ─── External-agent path (Claude Agent SDK, Cursor Agent SDK) ──────────────
+  const { provider } = parseModelId(modelId);
+  if (getProviderKind(provider) === "external-agent") {
+    await runExternalAgentTurn(provider, {
+      session,
+      modelId,
+      userInput: textWithoutPaths || userInput,
+      cwd,
+      abortSignal,
+      tracker,
+      emitter,
+      workspaceContext: workspaceContext.text,
+      skillsPrompt: skills.promptBlock,
+    });
+    return;
+  }
+
   const system = buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text }) + (skills.promptBlock ?? "");
   const tools = createTools({ cwd, abortSignal });
   const model = await getModel(modelId);

@@ -4,8 +4,29 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createXai } from "@ai-sdk/xai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
-import { getAccessToken, getApiKey, getCustomProvider, isCustomProvider, parseCustomProviderId } from "../auth";
+import {
+  getAccessToken,
+  getApiKey,
+  getCustomProvider,
+  isCustomProvider,
+  parseCustomProviderId,
+  resolveAuthToken,
+} from "../auth";
+import { COPILOT_HEADERS, getCopilotBaseUrl } from "../auth/oauth/github-copilot";
 import type { CustomProviderConfig, ProviderId } from "../types";
+
+function copilotAuthFetch(): typeof fetch {
+  return async (input, init) => {
+    const token = await resolveAuthToken("github-copilot");
+    if (!token) throw new Error("No GitHub Copilot credentials. Run: /login github-copilot");
+    const headers = new Headers(init?.headers);
+    headers.set("authorization", `Bearer ${token}`);
+    for (const [k, v] of Object.entries(COPILOT_HEADERS)) headers.set(k, v);
+    headers.set("X-Initiator", "user");
+    headers.set("Openai-Intent", "conversation-edits");
+    return fetch(input, { ...(init as RequestInit), headers });
+  };
+}
 
 export function parseModelId(full: string): { provider: ProviderId; model: string } {
   // custom provider ids look like "custom:bifrost/claude-opus-4-7"
@@ -125,6 +146,12 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
       const key = getApiKey("openrouter");
       if (!key) throw new Error("No OpenRouter API key. Run: piagent login openrouter");
       return createOpenRouter({ apiKey: key })(model);
+    }
+    case "github-copilot": {
+      const token = await resolveAuthToken("github-copilot");
+      if (!token) throw new Error("No GitHub Copilot credentials. Run: /login github-copilot");
+      const baseURL = getCopilotBaseUrl(token);
+      return createOpenAI({ apiKey: "placeholder", baseURL, fetch: copilotAuthFetch() })(model);
     }
     default:
       throw new Error(`Unknown provider: ${provider}`);

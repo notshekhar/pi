@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
 import { getPiDir } from "../auth/storage";
-import { getApiKey, getAccessToken, listCustomProviders } from "../auth";
+import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders } from "../auth";
 import type { ModelInfo, ProviderId } from "../types";
 
 const cacheStore = new Configstore(
@@ -106,6 +106,21 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
     const available = provAvail ? provAvail.includes(id) : true;
     out[id] = { ...m, available };
   }
+  // Gate non-public providers by auth presence.
+  const authed = new Set(listAuthorizedProviders());
+  const hasClaudeAgent =
+    authed.has("claude-agent") ||
+    authed.has("anthropic") ||
+    !!process.env.ANTHROPIC_API_KEY ||
+    !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const hasCursorAgent = authed.has("cursor-agent") || !!process.env.CURSOR_API_KEY;
+  const hasCopilot = authed.has("github-copilot");
+  for (const m of Object.values(out)) {
+    if (m.provider === "claude-agent") m.available = hasClaudeAgent;
+    else if (m.provider === "cursor-agent") m.available = hasCursorAgent;
+    else if (m.provider === "github-copilot") m.available = hasCopilot;
+  }
+
   // Note: we do NOT downmark fallback models based on /v1/models availability.
   // Subscription-only / preview models (e.g. grok-build, grok-4.20-*) are not
   // returned by xai's public /v1/models endpoint but ARE callable with an

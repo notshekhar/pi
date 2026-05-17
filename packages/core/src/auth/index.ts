@@ -1,7 +1,15 @@
 import { authStore } from "./storage";
 import { login as xaiLogin, refresh as xaiRefresh } from "./xai-oauth";
 import { XaiErrorCode, XaiOAuthError } from "./errors";
-import type { AuthEntry, CustomProviderConfig, ProviderId, XaiOAuthCredentials } from "../types";
+import { getOAuthProvider } from "./oauth/registry";
+import type { OAuthLoginCallbacks } from "./oauth/types";
+import type {
+  AuthEntry,
+  CustomProviderConfig,
+  GenericOAuthCredentials,
+  ProviderId,
+  XaiOAuthCredentials,
+} from "../types";
 
 export { XaiOAuthError, XaiErrorCode } from "./errors";
 export { authStore, settingsStore, costStore, getPiDir } from "./storage";
@@ -51,7 +59,7 @@ export async function loginXaiOAuth(onAuth: (info: { url: string; instructions: 
 
 export function getXaiCreds(): XaiOAuthCredentials | undefined {
   const entry = readProviders().xai;
-  if (entry?.mode === "oauth") return entry.xai;
+  if (entry?.mode === "oauth" && "xai" in entry) return entry.xai;
   return undefined;
 }
 
@@ -68,6 +76,55 @@ export async function getAccessToken(
   providers.xai = { mode: "oauth", provider: "xai", xai: fresh };
   writeProviders(providers);
   return fresh.access;
+}
+
+// ─── Generic OAuth (anthropic, github-copilot, claude-agent reuse) ────────────
+
+export async function loginOAuth(provider: ProviderId, cb: OAuthLoginCallbacks): Promise<void> {
+  const impl = getOAuthProvider(provider);
+  if (!impl) throw new Error(`No OAuth provider registered for ${provider}`);
+  const creds = await impl.login(cb);
+  const providers = readProviders();
+  providers[provider] = { mode: "oauth", provider, creds };
+  writeProviders(providers);
+  if (!getActiveProvider()) setActiveProvider(provider);
+}
+
+function getGenericOAuthCreds(provider: ProviderId): GenericOAuthCredentials | undefined {
+  const entry = readProviders()[provider];
+  if (entry?.mode === "oauth" && "creds" in entry) return entry.creds;
+  return undefined;
+}
+
+/**
+ * Returns bearer token for a provider. Resolves stored API key, OAuth creds
+ * (auto-refresh + persist), or env var fallback. Pi-mono pattern.
+ */
+export async function resolveAuthToken(provider: ProviderId): Promise<string | null> {
+  const providers = readProviders();
+  const entry = providers[provider];
+
+  if (entry?.mode === "apikey") return entry.apiKey;
+
+  if (entry?.mode === "oauth" && "creds" in entry) {
+    const impl = getOAuthProvider(provider);
+    if (!impl) return null;
+    let creds = entry.creds;
+    if (Date.now() >= creds.expires) {
+      try {
+        creds = await impl.refreshToken(creds);
+        providers[provider] = { mode: "oauth", provider, creds };
+        writeProviders(providers);
+      } catch {
+        return null;
+      }
+    }
+    return impl.getApiKey(creds);
+  }
+
+  // env var fallback (PROVIDER_API_KEY uppercased, with - → _)
+  const envKey = `${provider.replace(/-/g, "_").toUpperCase()}_API_KEY`;
+  return process.env[envKey] ?? null;
 }
 
 export function logout(provider?: ProviderId): void {

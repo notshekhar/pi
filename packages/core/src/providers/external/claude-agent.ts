@@ -79,6 +79,7 @@ export const runClaudeAgentTurn: ExternalAgentRunner = async (opts) => {
   let assistantText = "";
   let lastUsage: UsageBlock | undefined;
   let totalCostUsd: number | undefined;
+  const thinkingBlockIdxs = new Set<number>();
 
   try {
     for await (const msg of q) {
@@ -93,6 +94,7 @@ export const runClaudeAgentTurn: ExternalAgentRunner = async (opts) => {
       if (m.type === "stream_event" || m.type === "partial_assistant") {
         const ev = (m.event ?? m) as {
           type?: string;
+          index?: number;
           delta?: { type?: string; text?: string; thinking?: string };
           content_block?: { type?: string; text?: string; thinking?: string };
         };
@@ -102,9 +104,10 @@ export const runClaudeAgentTurn: ExternalAgentRunner = async (opts) => {
         } else if (ev?.delta?.type === "thinking_delta" && typeof ev.delta.thinking === "string") {
           opts.emitter.emit("reasoning-delta", ev.delta.thinking);
         } else if (ev?.type === "content_block_start" && ev.content_block?.type === "thinking") {
+          if (typeof ev.index === "number") thinkingBlockIdxs.add(ev.index);
           opts.emitter.emit("reasoning-start");
-        } else if (ev?.type === "content_block_stop") {
-          // thinking blocks end via stop; we don't know block index here so emit a soft hint
+        } else if (ev?.type === "content_block_stop" && typeof ev.index === "number" && thinkingBlockIdxs.has(ev.index)) {
+          thinkingBlockIdxs.delete(ev.index);
           opts.emitter.emit("reasoning-end");
         }
         continue;
@@ -121,7 +124,7 @@ export const runClaudeAgentTurn: ExternalAgentRunner = async (opts) => {
           } else if (block.type === "tool_use") {
             opts.emitter.emit("tool-call", {
               toolName: block.name,
-              args: block.input,
+              input: block.input,
               toolCallId: block.id,
             });
           }

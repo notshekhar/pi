@@ -66,7 +66,7 @@ export const runCursorAgentTurn: ExternalAgentRunner = async (opts) => {
             seenToolCalls.add(id);
             opts.emitter.emit("tool-call", {
               toolName: u.toolCall.name,
-              args: u.toolCall.args,
+              input: u.toolCall.args,
               toolCallId: id,
             });
           }
@@ -109,7 +109,7 @@ export const runCursorAgentTurn: ExternalAgentRunner = async (opts) => {
             seenToolCalls.add(block.id);
             opts.emitter.emit("tool-call", {
               toolName: block.name,
-              args: block.input,
+              input: block.input,
               toolCallId: block.id,
             });
           }

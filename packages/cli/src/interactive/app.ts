@@ -1,0 +1,558 @@
+import { EventEmitter } from "node:events";
+import {
+  CombinedAutocompleteProvider,
+  Container,
+  Editor,
+  matchesKey,
+  ProcessTerminal,
+  SelectList,
+  type SelectItem,
+  Spacer,
+  TUI,
+  type EditorTheme,
+  type SlashCommand as TuiSlashCommand,
+} from "@earendil-works/pi-tui";
+import { getMarkdownTheme, getSelectListTheme, initTheme } from "@earendil-works/pi-coding-agent";
+import chalk from "chalk";
+import {
+  CommandRegistry,
+  CostTracker,
+  SessionManager,
+  registerBuiltins,
+  runCompact,
+  runTurn,
+  getActiveProvider,
+  setActiveProvider,
+  loginApiKey,
+  loginXaiOAuth,
+  logout,
+  settingsStore,
+  PROVIDER_IDS,
+  getCatalog,
+  parseModelId,
+  type ProviderId,
+  type Session,
+} from "@pi-agent/core";
+import { readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { ChatHistory } from "./components/chat-history";
+import { CostFooter } from "./components/cost-footer";
+
+export interface InteractiveOptions {
+  modelId?: string;
+  provider?: ProviderId;
+  cwd: string;
+  sessionId?: string;
+}
+
+const editorTheme: EditorTheme = {
+  borderColor: (s) => chalk.cyan(s),
+  selectList: getSelectListTheme(),
+};
+
+const CTRL_C = "\x03";
+const CTRL_D = "\x04";
+const ESC = "\x1b";
+
+function promptOnce(tui: TUI, editor: Editor, _label: string): Promise<string> {
+  return new Promise((resolve) => {
+    const prevSubmit = editor.onSubmit;
+    editor.onSubmit = (text: string) => {
+      editor.onSubmit = prevSubmit;
+      tui.requestRender();
+      resolve(text.trim());
+    };
+  });
+}
+
+function selectOnce(tui: TUI, items: SelectItem[]): Promise<SelectItem | null> {
+  return new Promise((resolve) => {
+    const list = new SelectList(items, Math.min(items.length, 8), getSelectListTheme());
+    let settled = false;
+    const settle = (v: SelectItem | null) => {
+      if (settled) return;
+      settled = true;
+      handle.hide();
+      tui.requestRender();
+      resolve(v);
+    };
+    list.onSelect = (item) => settle(item);
+    list.onCancel = () => settle(null);
+    const handle = tui.showOverlay(list, { anchor: "center", width: "60%", maxHeight: "60%" });
+  });
+}
+
+export async function runInteractive(opts: InteractiveOptions): Promise<void> {
+  initTheme();
+
+  const provider = (opts.provider ?? getActiveProvider() ?? "xai") as ProviderId;
+  let modelId = opts.modelId ?? (settingsStore.get("defaultModel") as string) ?? `${provider}/grok-4`;
+  let cwd = opts.cwd;
+
+  const manager = new SessionManager();
+  let session: Session = opts.sessionId
+    ? await manager.open(opts.sessionId)
+    : await manager.create({ cwd, provider, model: modelId });
+
+  const tracker = new CostTracker();
+  const commands = new CommandRegistry();
+  registerBuiltins(commands);
+
+  const terminal = new ProcessTerminal();
+  const tui = new TUI(terminal, true);
+  tui.setClearOnShrink(false);
+
+  const history = new ChatHistory(tui, cwd);
+  const footer = new CostFooter();
+  footer.setModel(modelId);
+  footer.setSession(session.id);
+  footer.setCost(tracker.format());
+
+  const editor = new Editor(tui, editorTheme, { paddingX: 1 });
+
+  // slash command autocomplete
+  const slashItems: TuiSlashCommand[] = commands.list().map((c) => ({
+    name: c.name,
+    description: c.description,
+  }));
+  editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashItems, cwd));
+
+  const root = new Container();
+  root.addChild(history);
+  root.addChild(new Spacer(1));
+  root.addChild(editor);
+  root.addChild(footer);
+  tui.addChild(root);
+
+  history.addSystem(`pi-agent · ${modelId} · session ${session.id}`);
+  history.addSystem(`Type /help for commands. Ctrl+C twice to quit.`);
+
+  let abort = new AbortController();
+  let busy = false;
+  let pendingInjection: string | null = null;
+  let lastCtrlCAt = 0;
+
+  const cleanExit = (code = 0) => {
+    tui.stop();
+    process.exit(code);
+  };
+
+  const ctx = {
+    cwd,
+    emit: (event: string, data?: unknown) => {
+      if (event === "help" || event === "error") history.addSystem(String(data ?? ""));
+      if (event === "inject-prompt") pendingInjection = String(data ?? "");
+      tui.requestRender();
+    },
+    setModel: async (id: string) => {
+      const resolved = await resolveModelId(id);
+      if (!resolved) {
+        history.addSystem(chalk.red(`unknown model: ${id} — try /model to pick from a list`));
+        tui.requestRender();
+        return;
+      }
+      modelId = resolved;
+      settingsStore.set("defaultModel", resolved);
+      footer.setModel(resolved);
+      history.addSystem(`model → ${resolved}`);
+      tui.requestRender();
+    },
+    setProvider: (p: string) => {
+      history.addSystem(`provider → ${p} (use /model to change model)`);
+      tui.requestRender();
+    },
+    newSession: async () => {
+      session = await manager.create({ cwd, provider, model: modelId });
+      footer.setSession(session.id);
+      history.reset();
+      history.addSystem(`new session ${session.id}`);
+      tui.requestRender();
+    },
+    clearScreen: () => {
+      // ANSI: clear scrollback + screen, then full redraw
+      process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
+      history.reset();
+      tui.invalidate();
+      tui.requestRender(true);
+    },
+    manualCompact: async () => {
+      const result = await runCompact({ session, modelId });
+      history.addSystem(`compacted ${result.cutAt} turns: ${result.tokensBefore} → ${result.tokensAfter} tokens`);
+      tui.requestRender();
+    },
+    showCost: () => {
+      const s = tracker.sessionBreakdown();
+      const l = tracker.lifetimeBreakdown();
+      history.addSystem(`session: $${s.usd.toFixed(4)}  lifetime: $${l.usd.toFixed(4)}`);
+      tui.requestRender();
+    },
+    showSessions: async () => {
+      for (const s of manager.list(cwd)) {
+        history.addSystem(`${s.id}  ${s.model}  ${s.firstUserMessage ?? ""}`);
+      }
+      tui.requestRender();
+    },
+    exit: () => cleanExit(0),
+    setCwd: (p: string) => {
+      cwd = p;
+      history.addSystem(`cwd → ${cwd}`);
+      tui.requestRender();
+    },
+    startLogin: async (target?: string) => {
+      let p: ProviderId | null = null;
+      if (target) {
+        if (!PROVIDER_IDS.includes(target as ProviderId)) {
+          history.addSystem(`unknown provider: ${target}. options: ${PROVIDER_IDS.join(", ")}`);
+          tui.requestRender();
+          return;
+        }
+        p = target as ProviderId;
+      } else {
+        const pick = await selectOnce(
+          tui,
+          PROVIDER_IDS.map((id) => ({ value: id, label: id, description: providerLabel(id) })),
+        );
+        if (!pick) return;
+        p = pick.value as ProviderId;
+      }
+
+      if (p === "xai") {
+        // ask subscription vs api key
+        const mode = await selectOnce(tui, [
+          {
+            value: "oauth",
+            label: "Sign in with xAI (SuperGrok subscription)",
+            description: "OAuth, opens browser",
+          },
+          { value: "apikey", label: "Use API key", description: "Paste your XAI_API_KEY" },
+        ]);
+        if (!mode) return;
+        if (mode.value === "oauth") {
+          history.addSystem("xAI login: launching OAuth in your browser…");
+          tui.requestRender();
+          try {
+            await loginXaiOAuth(({ url, instructions }) => {
+              history.addSystem(instructions);
+              history.addSystem(chalk.cyan(url));
+              tui.requestRender();
+            });
+            setActiveProvider("xai");
+            history.addSystem(chalk.green("✓ xAI subscription connected."));
+          } catch (err) {
+            history.addError(`xAI login failed: ${(err as Error).message}`);
+          }
+          tui.requestRender();
+          return;
+        }
+      }
+      history.addSystem(`${p}: paste API key, then press Enter.`);
+      tui.requestRender();
+      const key = await promptOnce(tui, editor, `${p.toUpperCase()}_API_KEY: `);
+      if (key) {
+        loginApiKey(p, key);
+        setActiveProvider(p);
+        history.addSystem(chalk.green(`✓ ${p} key saved.`));
+        tui.requestRender();
+      }
+    },
+    startLogout: (target?: string) => {
+      logout(target as ProviderId | undefined);
+      history.addSystem(target ? `signed out of ${target}` : "signed out of all providers");
+      tui.requestRender();
+    },
+    openSettings: async () => {
+      const items: SelectItem[] = [
+        { value: "theme", label: `theme: ${settingsStore.get("theme") ?? "dark"}` },
+        { value: "maxSteps", label: `maxSteps: ${settingsStore.get("maxSteps") ?? 32}` },
+        { value: "autoCompactThreshold", label: `autoCompactThreshold: ${settingsStore.get("autoCompactThreshold") ?? 0.8}` },
+        { value: "piCompatMode", label: `piCompatMode: ${settingsStore.get("piCompatMode") ?? "fork"}` },
+        { value: "workspaceContext", label: `workspaceContext: ${settingsStore.get("workspaceContext") ?? true}` },
+      ];
+      const pick = await selectOnce(tui, items);
+      if (!pick) return;
+      history.addSystem(`enter new value for ${pick.value}:`);
+      tui.requestRender();
+      const v = await promptOnce(tui, editor, "");
+      if (!v) return;
+      const key = pick.value;
+      const cur = settingsStore.get(key);
+      const parsed = typeof cur === "number" ? Number(v) : typeof cur === "boolean" ? v === "true" : v;
+      settingsStore.set(key, parsed);
+      history.addSystem(`${key} → ${parsed}`);
+      tui.requestRender();
+    },
+    openModelPicker: async () => {
+      const cat = await getCatalog();
+      const active = (getActiveProvider() ?? provider) as ProviderId;
+      const items: SelectItem[] = Object.values(cat)
+        .filter((m) => m.provider === active && m.available)
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((m) => ({
+          value: m.id,
+          label: m.id.slice(active.length + 1),
+          description: `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`,
+        }));
+      if (items.length === 0) {
+        history.addSystem(chalk.yellow(`no models available for ${active}. Try /login ${active} first.`));
+        tui.requestRender();
+        return;
+      }
+      const pick = await selectOnce(tui, items);
+      if (!pick) return;
+      modelId = pick.value;
+      settingsStore.set("defaultModel", modelId);
+      footer.setModel(modelId);
+      history.addSystem(`model → ${modelId}`);
+      tui.requestRender();
+    },
+    showSessionInfo: () => {
+      const s = tracker.sessionBreakdown();
+      history.addSystem(`session id   ${session.id}`);
+      history.addSystem(`model        ${modelId}`);
+      history.addSystem(`provider     ${provider}`);
+      history.addSystem(`cwd          ${cwd}`);
+      history.addSystem(`tokens       in:${s.inputTokens} out:${s.outputTokens} cache:${s.cachedInputTokens}`);
+      history.addSystem(`cost (sess)  $${s.usd.toFixed(4)}`);
+      tui.requestRender();
+    },
+    showHotkeys: () => {
+      const lines = [
+        "Enter           submit",
+        "Shift+Enter     newline",
+        "Tab             autocomplete",
+        "Up / Down       history",
+        "Esc             abort current turn",
+        "Ctrl+C          abort, twice to quit",
+        "Ctrl+D          quit (empty)",
+        "Ctrl+L          clear screen",
+        "Ctrl+P          cycle scoped models",
+      ];
+      for (const l of lines) history.addSystem(l);
+      tui.requestRender();
+    },
+    copyLastAssistant: async () => {
+      const entries = session.entries();
+      const last = [...entries].reverse().find((e) => e.type === "message" && (e as { role?: string }).role === "assistant");
+      if (!last) {
+        history.addSystem("no assistant message to copy");
+        tui.requestRender();
+        return;
+      }
+      const text = String((last as { content: unknown }).content ?? "");
+      try {
+        const child = spawn("pbcopy");
+        child.stdin.write(text);
+        child.stdin.end();
+        history.addSystem(`copied ${text.length} chars to clipboard`);
+      } catch {
+        history.addSystem(`pbcopy unavailable. content length: ${text.length}`);
+      }
+      tui.requestRender();
+    },
+    setSessionName: (name: string) => {
+      settingsStore.set(`sessionName.${session.id}`, name);
+      history.addSystem(`session name → ${name}`);
+      tui.requestRender();
+    },
+    exportSession: async (target?: string) => {
+      const out = target ?? `${session.id}.jsonl`;
+      const entries = session.entries();
+      const content = entries.map((e) => JSON.stringify(e)).join("\n");
+      writeFileSync(out, content);
+      history.addSystem(`exported to ${out}`);
+      tui.requestRender();
+    },
+    importSession: async (path: string) => {
+      try {
+        const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+        const ns = await manager.create({ cwd, provider, model: modelId });
+        for (const line of lines) {
+          try {
+            await ns.append(JSON.parse(line));
+          } catch {}
+        }
+        session = ns;
+        footer.setSession(session.id);
+        history.addSystem(`imported ${lines.length} entries → session ${session.id}`);
+      } catch (err) {
+        history.addError(`import failed: ${(err as Error).message}`);
+      }
+      tui.requestRender();
+    },
+    reload: async () => {
+      commands.list().forEach(() => {});
+      // re-register builtins + user prompts from disk
+      const fresh = new CommandRegistry();
+      registerBuiltins(fresh);
+      // swap into existing registry
+      (commands as unknown as { commands: Map<string, unknown> }).commands = (
+        fresh as unknown as { commands: Map<string, unknown> }
+      ).commands;
+      const items: TuiSlashCommand[] = commands.list().map((c) => ({ name: c.name, description: c.description }));
+      editor.setAutocompleteProvider(new CombinedAutocompleteProvider(items, cwd));
+      history.addSystem("reloaded prompts + commands");
+      tui.requestRender();
+    },
+    stub: (name: string) => {
+      history.addSystem(chalk.yellow(`/${name} not implemented yet`));
+      tui.requestRender();
+    },
+  };
+
+  async function resolveModelId(input: string): Promise<string | null> {
+    const cat = await getCatalog();
+    if (cat[input]) return input;
+    if (!input.includes("/")) {
+      const active = (getActiveProvider() ?? provider) as ProviderId;
+      const candidate = `${active}/${input}`;
+      if (cat[candidate]) return candidate;
+      // search across providers
+      const matches = Object.keys(cat).filter((k) => k.endsWith(`/${input}`));
+      if (matches.length === 1) return matches[0];
+    }
+    try {
+      parseModelId(input);
+      return input;
+    } catch {
+      return null;
+    }
+  }
+
+  const isCtrlC = (d: string) => d === CTRL_C || matchesKey(d, "ctrl+c");
+  const isCtrlD = (d: string) => d === CTRL_D || matchesKey(d, "ctrl+d");
+  const isCtrlL = (d: string) => d === "\x0c" || matchesKey(d, "ctrl+l");
+  const isEsc = (d: string) => d === ESC || matchesKey(d, "escape");
+
+  // Input listeners (run before editor)
+  tui.addInputListener((data) => {
+    if (isCtrlL(data)) {
+      ctx.clearScreen();
+      return { consume: true };
+    }
+    if (isCtrlD(data) && !busy) {
+      cleanExit(0);
+      return { consume: true };
+    }
+    if (isCtrlC(data)) {
+      if (busy) {
+        abort.abort();
+        abort = new AbortController();
+        busy = false;
+        history.addSystem("[aborted]");
+        tui.requestRender();
+        return { consume: true };
+      }
+      const now = Date.now();
+      if (now - lastCtrlCAt < 1000) {
+        cleanExit(130);
+        return { consume: true };
+      }
+      lastCtrlCAt = now;
+      history.addSystem("Press Ctrl+C again to quit.");
+      tui.requestRender();
+      return { consume: true };
+    }
+    if (isEsc(data) && busy) {
+      abort.abort();
+      abort = new AbortController();
+      busy = false;
+      history.addSystem("[aborted]");
+      tui.requestRender();
+      return { consume: true };
+    }
+    return undefined;
+  });
+
+  editor.onSubmit = async (text: string) => {
+    if (!text.trim() || busy) return;
+
+    if (text.startsWith("/")) {
+      const handled = await commands.run(text, ctx);
+      if (!handled) {
+        history.addSystem(`unknown command: ${text}`);
+        tui.requestRender();
+      }
+      return;
+    }
+
+    const finalInput = pendingInjection ? `${pendingInjection}\n\n${text}` : text;
+    pendingInjection = null;
+
+    busy = true;
+    history.addUser(finalInput);
+    tui.requestRender();
+
+    const { provider: turnProvider } = parseModelId(modelId);
+    history.ensureAssistant(turnProvider, modelId);
+    const emitter = new EventEmitter();
+    emitter.on("text-delta", (t: string) => {
+      history.appendAssistantDelta(t, turnProvider, modelId);
+      tui.requestRender();
+    });
+    emitter.on("tool-call", (part: { toolName?: string; input?: unknown; toolCallId?: string }) => {
+      const id = part.toolCallId ?? `${part.toolName}-${Date.now()}`;
+      history.addToolCall(part.toolName ?? "tool", id, (part.input ?? {}) as Record<string, unknown>);
+      tui.requestRender();
+    });
+    emitter.on("tool-result", (part: { output?: unknown; toolCallId?: string }) => {
+      history.addToolResult(part.toolCallId ?? "", part.output);
+      tui.requestRender();
+    });
+    emitter.on("compact-start", () => {
+      history.addSystem("[compacting…]");
+      tui.requestRender();
+    });
+    emitter.on("compact-end", (r: { tokensBefore: number; tokensAfter: number }) => {
+      history.addSystem(`[compacted ${r.tokensBefore} → ${r.tokensAfter} tokens]`);
+      tui.requestRender();
+    });
+    emitter.on("finish", () => {
+      history.finishAssistant();
+      footer.setCost(tracker.format());
+      tui.requestRender();
+    });
+    emitter.on("error", (err: unknown) => {
+      history.addError(String(err));
+      tui.requestRender();
+    });
+
+    try {
+      await runTurn({
+        session,
+        modelId,
+        userInput: finalInput,
+        cwd,
+        abortSignal: abort.signal,
+        tracker,
+        emitter,
+      });
+    } catch (err) {
+      history.addError((err as Error).message);
+    } finally {
+      busy = false;
+      history.finishAssistant();
+      tui.requestRender();
+    }
+  };
+
+  tui.setFocus(editor);
+  tui.start();
+  tui.requestRender();
+}
+
+function providerLabel(id: string): string {
+  switch (id) {
+    case "xai":
+      return "xAI (Grok) — OAuth subscription or API key";
+    case "anthropic":
+      return "Anthropic — API key";
+    case "openai":
+      return "OpenAI — API key";
+    case "google":
+      return "Google — API key";
+    case "openrouter":
+      return "OpenRouter — API key";
+    default:
+      return "";
+  }
+}

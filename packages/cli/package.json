@@ -1,0 +1,23 @@
+{
+  "name": "@pi-agent/cli",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "piagent": "./dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup && chmod +x dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.1",
+    "@earendil-works/pi-tui": "^0.74.1",
+    "@pi-agent/core": "*",
+    "chalk": "^5.5.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0"
+  }
+}

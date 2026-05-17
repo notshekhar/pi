@@ -611,11 +611,13 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.requestRender();
         return;
       }
-      // pi-mono behavior: insert the file path into the editor at cursor.
-      // On submit, runTurn's extractImagesFromInput reads the bytes.
+      // Wrap path in [image:...] so a leading "/" path doesn't get mistaken
+      // for a slash command on submit, while keeping the path readable in
+      // the transcript.
+      const token = `[image:${path}]`;
       const current = editor.getText?.() ?? "";
       const sep = current && !current.endsWith(" ") ? " " : "";
-      editor.setText?.(`${current}${sep}${path} `);
+      editor.setText?.(`${current}${sep}${token} `);
       tui.requestRender();
     },
     setSessionName: (name: string) => {

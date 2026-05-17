@@ -7,12 +7,13 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)\b/i;
-// Match these forms (each ending in an image extension):
-//   /abs/path/foo.png
-//   ./rel/foo.png  ../rel/foo.png
-//   ~/foo.png
-//   'foo bar.png'  "foo bar.png"       (quoted, may contain spaces)
-//   foo\ bar.png                       (backslash-escaped spaces — drag-and-drop on macOS)
+// Sentinel form inserted by paste/Ctrl+I/Ctrl+V/`/attach`. Always preferred
+// because a leading "/" path otherwise collides with slash commands.
+const BRACKET_RE = /\[image:([^\]]+\.(?:png|jpe?g|gif|webp|bmp))\]/gi;
+// Bare-path forms (drag-and-drop on terminals that forward path text):
+//   /abs/foo.png   ./rel.png  ../rel.png   ~/foo.png
+//   'foo bar.png'  "foo bar.png"
+//   foo\ bar.png
 const PATH_RE =
   /(?:'([^']+\.(?:png|jpe?g|gif|webp|bmp))'|"([^"]+\.(?:png|jpe?g|gif|webp|bmp))"|((?:~|\.{0,2}\/|\/)(?:\\.|[^\s,()'"])+?\.(?:png|jpe?g|gif|webp|bmp)))/gi;
 
@@ -52,6 +53,22 @@ export function extractImagesFromInput(input: string, cwd: string): ExtractedIma
   // Quick reject if no image extension present
   if (!IMAGE_EXT.test(input)) {
     return { textWithoutPaths: input, images: [] };
+  }
+
+  // [image:/path/to/foo.png] — sentinel form. We keep the bracketed token in
+  // the text so the transcript is readable; only read bytes here.
+  for (const m of input.matchAll(BRACKET_RE)) {
+    const captured = m[1];
+    if (!captured) continue;
+    const abs = resolve(cwd, expandHome(captured));
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    if (!existsSync(abs)) continue;
+    try {
+      if (!statSync(abs).isFile()) continue;
+      const data = readFileSync(abs);
+      images.push({ data, mediaType: mediaTypeFromPath(abs), path: abs });
+    } catch {}
   }
 
   for (const m of input.matchAll(PATH_RE)) {

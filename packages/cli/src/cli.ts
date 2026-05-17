@@ -12,6 +12,41 @@ import {
 import type { ProviderId } from "@pi/core";
 import { runInteractive } from "./interactive/app";
 import { runPrint } from "./print";
+import { spawnSync } from "node:child_process";
+
+// injected at build time via tsup define
+declare const __PI_VERSION__: string;
+const VERSION = typeof __PI_VERSION__ !== "undefined" ? __PI_VERSION__ : "0.0.0";
+
+const UPGRADE_URL = "https://raw.githubusercontent.com/notshekhar/agent/main/install.sh";
+
+function printHelp(): void {
+  console.log(`pi/agent — terminal coding agent (v${VERSION})
+
+Usage:
+  pi                       Start interactive TUI
+  pi run <prompt>          Run a single prompt and exit
+  pi login [provider]      Configure provider auth
+  pi logout [provider]     Remove auth
+  pi sessions              List sessions in current cwd
+  pi models                List available models
+  pi whoami                Show active provider + auth status
+  pi rpc [--socket]        Start JSON-RPC server
+  pi upgrade               Pull latest and rebuild
+  pi version | -v          Print version
+
+Flags:
+  --model <provider/id>    Override default model
+  --provider <id>          Override active provider
+  --cwd <path>             Working directory
+  --session <id>           Resume session by id`);
+}
+
+function runUpgrade(): void {
+  console.log(`▶ Upgrading pi (current v${VERSION})…`);
+  const r = spawnSync("bash", ["-c", `curl -fsSL ${UPGRADE_URL} | bash`], { stdio: "inherit" });
+  process.exit(r.status ?? 1);
+}
 
 interface Args {
   cmd?: string;
@@ -28,6 +63,14 @@ function parseArgs(argv: string[]): Args {
   }
   for (; i < argv.length; i++) {
     const a = argv[i];
+    if (a === "-v") {
+      out.flags.v = true;
+      continue;
+    }
+    if (a === "-h") {
+      out.flags.h = true;
+      continue;
+    }
     if (a.startsWith("--")) {
       const eq = a.indexOf("=");
       if (eq > 0) {
@@ -104,7 +147,28 @@ async function cmdSessions(): Promise<void> {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
+  // version flags
+  if (args.flags.version || args.flags.v) {
+    console.log(VERSION);
+    return;
+  }
+  if (args.flags.help || args.flags.h) {
+    printHelp();
+    return;
+  }
+
   switch (args.cmd) {
+    case "version":
+    case "-v":
+      console.log(VERSION);
+      return;
+    case "help":
+      printHelp();
+      return;
+    case "upgrade":
+    case "update":
+      runUpgrade();
+      return;
     case "login":
       await cmdLogin(args.positional[0]);
       return;

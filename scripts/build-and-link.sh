@@ -2,7 +2,7 @@
 # Install pi-agent globally as `pi`. Overrides any pre-existing `pi` binary.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$HERE"
 
 bold() { printf "\033[1m%s\033[0m\n" "$*"; }

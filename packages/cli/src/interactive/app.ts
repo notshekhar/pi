@@ -140,9 +140,22 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const statusIdleSpacer = new Spacer(1);
   statusContainer.addChild(statusIdleSpacer);
 
+  // pi-mono parity: pending messages queue shown above editor while agent runs
+  const pendingContainer = new Container();
+  const queuedMessages: string[] = [];
+  function renderPending(): void {
+    pendingContainer.clear();
+    for (let i = 0; i < queuedMessages.length; i++) {
+      pendingContainer.addChild(
+        new Text(chalk.dim(` ⏸  queued ${i + 1}/${queuedMessages.length}: `) + chalk.gray(queuedMessages[i]), 0, 0),
+      );
+    }
+  }
+
   const root = new Container();
   root.addChild(history);
   root.addChild(statusContainer);
+  root.addChild(pendingContainer);
   root.addChild(editorContainer);
   root.addChild(footer);
   tui.addChild(root);
@@ -325,6 +338,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       tracker.reset();
       footer.setCost(tracker.format());
       await refreshFooterCtx();
+      queuedMessages.length = 0;
+      renderPending();
       history.reset();
       history.addSystem(`new session ${session.id}`);
       tui.requestRender();
@@ -702,6 +717,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         abort = new AbortController();
         busy = false;
         hideWorking();
+        queuedMessages.length = 0;
+        renderPending();
         history.addSystem("[aborted]");
         tui.requestRender();
         return { consume: true };
@@ -728,14 +745,24 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   });
 
   editor.onSubmit = async (text: string) => {
-    if (!text.trim() || busy) return;
+    text = text.trim();
+    if (!text) return;
 
+    // Slash commands always run inline (no queueing)
     if (text.startsWith("/")) {
       const handled = await commands.run(text, ctx);
       if (!handled) {
         history.addSystem(`unknown command: ${text}`);
         tui.requestRender();
       }
+      return;
+    }
+
+    // If agent is busy, queue this message and run it after the current turn ends
+    if (busy) {
+      queuedMessages.push(text);
+      renderPending();
+      tui.requestRender();
       return;
     }
 
@@ -807,6 +834,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       history.finishAssistant();
       hideWorking();
       tui.requestRender();
+      // Drain queued follow-up messages (FIFO). Each runs as a fresh turn.
+      const next = queuedMessages.shift();
+      if (next !== undefined) {
+        renderPending();
+        if (editor.onSubmit) void editor.onSubmit(next);
+      }
     }
   };
 

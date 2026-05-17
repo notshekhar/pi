@@ -1,17 +1,20 @@
 import { Container, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import {
   AssistantMessageComponent,
-  createAllToolDefinitions,
   parseSkillBlock,
   SkillInvocationMessageComponent,
-  ToolExecutionComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
+import { ToolBox } from "./tool-box";
 import chalk from "chalk";
 
 interface PiAssistantMessage {
   role: "assistant";
-  content: Array<{ type: "text"; text: string } | { type: "thinking"; thinking: string } | { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }>;
+  content: Array<
+    | { type: "text"; text: string }
+    | { type: "thinking"; thinking: string }
+    | { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }
+  >;
   api: string;
   provider: string;
   model: string;
@@ -50,11 +53,17 @@ function emptyAssistantMessage(provider: string, model: string): PiAssistantMess
 export class ChatHistory extends Container {
   private liveMsg: PiAssistantMessage | null = null;
   private liveComponent: AssistantMessageComponent | null = null;
-  private toolComponents = new Map<string, ToolExecutionComponent>();
-  private allToolComponents: ToolExecutionComponent[] = [];
+  private toolComponents = new Map<string, ToolBox>();
+  private allToolComponents: ToolBox[] = [];
   private skillComponents: SkillInvocationMessageComponent[] = [];
   private assistantTurn: Container | null = null;
   private expanded = false;
+
+  constructor(private tui: TUI, private cwd: string) {
+    super();
+    void this.tui;
+    void this.cwd;
+  }
 
   setToolsExpanded(expanded: boolean): void {
     this.expanded = expanded;
@@ -64,13 +73,6 @@ export class ChatHistory extends Container {
   toggleToolsExpanded(): boolean {
     this.setToolsExpanded(!this.expanded);
     return this.expanded;
-  }
-
-  private toolDefs: ReturnType<typeof createAllToolDefinitions>;
-
-  constructor(private tui: TUI, private cwd: string) {
-    super();
-    this.toolDefs = createAllToolDefinitions(cwd);
   }
 
   reset(): void {
@@ -97,7 +99,7 @@ export class ChatHistory extends Container {
     } else {
       this.addChild(new UserMessageComponent(text));
     }
-    this.assistantTurn = null; // next assistant gets its own turn container
+    this.assistantTurn = null;
   }
 
   ensureAssistant(provider: string, model: string): void {
@@ -146,38 +148,24 @@ export class ChatHistory extends Container {
   }
 
   addToolCall(toolName: string, toolCallId: string, args: Record<string, unknown>): void {
-    // Push toolCall into the live assistant content so streaming text resumes AFTER it
     if (this.liveMsg) {
       this.liveMsg.content.push({ type: "toolCall", id: toolCallId, name: toolName, arguments: args });
       this.liveComponent?.updateContent(this.liveMsg as never);
     }
-    // Finalize current assistant component; next delta creates a fresh one below the tool
     this.liveMsg = null;
     this.liveComponent = null;
 
-    const def = (this.toolDefs as Record<string, unknown>)[toolName] as never;
-    const comp = new ToolExecutionComponent(
-      toolName,
-      toolCallId,
-      args,
-      { showImages: false },
-      def,
-      this.tui,
-      this.cwd,
-    );
-    comp.markExecutionStarted();
-    comp.setArgsComplete();
-    if (this.expanded) comp.setExpanded(true);
-    (this.assistantTurn ?? this).addChild(comp);
-    this.toolComponents.set(toolCallId, comp);
-    this.allToolComponents.push(comp);
+    const box = new ToolBox(toolName, args);
+    if (this.expanded) box.setExpanded(true);
+    (this.assistantTurn ?? this).addChild(box);
+    this.toolComponents.set(toolCallId, box);
+    this.allToolComponents.push(box);
   }
 
   addToolResult(toolCallId: string, output: unknown, isError = false): void {
-    const comp = this.toolComponents.get(toolCallId);
-    if (!comp) return;
-    const text = stringifyOutput(output);
-    comp.updateResult({ content: [{ type: "text", text }], isError, details: undefined }, false);
+    const box = this.toolComponents.get(toolCallId);
+    if (!box) return;
+    box.updateResult(output, isError);
     this.toolComponents.delete(toolCallId);
   }
 
@@ -188,22 +176,4 @@ export class ChatHistory extends Container {
   addError(text: string): void {
     this.addChild(new Text(chalk.red(`error: ${text}`), 1, 0));
   }
-}
-
-function stringifyOutput(output: unknown): string {
-  if (output == null) return "";
-  if (typeof output === "string") return output;
-  const o = output as Record<string, unknown>;
-  if (typeof o.stdout === "string" || typeof o.stderr === "string") {
-    return `${o.stdout ?? ""}${o.stderr ? `\n[stderr]\n${o.stderr}` : ""}`.trim();
-  }
-  if (typeof o.content === "string") return o.content;
-  if (typeof o.matches === "string") return o.matches;
-  if (Array.isArray((o as { paths?: unknown }).paths)) return ((o as { paths: string[] }).paths).join("\n");
-  if (Array.isArray((o as { entries?: unknown }).entries)) {
-    return ((o as { entries: { name: string; type: string }[] }).entries)
-      .map((e) => (e.type === "dir" ? `${e.name}/` : e.name))
-      .join("\n");
-  }
-  return JSON.stringify(output, null, 2);
 }

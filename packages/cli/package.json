@@ -1,12 +1,14 @@
 {
   "name": "@pi/cli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "bin": {
     "pi": "./dist/cli.js",
     "agent": "./dist/cli.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup && chmod +x dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",

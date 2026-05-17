@@ -32,12 +32,16 @@
     "zod": "^4.3.5"
   },
   "peerDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "*",
-    "@cursor/sdk": "*"
+    "@anthropic-ai/claude-agent-sdk": "^0.3.143",
+    "@cursor/sdk": "^1.0.13"
   },
   "peerDependenciesMeta": {
-    "@anthropic-ai/claude-agent-sdk": { "optional": true },
-    "@cursor/sdk": { "optional": true }
+    "@anthropic-ai/claude-agent-sdk": {
+      "optional": true
+    },
+    "@cursor/sdk": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/configstore": "^6.0.2",

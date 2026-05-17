@@ -3,7 +3,7 @@ import { parseModelId } from "../index";
 import type { UsageBlock } from "../../types";
 import { readSdkSessionRef, writeSdkSessionRef, type ExternalAgentRunner } from "./types";
 
-type CursorSdk = { Agent: { create: (cfg: unknown) => Promise<unknown> } };
+type CursorSdk = typeof import("@cursor/sdk");
 
 async function loadSdk(): Promise<CursorSdk | null> {
   try {
@@ -20,11 +20,7 @@ export const runCursorAgentTurn: ExternalAgentRunner = async (opts) => {
     return;
   }
 
-  const token =
-    (await resolveAuthToken("cursor-agent")) ??
-    process.env.CURSOR_API_KEY ??
-    null;
-
+  const token = (await resolveAuthToken("cursor-agent")) ?? process.env.CURSOR_API_KEY ?? null;
   if (!token) {
     opts.emitter.emit("error", new Error("No Cursor credentials. Try: /login cursor-agent or export CURSOR_API_KEY"));
     return;
@@ -33,68 +29,58 @@ export const runCursorAgentTurn: ExternalAgentRunner = async (opts) => {
   const { model } = parseModelId(opts.modelId);
   const existingAgentId = readSdkSessionRef(opts.session, "cursor-agent");
 
-  // sdk type loose — beta API. Use any to avoid typecheck churn.
-  const Agent = sdk.Agent as {
-    create: (cfg: unknown) => Promise<unknown>;
-  };
-
-  let agent: { send: (text: string) => Promise<{ id?: string; agentId?: string; stream: () => AsyncIterable<unknown>; cancel?: () => Promise<void> }> };
+  let agent: Awaited<ReturnType<typeof sdk.Agent.create>>;
   try {
-    agent = (await Agent.create({
-      apiKey: token,
-      model: { id: model },
-      local: { cwd: opts.cwd },
-      ...(existingAgentId ? { agentId: existingAgentId } : {}),
-    })) as never;
+    if (existingAgentId) {
+      agent = await sdk.Agent.resume(existingAgentId, { apiKey: token, model: { id: model } });
+    } else {
+      agent = await sdk.Agent.create({
+        apiKey: token,
+        model: { id: model },
+        local: { cwd: opts.cwd },
+      });
+    }
   } catch (err) {
     opts.emitter.emit("error", err);
     return;
   }
+
+  await writeSdkSessionRef(opts.session, "cursor-agent", agent.agentId);
 
   let run: Awaited<ReturnType<typeof agent.send>>;
   try {
     run = await agent.send(opts.userInput);
   } catch (err) {
     opts.emitter.emit("error", err);
+    try {
+      agent.close();
+    } catch {}
     return;
   }
 
-  const onAbort = () => { run.cancel?.().catch(() => {}); };
+  const onAbort = () => {
+    run.cancel().catch(() => {});
+  };
   opts.abortSignal?.addEventListener("abort", onAbort, { once: true });
 
   let assistantText = "";
   let lastUsage: UsageBlock | undefined;
-  const agentRunId = run.id ?? run.agentId;
-  if (agentRunId) await writeSdkSessionRef(opts.session, "cursor-agent", agentRunId);
 
   try {
-    for await (const event of run.stream()) {
+    for await (const msg of run.stream()) {
       if (opts.abortSignal?.aborted) break;
-      const e = event as { type?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown; id?: string; tool_call_id?: string; output?: unknown }> }; usage?: { input_tokens?: number; output_tokens?: number }; status?: string };
 
-      if (e.type === "thinking") {
-        const t = (e as unknown) as { message?: { content?: Array<{ type: string; text?: string }> }; text?: string };
-        if (Array.isArray(t.message?.content)) {
-          for (const block of t.message.content) {
-            if (block.type === "text" && typeof block.text === "string") {
-              opts.emitter.emit("reasoning-delta", block.text);
-            }
-          }
-        } else if (typeof t.text === "string") {
-          opts.emitter.emit("reasoning-delta", t.text);
-        }
+      if (msg.type === "thinking") {
+        if (msg.text) opts.emitter.emit("reasoning-delta", msg.text);
         continue;
       }
 
-      if (e.type === "assistant" && Array.isArray(e.message?.content)) {
-        for (const block of e.message.content) {
-          if (block.type === "text" && typeof block.text === "string") {
+      if (msg.type === "assistant") {
+        for (const block of msg.message.content) {
+          if (block.type === "text") {
             assistantText += block.text;
             opts.emitter.emit("text-delta", block.text);
-          } else if (block.type === "thinking") {
-            const th = (block as unknown) as { text?: string };
-            if (typeof th.text === "string") opts.emitter.emit("reasoning-delta", th.text);
-          } else if (block.type === "tool_call") {
+          } else if (block.type === "tool_use") {
             opts.emitter.emit("tool-call", {
               toolName: block.name,
               args: block.input,
@@ -105,32 +91,36 @@ export const runCursorAgentTurn: ExternalAgentRunner = async (opts) => {
         continue;
       }
 
-      if (e.type === "tool_call") {
-        const c = (e as unknown) as { name?: string; input?: unknown; id?: string };
-        opts.emitter.emit("tool-call", { toolName: c.name, args: c.input, toolCallId: c.id });
-        continue;
-      }
-
-      if (e.type === "tool_result" || e.type === "task") {
-        const c = (e as unknown) as { tool_call_id?: string; output?: unknown };
-        if (c.tool_call_id) {
-          opts.emitter.emit("tool-result", { toolCallId: c.tool_call_id, output: c.output });
+      if (msg.type === "tool_call") {
+        if (msg.status === "running") {
+          opts.emitter.emit("tool-call", {
+            toolName: msg.name,
+            args: msg.args,
+            toolCallId: msg.call_id,
+          });
+        } else if (msg.status === "completed" || msg.status === "error") {
+          opts.emitter.emit("tool-result", {
+            toolCallId: msg.call_id,
+            output: msg.result,
+          });
         }
         continue;
       }
-
-      if (e.usage) {
-        lastUsage = {
-          inputTokens: e.usage.input_tokens,
-          outputTokens: e.usage.output_tokens,
-          totalTokens: (e.usage.input_tokens ?? 0) + (e.usage.output_tokens ?? 0),
-        };
-      }
     }
+
+    const result = await run.wait();
+    if (result.durationMs != null) {
+      // Cursor SDK does not currently expose per-run token usage.
+      lastUsage = undefined;
+    }
+    void result;
   } catch (err) {
     opts.emitter.emit("error", err);
   } finally {
     opts.abortSignal?.removeEventListener("abort", onAbort);
+    try {
+      agent.close();
+    } catch {}
   }
 
   const breakdown = lastUsage ? opts.tracker.add(opts.modelId, lastUsage) : undefined;

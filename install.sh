@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # pi installer — curl pipe friendly
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | PI_REF=v0.1.0 bash
+#   curl -fsSL https://raw.githubusercontent.com/notshekhar/agent/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/notshekhar/agent/main/install.sh | PI_REF=v0.1.0 bash
 set -euo pipefail
 
-REPO="${PI_REPO:-https://github.com/notshekhar/pi.git}"
+REPO="${PI_REPO:-https://github.com/notshekhar/agent.git}"
 REF="${PI_REF:-main}"
 DEST="${PI_HOME:-$HOME/.pi-src}"
 

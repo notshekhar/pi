@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getPiDir } from "../auth/storage";
+import { loadProjectSkills } from "../agent/skills";
 
 export interface CommandContext {
   emit(event: string, data?: unknown): void;
@@ -61,7 +62,8 @@ export class CommandRegistry {
   }
 }
 
-export function registerBuiltins(reg: CommandRegistry): void {
+export function registerBuiltins(reg: CommandRegistry, opts: { cwd?: string } = {}): void {
+  const cwd = opts.cwd ?? process.cwd();
   const cmds: SlashCommand[] = [
     { name: "help", description: "Show available commands", handler: (ctx) => {
       const lines = reg.list().map((c) => `/${c.name} — ${c.description}`);
@@ -137,6 +139,32 @@ export function registerBuiltins(reg: CommandRegistry): void {
   ];
 
   for (const c of cmds) reg.register(c);
+
+  // skills as /skill:name commands (pi-mono parity)
+  try {
+    const sk = loadProjectSkills(cwd);
+    for (const skill of sk.skills) {
+      const name = `skill:${skill.name}`;
+      reg.register({
+        name,
+        description: skill.description.slice(0, 100),
+        handler: (ctx, args) => {
+          let content: string;
+          try {
+            content = readFileSync(skill.filePath, "utf8");
+            content = content.replace(/^---[\s\S]*?---\s*\n/, "").trim();
+          } catch (e) {
+            ctx.emit("error", `failed reading skill ${skill.name}: ${(e as Error).message}`);
+            return;
+          }
+          // pi-mono skill block format — must match parseSkillBlock regex exactly
+          const block = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${content}\n</skill>`;
+          const text = args ? `${block}\n\n${args}` : block;
+          ctx.emit("inject-skill", text);
+        },
+      });
+    }
+  } catch {}
 
   // user prompts as commands
   const promptsDir = join(getPiDir(), "agent", "prompts");

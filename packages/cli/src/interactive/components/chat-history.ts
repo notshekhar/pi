@@ -1,6 +1,8 @@
 import { Container, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import {
   AssistantMessageComponent,
+  parseSkillBlock,
+  SkillInvocationMessageComponent,
   ToolExecutionComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
@@ -49,12 +51,14 @@ export class ChatHistory extends Container {
   private liveComponent: AssistantMessageComponent | null = null;
   private toolComponents = new Map<string, ToolExecutionComponent>();
   private allToolComponents: ToolExecutionComponent[] = [];
+  private skillComponents: SkillInvocationMessageComponent[] = [];
   private assistantTurn: Container | null = null;
   private expanded = false;
 
   setToolsExpanded(expanded: boolean): void {
     this.expanded = expanded;
     for (const c of this.allToolComponents) c.setExpanded(expanded);
+    for (const c of this.skillComponents) c.setExpanded(expanded);
   }
   toggleToolsExpanded(): boolean {
     this.setToolsExpanded(!this.expanded);
@@ -71,12 +75,24 @@ export class ChatHistory extends Container {
     this.liveComponent = null;
     this.toolComponents.clear();
     this.allToolComponents = [];
+    this.skillComponents = [];
     this.assistantTurn = null;
   }
 
   addUser(text: string): void {
     this.addChild(new Spacer(1));
-    this.addChild(new UserMessageComponent(text));
+    const skill = parseSkillBlock(text);
+    if (skill) {
+      const comp = new SkillInvocationMessageComponent(skill);
+      comp.setExpanded(this.expanded);
+      this.addChild(comp);
+      this.skillComponents.push(comp);
+      if (skill.userMessage) {
+        this.addChild(new UserMessageComponent(skill.userMessage));
+      }
+    } else {
+      this.addChild(new UserMessageComponent(text));
+    }
     this.assistantTurn = null; // next assistant gets its own turn container
   }
 

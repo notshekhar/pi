@@ -89,7 +89,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   const tracker = new CostTracker();
   const commands = new CommandRegistry();
-  registerBuiltins(commands);
+  registerBuiltins(commands, { cwd });
 
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, true);
@@ -249,6 +249,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     emit: (event: string, data?: unknown) => {
       if (event === "help" || event === "error") history.addSystem(String(data ?? ""));
       if (event === "inject-prompt") pendingInjection = String(data ?? "");
+      if (event === "inject-skill") {
+        // Skill invocations fire a turn immediately (pi-mono behavior)
+        const text = String(data ?? "");
+        if (text && editor.onSubmit) void editor.onSubmit(text);
+      }
       tui.requestRender();
     },
     setModel: async (id: string) => {
@@ -583,7 +588,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       commands.list().forEach(() => {});
       // re-register builtins + user prompts from disk
       const fresh = new CommandRegistry();
-      registerBuiltins(fresh);
+      registerBuiltins(fresh, { cwd });
       // swap into existing registry
       (commands as unknown as { commands: Map<string, unknown> }).commands = (
         fresh as unknown as { commands: Map<string, unknown> }

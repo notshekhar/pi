@@ -47,10 +47,11 @@ import {
   type ProviderId,
   type Session,
 } from "@pi/core";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { ChatHistory } from "./components/chat-history";
 import { CostFooter } from "./components/cost-footer";
+import { readClipboardImageToFile } from "./clipboard-image";
 
 export interface InteractiveOptions {
   modelId?: string;
@@ -566,6 +567,34 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       }
       tui.requestRender();
     },
+    attachImage: async (givenPath?: string) => {
+      let path = givenPath;
+      if (!path) {
+        history.addSystem(chalk.dim("reading clipboard…"));
+        tui.requestRender();
+        path = readClipboardImageToFile() ?? undefined;
+        if (!path) {
+          history.addSystem(
+            chalk.yellow(
+              "no image in clipboard. Copy one (Cmd+C on a Finder file or screenshot), or use `/attach <path>`.",
+            ),
+          );
+          tui.requestRender();
+          return;
+        }
+      }
+      if (!existsSync(path)) {
+        history.addError(`file not found: ${path}`);
+        tui.requestRender();
+        return;
+      }
+      // insert path string at the end of the editor so user can add a prompt and submit
+      const current = editor.getText?.() ?? "";
+      const sep = current && !current.endsWith(" ") ? " " : "";
+      editor.setText?.(`${current}${sep}${path} `);
+      history.addSystem(chalk.cyan(`📎 staged: ${path}`));
+      tui.requestRender();
+    },
     setSessionName: (name: string) => {
       settingsStore.set(`sessionName.${session.id}`, name);
       history.addSystem(`session name → ${name}`);
@@ -639,6 +668,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const isCtrlD = (d: string) => d === CTRL_D || matchesKey(d, "ctrl+d");
   const isCtrlL = (d: string) => d === "\x0c" || matchesKey(d, "ctrl+l");
   const isCtrlO = (d: string) => d === "\x0f" || matchesKey(d, "ctrl+o");
+  const isCtrlV = (d: string) => d === "\x16" || matchesKey(d, "ctrl+v");
   const isEsc = (d: string) => d === ESC || matchesKey(d, "escape");
 
   // Input listeners (run before editor)
@@ -652,6 +682,15 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       history.addSystem(`tools ${now ? "expanded" : "collapsed"}`);
       tui.requestRender();
       return { consume: true };
+    }
+    if (isCtrlV(data)) {
+      // Try clipboard image. If found, stage it. If no image, let Ctrl+V flow
+      // through to the editor for normal text paste.
+      const path = readClipboardImageToFile();
+      if (path) {
+        void ctx.attachImage(path);
+        return { consume: true };
+      }
     }
     if (isCtrlD(data) && !busy) {
       cleanExit(0);

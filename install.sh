@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# pi installer — curl pipe friendly
-# Usage:
+# pi installer — atomic
 #   curl -fsSL https://raw.githubusercontent.com/notshekhar/agent/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/notshekhar/agent/main/install.sh | PI_REF=v0.1.0 bash
+#
+# Strategy: clone + install + build into a SCRATCH dir.  Only after every
+# step succeeds do we atomically swap it into place and re-link the global
+# `pi` / `agent` binaries.  If you ^C anywhere before the swap, the existing
+# install is untouched.
 set -euo pipefail
 
 REPO="${PI_REPO:-https://github.com/notshekhar/agent.git}"
@@ -17,33 +20,71 @@ need() {
   command -v "$1" >/dev/null 2>&1 || { err "missing required tool: $1"; exit 1; }
 }
 
-bold "▶ pi installer"
+bold "▶ pi installer (atomic)"
 need git
 need node
 need npm
 
-# 1. Clone or update
+# Stage all work in a scratch dir next to the final destination so the final
+# `mv` stays on the same filesystem (atomic on POSIX).
+SCRATCH="${DEST}.new.$$"
+trap 'rm -rf "$SCRATCH" 2>/dev/null || true' EXIT
+
+# Reuse the existing checkout as a git reference when present to speed up clones
+REFERENCE_ARGS=()
 if [ -d "$DEST/.git" ]; then
-  bold "▶ Updating $DEST"
-  git -C "$DEST" fetch --depth=1 origin "$REF"
-  git -C "$DEST" checkout -q "$REF"
-  git -C "$DEST" reset --hard "origin/$REF" 2>/dev/null || true
-else
-  bold "▶ Cloning to $DEST"
-  rm -rf "$DEST"
-  git clone --depth=1 --branch "$REF" "$REPO" "$DEST" 2>/dev/null \
-    || git clone --depth=1 "$REPO" "$DEST"
+  REFERENCE_ARGS=(--reference-if-able "$DEST" --dissociate)
 fi
 
-# 2. Build + link via in-repo script
-cd "$DEST"
-bash ./scripts/build-and-link.sh
+bold "▶ Staging clone → $SCRATCH"
+git clone --depth=1 --branch "$REF" "${REFERENCE_ARGS[@]}" "$REPO" "$SCRATCH" 2>/dev/null \
+  || git clone --depth=1 "$REPO" "$SCRATCH"
 
-# 3. Path hint
-node_bin="$(npm prefix -g 2>/dev/null)/bin"
-if ! echo ":$PATH:" | grep -q ":$node_bin:"; then
-  echo
-  dim "npm global bin: $node_bin"
-  dim "If \`pi\` is not found, add it to PATH:"
-  dim "  export PATH=\"$node_bin:\$PATH\""
+cd "$SCRATCH"
+
+bold "▶ Installing dependencies (scratch)"
+npm install --silent
+
+bold "▶ Building (scratch)"
+npm run gen:catalog --silent
+npm -w @pi/core run build --silent
+npm -w @pi/cli run build --silent
+
+# Sanity check: built binary must exist before we swap
+if [ ! -f "$SCRATCH/packages/cli/dist/cli.js" ]; then
+  err "build did not produce packages/cli/dist/cli.js — aborting"
+  exit 1
 fi
+
+bold "▶ Swapping into place: $DEST"
+# Move the previous install out of the way first (still on disk in case the
+# rename fails); only then rename scratch into DEST.  Both renames are
+# constant-time and atomic on the same filesystem.
+BACKUP=""
+if [ -e "$DEST" ]; then
+  BACKUP="${DEST}.old.$$"
+  mv "$DEST" "$BACKUP"
+fi
+mv "$SCRATCH" "$DEST"
+trap - EXIT
+[ -n "$BACKUP" ] && rm -rf "$BACKUP" 2>/dev/null || true
+
+bold "▶ Linking pi + agent globally"
+cd "$DEST/packages/cli"
+# npm link replaces existing symlinks atomically — no pre-unlink needed.
+npm link --silent
+
+# 5. Verify
+new_pi="$(command -v pi 2>/dev/null || true)"
+new_agent="$(command -v agent 2>/dev/null || true)"
+if [ -z "$new_pi" ] && [ -z "$new_agent" ]; then
+  err "Neither pi nor agent found on PATH after linking. Check your npm global bin path."
+  exit 1
+fi
+
+bold "✓ Installed"
+[ -n "$new_pi" ]    && echo "  pi:    $new_pi"
+[ -n "$new_agent" ] && echo "  agent: $new_agent"
+echo "  source: $DEST"
+echo
+dim "Run \`pi\` or \`agent\` to start. Run \`pi login\` to add a provider."

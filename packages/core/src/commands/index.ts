@@ -22,6 +22,7 @@ export interface CommandContext {
   showHotkeys(): void;
   copyLastAssistant(): Promise<void>;
   setSessionName(name: string): void;
+  attachImage(path?: string): Promise<void> | void;
   exportSession(target?: string): Promise<void>;
   importSession(path: string): Promise<void>;
   reload(): Promise<void>;
@@ -105,6 +106,12 @@ export function registerBuiltins(reg: CommandRegistry, opts: { cwd?: string } = 
       ctx.setSessionName(args);
     } },
     { name: "cost", description: "Show session + lifetime cost", handler: (ctx) => ctx.showCost() },
+    { name: "attach", description: "Attach an image (paste from clipboard, or /attach <path>)", handler: async (ctx, args) => {
+      await ctx.attachImage(args || undefined);
+    } },
+    { name: "paste", description: "Alias for /attach (paste image from clipboard)", handler: async (ctx) => {
+      await ctx.attachImage();
+    } },
     { name: "cwd", description: "Change working directory", handler: (ctx, args) => {
       if (!args) return ctx.emit("error", "usage: /cwd <path>");
       ctx.setCwd(args);

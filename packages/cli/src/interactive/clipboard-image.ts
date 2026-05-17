@@ -8,6 +8,22 @@ import { join } from "node:path";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+/**
+ * Open a native macOS "choose file" dialog. Returns the chosen image path, or null on cancel.
+ */
+export function pickImageFile(): string | null {
+  if (process.platform !== "darwin") return null;
+  const script = `try
+  set theFile to choose file of type {"public.image"} with prompt "Attach image"
+  return POSIX path of theFile
+on error
+  return ""
+end try`;
+  const result = spawnSync("osascript", ["-e", script], { encoding: "utf8" });
+  const path = result.stdout?.trim();
+  return path || null;
+}
+
 export function readClipboardImageToFile(): string | null {
   if (process.platform !== "darwin") return null;
 

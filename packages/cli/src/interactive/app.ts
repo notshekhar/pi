@@ -51,7 +51,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { ChatHistory } from "./components/chat-history";
 import { CostFooter } from "./components/cost-footer";
-import { readClipboardImageToFile } from "./clipboard-image";
+import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
 
 export interface InteractiveOptions {
   modelId?: string;
@@ -583,15 +583,23 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       tui.requestRender();
     },
     attachImage: async (givenPath?: string) => {
+      // Capability gate — only attach if active model accepts images
+      const cat = await getCatalog();
+      const info = cat[modelId];
+      if (info && Array.isArray(info.modalities) && !info.modalities.includes("image")) {
+        history.addSystem(
+          chalk.yellow(`${modelId} does not accept images. Pick a vision model via /model first.`),
+        );
+        tui.requestRender();
+        return;
+      }
       let path = givenPath;
       if (!path) {
-        history.addSystem(chalk.dim("reading clipboard…"));
-        tui.requestRender();
         path = readClipboardImageToFile() ?? undefined;
         if (!path) {
           history.addSystem(
             chalk.yellow(
-              "no image in clipboard. Copy one (Cmd+C on a Finder file or screenshot), or use `/attach <path>`.",
+              "no image in clipboard. Copy one (Cmd+C on a Finder file or screenshot), use `/attach <path>`, or press Ctrl+I to pick a file.",
             ),
           );
           tui.requestRender();
@@ -603,7 +611,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.requestRender();
         return;
       }
-      // insert path string at the end of the editor so user can add a prompt and submit
       const current = editor.getText?.() ?? "";
       const sep = current && !current.endsWith(" ") ? " " : "";
       editor.setText?.(`${current}${sep}${path} `);
@@ -684,6 +691,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const isCtrlL = (d: string) => d === "\x0c" || matchesKey(d, "ctrl+l");
   const isCtrlO = (d: string) => d === "\x0f" || matchesKey(d, "ctrl+o");
   const isCtrlV = (d: string) => d === "\x16" || matchesKey(d, "ctrl+v");
+  // NOTE: \x09 is TAB which legacy terminals share with Ctrl+I — we only match
+  // the Kitty-protocol Ctrl+I so autocomplete (Tab) keeps working.
+  const isCtrlI = (d: string) => matchesKey(d, "ctrl+i");
   const isEsc = (d: string) => d === ESC || matchesKey(d, "escape");
 
   // Input listeners (run before editor)
@@ -707,6 +717,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         return { consume: true };
       }
     }
+    if (isCtrlI(data)) {
+      const path = pickImageFile();
+      if (path) void ctx.attachImage(path);
+      return { consume: true };
+    }
     if (isCtrlD(data) && !busy) {
       cleanExit(0);
       return { consume: true };
@@ -719,7 +734,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         hideWorking();
         queuedMessages.length = 0;
         renderPending();
-        history.addSystem("[aborted]");
         tui.requestRender();
         return { consume: true };
       }
@@ -737,7 +751,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       abort.abort();
       abort = new AbortController();
       busy = false;
-      history.addSystem("[aborted]");
+      hideWorking();
       tui.requestRender();
       return { consume: true };
     }

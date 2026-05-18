@@ -1,7 +1,17 @@
 {
   "name": "@notshekhar/pi",
   "version": "0.0.2",
+  "description": "pi — terminal coding agent. Multi-provider, fast, native TUI.",
+  "license": "MIT",
   "type": "module",
+  "homepage": "https://github.com/notshekhar/pi#readme",
+  "bugs": { "url": "https://github.com/notshekhar/pi/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/notshekhar/pi.git",
+    "directory": "packages/cli"
+  },
+  "keywords": ["ai", "agent", "cli", "tui", "coding", "claude", "cursor", "gpt", "grok", "gemini", "openrouter", "pi"],
   "bin": {
     "pi": "./dist/cli.js",
     "agent": "./dist/cli.js"

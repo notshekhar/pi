@@ -6,12 +6,12 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm -w @pi/core run build --silent && tsx packages/cli/src/cli.ts",
+    "dev": "npm -w @notshekhar/pi-core run build --silent && tsx packages/cli/src/cli.ts",
     "dev:fast": "tsx packages/cli/src/cli.ts",
-    "build": "npm run gen:catalog && npm -w @pi/core run build && npm -w @pi/cli run build",
+    "build": "npm run gen:catalog && npm -w @notshekhar/pi-core run build && npm -w @notshekhar/pi run build",
     "gen:catalog": "tsx packages/core/src/catalog/scripts/generate.ts",
-    "link": "npm -w @pi/cli run build && npm -w @pi/cli link",
-    "typecheck": "npm -w @pi/core run typecheck && npm -w @pi/cli run typecheck"
+    "link": "npm -w @notshekhar/pi run build && npm -w @notshekhar/pi link",
+    "typecheck": "npm -w @notshekhar/pi-core run typecheck && npm -w @notshekhar/pi run typecheck"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

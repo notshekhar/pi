@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { type CommandContext, parseModelId, runTurn, type UsageBlock } from "@pi/core";
+import { type CommandContext, parseModelId, runTurn, type UsageBlock } from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 

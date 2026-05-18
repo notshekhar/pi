@@ -13,10 +13,17 @@ on:
 
 permissions:
   contents: write
+  id-token: write   # npm provenance
 
 jobs:
-  build-and-release:
+  # ─── Job 1: build + package ────────────────────────────────────────────────
+  build:
+    name: build
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      ver: ${{ steps.tag.outputs.ver }}
+      asset: ${{ steps.pkg.outputs.name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,6 +33,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          registry-url: "https://registry.npmjs.org"
 
       - name: Resolve tag
         id: tag
@@ -35,7 +43,6 @@ jobs:
           else
             tag="${GITHUB_REF##*/}"
           fi
-          # Normalize: always have leading `v` for asset names.
           case "$tag" in v*) ;; *) tag="v$tag" ;; esac
           v="${tag#v}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -66,8 +73,6 @@ jobs:
           tag="${{ steps.tag.outputs.tag }}"
           name="pi-${tag}.tar.gz"
           mkdir -p release
-          # Single tarball: dist + package manifests + lockfile. Installer runs
-          # `npm ci --omit=dev` to materialize runtime deps.
           tar -czf "release/${name}" \
             package.json \
             package-lock.json \
@@ -77,13 +82,102 @@ jobs:
           ls -lh release/
           echo "name=${name}" >> "$GITHUB_OUTPUT"
 
+      - name: Pin CLI's @notshekhar/pi-core dep to exact version
+        # Workspaces use `"@notshekhar/pi-core": "*"` locally. For an npm
+        # publish that range is invalid (npm clients couldn't resolve `*`
+        # outside a workspace). Pin it to the version we're about to publish.
+        run: |
+          v="${{ steps.tag.outputs.ver }}"
+          node -e "
+            const fs = require('fs');
+            const cli = JSON.parse(fs.readFileSync('packages/cli/package.json','utf8'));
+            if (cli.dependencies && cli.dependencies['@notshekhar/pi-core']) {
+              cli.dependencies['@notshekhar/pi-core'] = '$v';
+            }
+            fs.writeFileSync('packages/cli/package.json', JSON.stringify(cli, null, 2) + '\n');
+            console.log('cli pinned:', cli.name, cli.version, '→ core', cli.dependencies['@notshekhar/pi-core']);
+          "
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ steps.tag.outputs.tag }}
+          path: |
+            release/
+            packages/cli/dist/
+            packages/core/dist/
+            packages/core/package.json
+            packages/cli/package.json
+            package.json
+            package-lock.json
+          retention-days: 14
+
+  # ─── Job 2: GitHub Release (parallel with npm-publish) ─────────────────────
+  release:
+    name: github-release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-${{ needs.build.outputs.tag }}
+          path: .
+
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: ${{ needs.build.outputs.tag }}
           generate_release_notes: true
-          # Replace assets each run so a re-tag/dispatch keeps things consistent.
           files: |
-            release/${{ steps.pkg.outputs.name }}
-            release/${{ steps.pkg.outputs.name }}.sha256
+            release/${{ needs.build.outputs.asset }}
+            release/${{ needs.build.outputs.asset }}.sha256
+
+  # ─── Job 3: npm publish (parallel with github-release) ─────────────────────
+  npm-publish:
+    name: npm-publish
+    needs: build
+    runs-on: ubuntu-latest
+    # Skip silently if NPM_TOKEN secret is missing (the only required side
+    # effect of this workflow is a GH release; npm publish is opt-in).
+    if: ${{ needs.build.result == 'success' }}
+    steps:
+      - name: Check NPM_TOKEN
+        id: check
+        run: |
+          if [ -n "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::NPM_TOKEN not set — npm publish skipped."
+          fi
+
+      - name: Download build artifact
+        if: steps.check.outputs.publish == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: build-${{ needs.build.outputs.tag }}
+          path: .
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.publish == 'true'
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish @notshekhar/pi-core
+        if: steps.check.outputs.publish == 'true'
+        working-directory: packages/core
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # Core publishes first so the CLI (which pins core to this exact
+        # version) can resolve it on install.
+        run: npm publish --access public --provenance
+
+      - name: Publish @notshekhar/pi
+        if: steps.check.outputs.publish == 'true'
+        working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance

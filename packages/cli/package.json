@@ -1,5 +1,5 @@
 {
-  "name": "@pi/cli",
+  "name": "@notshekhar/pi",
   "version": "0.0.2",
   "type": "module",
   "bin": {
@@ -17,7 +17,7 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.74.1",
     "@earendil-works/pi-tui": "^0.74.1",
-    "@pi/core": "*",
+    "@notshekhar/pi-core": "*",
     "chalk": "^5.5.0"
   },
   "devDependencies": {

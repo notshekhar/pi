@@ -1,4 +1,4 @@
-import type { CommandContext } from "@pi/core";
+import type { CommandContext } from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { isCtrlC, isCtrlD, isCtrlI, isCtrlL, isCtrlO, isCtrlV, isEsc } from "./keys";

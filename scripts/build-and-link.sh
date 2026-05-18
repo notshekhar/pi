@@ -15,7 +15,7 @@ npm install --silent
 
 bold "▶ Building"
 npm run gen:catalog --silent
-npm -w @pi/core run build --silent
+npm -w @notshekhar/pi-core run build --silent
 npm -w @pi/cli run build --silent
 
 if [ ! -f "packages/cli/dist/cli.js" ]; then

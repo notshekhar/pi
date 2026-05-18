@@ -11,7 +11,7 @@ import {
   PROVIDER_IDS,
   setActiveProvider,
   type ProviderId,
-} from "@pi/core";
+} from "@notshekhar/pi-core";
 import type { ChatHistory } from "./components/chat-history";
 import { providerLabel } from "./provider-labels";
 import { openBrowser } from "../open-browser";

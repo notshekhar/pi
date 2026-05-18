@@ -24,7 +24,7 @@ import {
   settingsStore,
   THINKING_LEVEL_DESCRIPTIONS,
   THINKING_LEVELS,
-} from "@pi/core";
+} from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { readClipboardImageToFile } from "./clipboard-image";

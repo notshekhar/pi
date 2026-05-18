@@ -33,7 +33,7 @@ import {
   type ProviderId,
   type Session,
   type UsageBlock,
-} from "@pi/core";
+} from "@notshekhar/pi-core";
 import { ChatHistory } from "./components/chat-history";
 import { CostFooter } from "./components/cost-footer";
 import { selectOnce as selectOnceShared, promptOnce as promptOnceShared } from "./selectors";

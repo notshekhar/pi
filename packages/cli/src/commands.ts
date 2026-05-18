@@ -9,8 +9,8 @@ import {
   SessionManager,
   startSocketServer,
   startStdioServer,
-} from "@pi/core";
-import type { ProviderId } from "@pi/core";
+} from "@notshekhar/pi-core";
+import type { ProviderId } from "@notshekhar/pi-core";
 import { readStdinLine, type Args } from "./args";
 import { runPrint } from "./print";
 import { openBrowser } from "./open-browser";

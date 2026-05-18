@@ -1,4 +1,4 @@
-import type { ProviderId } from "@pi/core";
+import type { ProviderId } from "@notshekhar/pi-core";
 import { runInteractive } from "./interactive/app";
 import { parseArgs } from "./args";
 import {

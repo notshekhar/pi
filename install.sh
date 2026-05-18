@@ -1,32 +1,69 @@
 #!/usr/bin/env bash
-# pi installer — atomic
-#   curl -fsSL https://raw.githubusercontent.com/notshekhar/agent/main/install.sh | bash
+# pi installer
+#   curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | bash
 #
-# Default path: download prebuilt release tarball, verify sha256, npm ci for
-# runtime deps, atomic swap, npm link. Fallback: git clone + build from source
-# when no release exists or PI_FROM_SOURCE=1.
+# Downloads the prebuilt release tarball, runs `npm ci --omit=dev` for runtime
+# deps, atomically swaps into $PI_HOME, and links `pi` + `agent` globally.
+# Source build is the explicit fallback (set PI_FROM_SOURCE=1).
 #
-# Strategy: all work lands in a SCRATCH dir adjacent to DEST so the final mv
-# stays on the same filesystem (atomic on POSIX). ^C before swap leaves the
-# existing install untouched.
+# Requires: node ≥ 20, npm, curl, tar. Errors loudly with install hints when
+# any of these are missing.
+#
+# Env knobs:
+#   PI_REPO_SLUG    notshekhar/pi             override repo
+#   PI_VERSION      vX.Y.Z                    pin a specific tag
+#   PI_HOME         $HOME/.pi-src             install dir
+#   PI_FORCE        1                         skip "already up to date" gate
+#   PI_FROM_SOURCE  1                         git clone + build instead
 
 set -euo pipefail
 
-REPO="${PI_REPO:-https://github.com/notshekhar/agent.git}"
-REPO_SLUG="${PI_REPO_SLUG:-notshekhar/agent}"
+REPO_SLUG="${PI_REPO_SLUG:-notshekhar/pi}"
+REPO="${PI_REPO:-https://github.com/${REPO_SLUG}.git}"
 REF="${PI_REF:-main}"
 DEST="${PI_HOME:-$HOME/.pi-src}"
 FORCE="${PI_FORCE:-0}"
 FROM_SOURCE="${PI_FROM_SOURCE:-0}"
-PIN_VERSION="${PI_VERSION:-}"  # explicit tag override, e.g. v0.2.1
+PIN_VERSION="${PI_VERSION:-}"
 
 bold() { printf "\033[1m%s\033[0m\n" "$*"; }
 dim()  { printf "\033[2m%s\033[0m\n" "$*"; }
 err()  { printf "\033[31m%s\033[0m\n" "$*" >&2; }
 
-need() {
-  command -v "$1" >/dev/null 2>&1 || { err "missing required tool: $1"; exit 1; }
+# ── Prerequisite checks (clear messages, not raw "command not found") ──────
+need_tool() {
+  local cmd="$1" hint="$2"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    err "Missing required tool: $cmd"
+    err "  → $hint"
+    exit 1
+  fi
 }
+ensure_node() {
+  if ! command -v node >/dev/null 2>&1; then
+    err "Missing required tool: node"
+    err
+    err "Install Node.js ≥ 20 first, then re-run this installer:"
+    err "  macOS:        brew install node       (or use nvm)"
+    err "  Linux:        sudo apt install nodejs npm   (or nvm.sh)"
+    err "  Cross-plat:   https://nodejs.org/  /  https://github.com/nvm-sh/nvm"
+    err
+    err "Verify with:  node -v   (must be 20.0.0 or newer)"
+    exit 1
+  fi
+  local major
+  major="$(node -p 'process.versions.node.split(".")[0]')"
+  if [ "$major" -lt 20 ] 2>/dev/null; then
+    err "node version too old: $(node -v) — pi requires ≥ 20.0.0"
+    exit 1
+  fi
+}
+
+bold "▶ pi installer"
+ensure_node
+need_tool npm "Comes with Node.js; reinstall Node from nodejs.org if missing."
+need_tool curl "macOS: preinstalled. Linux: sudo apt install curl"
+need_tool tar  "Standard on macOS/Linux."
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -48,11 +85,6 @@ ver_gt() {
   return 1
 }
 
-bold "▶ pi installer (atomic)"
-need node
-need npm
-need curl
-
 # ── Resolve target version ─────────────────────────────────────────────────
 LATEST_VERSION="${PIN_VERSION}"
 if [ -z "$LATEST_VERSION" ]; then
@@ -60,20 +92,35 @@ if [ -z "$LATEST_VERSION" ]; then
     | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(v\{0,1\}[0-9][^"]*\)".*/\1/p' \
     | head -n1 || true)"
 fi
-
-INSTALLED_VERSION=""
-if [ -f "$DEST/packages/cli/package.json" ]; then
-  INSTALLED_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$DEST/packages/cli/package.json" | head -n1 || true)"
+if [ -z "$LATEST_VERSION" ] && [ "$FROM_SOURCE" != "1" ]; then
+  err "Could not resolve latest release tag from $REPO_SLUG."
+  err "Set PI_VERSION=vX.Y.Z to pin, or PI_FROM_SOURCE=1 to build from main."
+  exit 1
 fi
+# Normalize: always have leading `v` (matches asset names `pi-vX.Y.Z.tar.gz`).
+case "${LATEST_VERSION:-}" in v*|"") ;; *) LATEST_VERSION="v$LATEST_VERSION" ;; esac
 
-# ── Version gate: install only if latest > installed ───────────────────────
+# ── Detect already-installed version (look in both legacy layouts) ─────────
+INSTALLED_VERSION=""
+for candidate in \
+  "$DEST/packages/cli/package.json" \
+  "$HOME/.pi/pi-bin/package.json"
+do
+  if [ -f "$candidate" ]; then
+    INSTALLED_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$candidate" | head -n1 || true)"
+    [ -n "$INSTALLED_VERSION" ] && break
+  fi
+done
+
 if [ "$FORCE" != "1" ] && [ -n "$LATEST_VERSION" ] && [ -n "$INSTALLED_VERSION" ]; then
-  if ! ver_gt "$LATEST_VERSION" "$INSTALLED_VERSION"; then
-    bold "✓ Up to date (installed $INSTALLED_VERSION, latest ${LATEST_VERSION})"
+  if ! ver_gt "${LATEST_VERSION#v}" "${INSTALLED_VERSION#v}"; then
+    bold "✓ Up to date (installed $INSTALLED_VERSION, latest $LATEST_VERSION)"
     dim "Set PI_FORCE=1 to reinstall."
     exit 0
   fi
-  dim "Update: $INSTALLED_VERSION → $LATEST_VERSION"
+  dim "  update: $INSTALLED_VERSION → $LATEST_VERSION"
+else
+  dim "  installing $LATEST_VERSION"
 fi
 
 # ── Stage scratch ──────────────────────────────────────────────────────────
@@ -85,15 +132,19 @@ install_from_release() {
   [ "$FROM_SOURCE" = "1" ] && return 1
   [ -n "$LATEST_VERSION" ] || return 1
 
-  local base url tar sum
+  mkdir -p "$SCRATCH"
+  local base tar sum url
   base="https://github.com/${REPO_SLUG}/releases/download/${LATEST_VERSION}"
+  # Asset naming convention: pi-vX.Y.Z.tar.gz (single tarball, all platforms).
   url="${base}/pi-${LATEST_VERSION}.tar.gz"
   tar="$SCRATCH/pi.tar.gz"
   sum="$SCRATCH/pi.tar.gz.sha256"
 
-  mkdir -p "$SCRATCH"
   bold "▶ Downloading release ${LATEST_VERSION}"
-  curl -fL --progress-bar "$url" -o "$tar" || return 1
+  if ! curl -fL --progress-bar "$url" -o "$tar"; then
+    err "download failed: $url"
+    return 1
+  fi
   curl -fsSL "${url}.sha256" -o "$sum" 2>/dev/null || true
 
   if [ -s "$sum" ]; then
@@ -113,36 +164,31 @@ install_from_release() {
   tar -xzf "$tar" -C "$SCRATCH"
   rm -f "$tar" "$sum"
 
-  bold "▶ Installing runtime deps"
-  (cd "$SCRATCH" && npm ci --omit=dev --silent)
-
   if [ ! -f "$SCRATCH/packages/cli/dist/cli.js" ]; then
     err "release tarball missing packages/cli/dist/cli.js"
     return 1
   fi
+
+  bold "▶ Installing runtime deps (npm ci --omit=dev)"
+  (cd "$SCRATCH" && npm ci --omit=dev --silent --no-audit --no-fund)
   return 0
 }
 
 # ── Path B: git clone + build from source ──────────────────────────────────
 install_from_source() {
-  need git
-  REFERENCE_ARGS=()
-  if [ -d "$DEST/.git" ]; then
-    REFERENCE_ARGS=(--reference-if-able "$DEST" --dissociate)
-  fi
-
+  need_tool git "Install Git first: https://git-scm.com/downloads"
+  mkdir -p "$(dirname "$SCRATCH")"
   bold "▶ Cloning $REPO ($REF)"
-  git clone --depth=1 --branch "$REF" ${REFERENCE_ARGS[@]+"${REFERENCE_ARGS[@]}"} "$REPO" "$SCRATCH" 2>/dev/null \
+  git clone --depth=1 --branch "$REF" "$REPO" "$SCRATCH" 2>/dev/null \
     || git clone --depth=1 "$REPO" "$SCRATCH"
 
-  cd "$SCRATCH"
-  bold "▶ Installing dependencies"
-  npm install --silent
-  bold "▶ Building"
-  npm run gen:catalog --silent
-  npm -w @pi/core run build --silent
-  npm -w @pi/cli run build --silent
-  cd - >/dev/null
+  (
+    cd "$SCRATCH"
+    bold "▶ Installing dependencies"
+    npm install --silent --no-audit --no-fund
+    bold "▶ Building"
+    npm run build --silent
+  )
 
   if [ ! -f "$SCRATCH/packages/cli/dist/cli.js" ]; then
     err "build did not produce packages/cli/dist/cli.js"
@@ -154,7 +200,7 @@ if install_from_release; then
   dim "  installed from release tarball"
 else
   if [ "$FROM_SOURCE" != "1" ]; then
-    dim "  release path unavailable — falling back to source build"
+    dim "  release path failed — falling back to source build"
   fi
   rm -rf "$SCRATCH"
   install_from_source
@@ -162,6 +208,7 @@ fi
 
 # ── Atomic swap ────────────────────────────────────────────────────────────
 bold "▶ Swapping into place: $DEST"
+mkdir -p "$(dirname "$DEST")"
 BACKUP=""
 if [ -e "$DEST" ]; then
   BACKUP="${DEST}.old.$$"
@@ -171,19 +218,39 @@ mv "$SCRATCH" "$DEST"
 trap - EXIT
 [ -n "$BACKUP" ] && rm -rf "$BACKUP" 2>/dev/null || true
 
-# ── Global link ────────────────────────────────────────────────────────────
+# ── Kill shadowing shims from previous installer styles ────────────────────
+# Older bun-compiled installs dropped binaries here.
+for stale in "$HOME/.local/bin/pi" "$HOME/.local/bin/agent" "$HOME/.pi/pi-bin"; do
+  [ -e "$stale" ] && rm -rf "$stale" 2>/dev/null && dim "  removed legacy shim: $stale" || true
+done
+
+# ── Global link via npm ────────────────────────────────────────────────────
 bold "▶ Linking pi + agent globally"
-cd "$DEST/packages/cli"
-npm link --silent
+(cd "$DEST/packages/cli" && npm link --silent --no-audit --no-fund)
+
+# Hash-cache flush so the current shell picks up new binaries immediately.
+hash -r 2>/dev/null || true
 
 new_pi="$(command -v pi 2>/dev/null || true)"
 new_agent="$(command -v agent 2>/dev/null || true)"
 if [ -z "$new_pi" ] && [ -z "$new_agent" ]; then
-  err "Neither pi nor agent found on PATH after linking. Check your npm global bin path."
+  err "Neither pi nor agent found on PATH after linking."
+  err "Check your npm global bin path:  npm bin -g"
+  err "Add it to your shell rc (PATH=\"\$(npm bin -g):\$PATH\")."
   exit 1
 fi
 
-bold "✓ Installed${LATEST_VERSION:+ $LATEST_VERSION}"
+# Verify the resolved binary actually reports the new version.
+if [ -n "$new_pi" ]; then
+  reported="$($new_pi --version 2>/dev/null || true)"
+  if [ -n "$reported" ] && [ -n "${LATEST_VERSION:-}" ] && [ "v${reported#v}" != "$LATEST_VERSION" ]; then
+    err "warning: \`pi --version\` reports $reported but installer expected $LATEST_VERSION."
+    err "  Something else on PATH may be shadowing this install. Try a fresh shell, or:"
+    err "    rm \"$(command -v pi)\" \"\$(command -v agent 2>/dev/null)\" && curl ... | bash"
+  fi
+fi
+
+bold "✓ Installed ${LATEST_VERSION:-from source}"
 [ -n "$new_pi" ]    && echo "  pi:    $new_pi"
 [ -n "$new_agent" ] && echo "  agent: $new_agent"
 echo "  source: $DEST"

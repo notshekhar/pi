@@ -1,4 +1,5 @@
 name: release
+run-name: release ${{ inputs.tag || github.ref_name }} (by @${{ github.actor }})
 
 on:
   push:
@@ -7,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Version tag (e.g. v0.1.0). Required for manual runs."
+        description: "Version tag (e.g. v0.1.5)."
         required: true
 
 permissions:
@@ -30,15 +31,19 @@ jobs:
         id: tag
         run: |
           if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+            tag="${{ github.event.inputs.tag }}"
           else
-            echo "tag=${GITHUB_REF##*/}" >> "$GITHUB_OUTPUT"
+            tag="${GITHUB_REF##*/}"
           fi
+          # Normalize: always have leading `v` for asset names.
+          case "$tag" in v*) ;; *) tag="v$tag" ;; esac
+          v="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "ver=$v"   >> "$GITHUB_OUTPUT"
 
-      - name: Sync package versions with tag
+      - name: Sync package versions
         run: |
-          v="${{ steps.tag.outputs.tag }}"
-          v="${v#v}"
+          v="${{ steps.tag.outputs.ver }}"
           node -e "
             const fs = require('fs');
             for (const p of ['packages/core/package.json','packages/cli/package.json']) {
@@ -48,26 +53,37 @@ jobs:
             }
           "
 
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: npm run typecheck
 
-      - name: Package dist tarball
+      - name: Smoke test built binary
+        run: node packages/cli/dist/cli.js --version
+
+      - name: Package single tarball
+        id: pkg
         run: |
-          v="${{ steps.tag.outputs.tag }}"
-          mkdir -p out
-          tar -czf "out/pi-${v}.tar.gz" \
-            package.json package-lock.json \
+          tag="${{ steps.tag.outputs.tag }}"
+          name="pi-${tag}.tar.gz"
+          mkdir -p release
+          # Single tarball: dist + package manifests + lockfile. Installer runs
+          # `npm ci --omit=dev` to materialize runtime deps.
+          tar -czf "release/${name}" \
+            package.json \
+            package-lock.json \
             packages/core/package.json packages/core/dist \
             packages/cli/package.json packages/cli/dist
-          (cd out && sha256sum "pi-${v}.tar.gz" > "pi-${v}.tar.gz.sha256")
+          (cd release && sha256sum "${name}" > "${name}.sha256")
+          ls -lh release/
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
+      - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
+          # Replace assets each run so a re-tag/dispatch keeps things consistent.
           files: |
-            out/pi-${{ steps.tag.outputs.tag }}.tar.gz
-            out/pi-${{ steps.tag.outputs.tag }}.tar.gz.sha256
+            release/${{ steps.pkg.outputs.name }}
+            release/${{ steps.pkg.outputs.name }}.sha256

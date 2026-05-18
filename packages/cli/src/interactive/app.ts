@@ -66,8 +66,21 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS, ...APP_KEYBINDINGS } as never));
 
   const initialProvider = (opts.provider ?? getActiveProvider() ?? "xai") as ProviderId;
+  const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
+    xai: "xai/grok-4",
+    anthropic: "anthropic/claude-sonnet-4-6",
+    openai: "openai/gpt-5",
+    google: "google/gemini-3.1-pro",
+    openrouter: "openrouter/anthropic/claude-sonnet-4-6",
+    "github-copilot": "github-copilot/gpt-5",
+    "claude-agent": "claude-agent/claude-sonnet-4-6",
+    "cursor-agent": "cursor-agent/composer-2.5",
+  };
   let initialModelId =
-    opts.modelId ?? (settingsStore.get("defaultModel") as string) ?? `${initialProvider}/grok-4`;
+    opts.modelId ??
+    (settingsStore.get("defaultModel") as string) ??
+    PROVIDER_DEFAULT_MODEL[initialProvider] ??
+    `${initialProvider}/grok-4`;
 
   const manager = new SessionManager();
   const initialSession: Session | null = opts.sessionId ? await manager.open(opts.sessionId) : null;

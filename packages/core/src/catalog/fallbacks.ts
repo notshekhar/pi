@@ -104,6 +104,7 @@ const CLAUDE_AGENT: ModelInfo[] = [
 
 // Cursor Agent SDK — Cursor-billed via Pro/Pro+/Ultra credit pool
 const CURSOR_AGENT: ModelInfo[] = [
+  m("cursor-agent", "composer-2.5", "Cursor · Composer 2.5", 200_000, 32_000, { input: 0.5, output: 2.5 }, true, ["text", "image"], "external-agent"),
   m("cursor-agent", "composer-2", "Cursor · Composer 2", 200_000, 32_000, { input: 0.5, output: 2.5 }, true, ["text", "image"], "external-agent"),
   m("cursor-agent", "gpt-5.5", "Cursor · GPT-5.5", 400_000, 128_000, { input: 0, output: 0 }, true, ["text", "image"], "external-agent"),
   m("cursor-agent", "claude-opus-4-7", "Cursor · Claude Opus 4.7", 200_000, 64_000, { input: 0, output: 0 }, true, ["text", "image"], "external-agent"),

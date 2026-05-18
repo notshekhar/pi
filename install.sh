@@ -9,8 +9,10 @@
 set -euo pipefail
 
 REPO="${PI_REPO:-https://github.com/notshekhar/agent.git}"
+REPO_SLUG="${PI_REPO_SLUG:-notshekhar/agent}"
 REF="${PI_REF:-main}"
 DEST="${PI_HOME:-$HOME/.pi-src}"
+FORCE="${PI_FORCE:-0}"
 
 bold() { printf "\033[1m%s\033[0m\n" "$*"; }
 dim()  { printf "\033[2m%s\033[0m\n" "$*"; }
@@ -30,14 +32,46 @@ need npm
 SCRATCH="${DEST}.new.$$"
 trap 'rm -rf "$SCRATCH" 2>/dev/null || true' EXIT
 
-# Reuse the existing checkout as a git reference when present to speed up clones
+# Reuse the existing checkout as a git reference when present to speed up clones.
+# Use `${arr[@]+...}` so the expansion is safe under `set -u` when the array is empty.
 REFERENCE_ARGS=()
 if [ -d "$DEST/.git" ]; then
   REFERENCE_ARGS=(--reference-if-able "$DEST" --dissociate)
 fi
 
+# Version gate: skip work when installed version is >= latest tag.
+# Compare `vX.Y.Z` from GitHub releases API against the installed CLI package.json.
+ver_ge() {
+  # ver_ge A B → returns 0 when A >= B (semver, no pre-releases)
+  local a="${1#v}" b="${2#v}"
+  [ "$a" = "$b" ] && return 0
+  local top
+  top="$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n1)"
+  [ "$top" = "$b" ] && return 0
+  return 1
+}
+
+LATEST_VERSION=""
+if command -v curl >/dev/null 2>&1; then
+  LATEST_VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(v\{0,1\}[0-9][^"]*\)".*/\1/p' \
+    | head -n1 || true)"
+fi
+INSTALLED_VERSION=""
+if [ -f "$DEST/packages/cli/package.json" ]; then
+  INSTALLED_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$DEST/packages/cli/package.json" | head -n1 || true)"
+fi
+
+if [ "$FORCE" != "1" ] && [ -n "$LATEST_VERSION" ] && [ -n "$INSTALLED_VERSION" ]; then
+  if ver_ge "$INSTALLED_VERSION" "$LATEST_VERSION"; then
+    bold "✓ Up to date (installed $INSTALLED_VERSION ≥ latest $LATEST_VERSION)"
+    dim "Set PI_FORCE=1 to reinstall."
+    exit 0
+  fi
+fi
+
 bold "▶ Staging clone → $SCRATCH"
-git clone --depth=1 --branch "$REF" "${REFERENCE_ARGS[@]}" "$REPO" "$SCRATCH" 2>/dev/null \
+git clone --depth=1 --branch "$REF" ${REFERENCE_ARGS[@]+"${REFERENCE_ARGS[@]}"} "$REPO" "$SCRATCH" 2>/dev/null \
   || git clone --depth=1 "$REPO" "$SCRATCH"
 
 cd "$SCRATCH"

@@ -1,0 +1,73 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag (e.g. v0.1.0). Required for manual runs."
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF##*/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sync package versions with tag
+        run: |
+          v="${{ steps.tag.outputs.tag }}"
+          v="${v#v}"
+          node -e "
+            const fs = require('fs');
+            for (const p of ['packages/core/package.json','packages/cli/package.json']) {
+              const j = JSON.parse(fs.readFileSync(p,'utf8'));
+              j.version = '$v';
+              fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+            }
+          "
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+
+      - name: Package dist tarball
+        run: |
+          v="${{ steps.tag.outputs.tag }}"
+          mkdir -p out
+          tar -czf "out/pi-${v}.tar.gz" \
+            package.json package-lock.json \
+            packages/core/package.json packages/core/dist \
+            packages/cli/package.json packages/cli/dist
+          (cd out && sha256sum "pi-${v}.tar.gz" > "pi-${v}.tar.gz.sha256")
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            out/pi-${{ steps.tag.outputs.tag }}.tar.gz
+            out/pi-${{ steps.tag.outputs.tag }}.tar.gz.sha256

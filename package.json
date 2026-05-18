@@ -6,7 +6,8 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "tsx packages/cli/src/cli.ts",
+    "dev": "npm -w @pi/core run build --silent && tsx packages/cli/src/cli.ts",
+    "dev:fast": "tsx packages/cli/src/cli.ts",
     "build": "npm run gen:catalog && npm -w @pi/core run build && npm -w @pi/cli run build",
     "gen:catalog": "tsx packages/core/src/catalog/scripts/generate.ts",
     "link": "npm -w @pi/cli run build && npm -w @pi/cli link",

@@ -1,12 +1,10 @@
 import { EventEmitter } from "node:events";
 import {
-  Box,
   CombinedAutocompleteProvider,
   Container,
   Editor,
   KeybindingsManager,
   Loader,
-  matchesKey,
   ProcessTerminal,
   SelectList,
   type SelectItem,
@@ -26,26 +24,21 @@ import {
   SessionManager,
   registerBuiltins,
   runCompact,
+  CompactAbortedError,
   runTurn,
   getActiveProvider,
   setActiveProvider,
-  loginApiKey,
-  loginXaiOAuth,
-  loginOAuth,
-  logout,
-  saveCustomProvider,
   listAuthorizedProviders,
-  listCustomProviders,
-  fallbackModelsForSdk,
   settingsStore,
-  PROVIDER_IDS,
   getCatalog,
+  getModelSync,
   bustCatalogCache,
   parseModelId,
   loadWorkspaceContext,
   loadProjectSkills,
-  type CustomProviderConfig,
-  type CustomProviderSdk,
+  THINKING_LEVELS,
+  THINKING_LEVEL_DESCRIPTIONS,
+  type ThinkingLevel,
   type ProviderId,
   type Session,
   type UsageBlock,
@@ -55,6 +48,21 @@ import { spawn } from "node:child_process";
 import { ChatHistory } from "./components/chat-history";
 import { CostFooter } from "./components/cost-footer";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
+import {
+  CTRL_C,
+  CTRL_D,
+  ESC,
+  isCtrlC,
+  isCtrlD,
+  isCtrlI,
+  isCtrlL,
+  isCtrlO,
+  isCtrlV,
+  isEsc,
+} from "./keys";
+import { providerLabel } from "./provider-labels";
+import { selectOnce as selectOnceShared, promptOnce as promptOnceShared } from "./selectors";
+import { startLogin, startLogout } from "./login-flow";
 
 export interface InteractiveOptions {
   modelId?: string;
@@ -67,20 +75,6 @@ const editorTheme: EditorTheme = {
   borderColor: (s) => chalk.cyan(s),
   selectList: getSelectListTheme(),
 };
-
-const CTRL_C = "\x03";
-const CTRL_D = "\x04";
-const ESC = "\x1b";
-
-function buildSelectorWrapper(items: SelectItem[], title: string | undefined, list: SelectList): Container {
-  const wrapper = new Container();
-  if (title) wrapper.addChild(new Text(chalk.bold.cyan(` ${title}`), 0, 0));
-  wrapper.addChild(new DynamicBorder());
-  wrapper.addChild(list);
-  wrapper.addChild(new DynamicBorder());
-  wrapper.addChild(new Text(chalk.dim(" ↑↓ navigate · Enter select · Esc cancel"), 0, 0));
-  return wrapper;
-}
 
 export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   initTheme();
@@ -114,6 +108,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   footer.setModel(modelId);
   footer.setSession(session?.id ?? "unsaved");
   footer.setCost(tracker.format());
+  let thinkingLevel: ThinkingLevel = (settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off";
+  footer.setThinking(thinkingLevel);
   let latestContextTokens = 0;
 
   async function ensureSession(): Promise<Session> {
@@ -123,24 +119,26 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     return session;
   }
 
-  async function refreshFooterCtx(usage?: UsageBlock): Promise<void> {
-    if (usage) {
-      latestContextTokens = (usage.inputTokens ?? 0) + (usage.cachedInputTokens ?? 0);
-    }
-    const cat = await getCatalog();
-    const info = cat[modelId];
+  function ctxTokensFromUsage(u: UsageBlock): number {
+    if (typeof u.totalTokens === "number" && u.totalTokens > 0) return u.totalTokens;
+    return (u.inputTokens ?? 0) + (u.outputTokens ?? 0) + (u.cachedInputTokens ?? 0);
+  }
+
+  function refreshFooterCtx(usage?: UsageBlock): void {
+    if (usage) latestContextTokens = ctxTokensFromUsage(usage);
+    const info = getModelSync(modelId);
     footer.setContext(latestContextTokens, info?.contextWindow ?? 0);
   }
 
-  async function refreshFooter(usage?: UsageBlock): Promise<void> {
+  function refreshFooter(usage?: UsageBlock): void {
     footer.setCost(tracker.format());
-    await refreshFooterCtx(usage);
+    refreshFooterCtx(usage);
     tui.requestRender();
   }
   function pickContextUsage(event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }): UsageBlock | undefined {
     return event.lastStepUsage ?? event.usage;
   }
-  void refreshFooterCtx();
+  refreshFooterCtx();
 
   const editor = new Editor(tui, editorTheme, { paddingX: 1 });
 
@@ -219,42 +217,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     };
   }
 
-  const selectOnce = (items: SelectItem[], title?: string): Promise<SelectItem | null> =>
-    new Promise((resolve) => {
-      if (!items.length) {
-        resolve(null);
-        return;
-      }
-      const visible = Math.min(items.length, 10);
-      const list = new SelectList(items, visible, getSelectListTheme());
-      const wrapper = buildSelectorWrapper(items, title, list);
-      const close = showSelector(wrapper, list);
-      let done = false;
-      const finish = (v: SelectItem | null) => {
-        if (done) return;
-        done = true;
-        close();
-        resolve(v);
-      };
-      list.onSelect = (item) => finish(item);
-      list.onCancel = () => finish(null);
-    });
-
-  const promptOnceLocal = (label?: string): Promise<string> =>
-    new Promise((resolve) => {
-      const tempEditor = new Editor(tui, editorTheme, { paddingX: 1 });
-      const wrapper = new Container();
-      if (label) wrapper.addChild(new Text(chalk.cyan(` ${label}`), 0, 0));
-      wrapper.addChild(new DynamicBorder());
-      wrapper.addChild(tempEditor);
-      wrapper.addChild(new DynamicBorder());
-      wrapper.addChild(new Text(chalk.dim(" Enter to submit · Esc to cancel"), 0, 0));
-      const close = showSelector(wrapper, tempEditor as never);
-      tempEditor.onSubmit = (text) => {
-        close();
-        resolve(text.trim());
-      };
-    });
+  const selectorHost = { tui, showSelector };
+  const selectOnce = (items: SelectItem[], title?: string) =>
+    selectOnceShared(selectorHost, items, title);
+  const promptOnceLocal = (label?: string) => promptOnceShared(selectorHost, editorTheme, label);
 
   history.addSystem(`pi · ${modelId} · session ${session?.id ?? "unsaved"}`);
   history.addSystem(`Type /help for commands. Ctrl+C twice to quit.`);
@@ -313,7 +279,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       modelId = resolved;
       settingsStore.set("defaultModel", resolved);
       footer.setModel(resolved);
-      await refreshFooter();
+      refreshFooter();
       history.addSystem(`model → ${resolved}`);
       tui.requestRender();
     },
@@ -358,7 +324,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       footer.setSession("unsaved");
       tracker.reset();
       latestContextTokens = 0;
-      await refreshFooter();
+      refreshFooter();
       queuedMessages.length = 0;
       renderPending();
       history.reset();
@@ -370,7 +336,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
       tracker.reset();
       latestContextTokens = 0;
-      void refreshFooter();
+      refreshFooter();
       history.reset();
       tui.invalidate();
       tui.requestRender(true);
@@ -381,18 +347,54 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.requestRender();
         return;
       }
+      if (busy) {
+        history.addSystem("busy; finish or abort current turn first");
+        tui.requestRender();
+        return;
+      }
+      busy = true;
       showWorking("Compacting");
       tui.requestRender();
       try {
-        const result = await runCompact({ session, modelId, keepTurns: 0 });
+        const result = await runCompact({ session, modelId, keepTurns: 0, abortSignal: abort.signal });
         if (result.summary) {
           history.addCompactionSummary(result.summary, result.tokensBefore);
         } else {
           history.addSystem("nothing to compact");
         }
+      } catch (err) {
+        if (err instanceof CompactAbortedError || abort.signal.aborted) {
+          history.addSystem("compact aborted");
+        } else {
+          history.addError((err as Error).message);
+        }
       } finally {
+        busy = false;
         hideWorking();
       }
+      tui.requestRender();
+    },
+    setThinking: async (level?: string) => {
+      let target = level as ThinkingLevel | undefined;
+      if (!target) {
+        const items: SelectItem[] = THINKING_LEVELS.map((lv) => ({
+          value: lv,
+          label: lv,
+          description: THINKING_LEVEL_DESCRIPTIONS[lv] + (lv === thinkingLevel ? "  (current)" : ""),
+        }));
+        const pick = await selectOnce(items, "Thinking level");
+        if (!pick) return;
+        target = pick.value as ThinkingLevel;
+      }
+      if (!(THINKING_LEVELS as readonly string[]).includes(target)) {
+        history.addSystem(chalk.red(`unknown thinking level: ${target}. options: ${THINKING_LEVELS.join(", ")}`));
+        tui.requestRender();
+        return;
+      }
+      thinkingLevel = target;
+      settingsStore.set("thinkingLevel", target);
+      footer.setThinking(target);
+      history.addSystem(`thinking → ${target}`);
       tui.requestRender();
     },
     showCost: () => {
@@ -469,156 +471,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       history.addSystem(`cwd → ${cwd}`);
       tui.requestRender();
     },
-    startLogin: async (target?: string) => {
-      let p: ProviderId | null = null;
-      if (target) {
-        if (!(PROVIDER_IDS as readonly string[]).includes(target)) {
-          history.addSystem(`unknown provider: ${target}. options: ${PROVIDER_IDS.join(", ")}`);
-          tui.requestRender();
-          return;
-        }
-        p = target as ProviderId;
-      } else {
-        const items: SelectItem[] = PROVIDER_IDS.map((id) => ({
-          value: id,
-          label: id,
-          description: providerLabel(id),
-        }));
-        const pick = await selectOnce(items, "Sign in to provider");
-        if (!pick) return;
-        p = pick.value as ProviderId;
-      }
-
-      if (p === "xai") {
-        // ask subscription vs api key
-        const mode = await selectOnce([
-          {
-            value: "oauth",
-            label: "Sign in with xAI (SuperGrok subscription)",
-            description: "OAuth, opens browser",
-          },
-          { value: "apikey", label: "Use API key", description: "Paste your XAI_API_KEY" },
-        ]);
-        if (!mode) return;
-        if (mode.value === "oauth") {
-          history.addSystem("xAI login: launching OAuth in your browser…");
-          tui.requestRender();
-          try {
-            await loginXaiOAuth(({ url, instructions }) => {
-              history.addSystem(instructions);
-              history.addSystem(chalk.cyan(url));
-              tui.requestRender();
-            });
-            setActiveProvider("xai");
-            history.addSystem(chalk.green("✓ xAI subscription connected."));
-          } catch (err) {
-            history.addError(`xAI login failed: ${(err as Error).message}`);
-          }
-          tui.requestRender();
-          return;
-        }
-      }
-
-      if (p === "github-copilot") {
-        history.addSystem("GitHub Copilot: starting device flow…");
-        tui.requestRender();
-        try {
-          await loginOAuth("github-copilot", {
-            onAuth: ({ url, instructions }) => {
-              if (instructions) history.addSystem(instructions);
-              history.addSystem(chalk.cyan(url));
-              tui.requestRender();
-            },
-            onPrompt: async ({ message }) => {
-              history.addSystem(message);
-              tui.requestRender();
-              return promptOnceLocal("");
-            },
-            onProgress: (msg) => {
-              history.addSystem(msg);
-              tui.requestRender();
-            },
-          });
-          setActiveProvider("github-copilot");
-          bustCatalogCache();
-          history.addSystem(chalk.green("✓ GitHub Copilot connected."));
-        } catch (err) {
-          history.addError(`Copilot login failed: ${(err as Error).message}`);
-        }
-        tui.requestRender();
-        return;
-      }
-
-      if (p === "claude-agent") {
-        const mode = await selectOnce([
-          { value: "apikey", label: "API key", description: "Paste your ANTHROPIC_API_KEY" },
-          { value: "oauth", label: "Claude Pro/Max OAuth", description: "Subscription bearer (no API spend)" },
-        ]);
-        if (!mode) return;
-        if (mode.value === "oauth") {
-          history.addSystem("Anthropic OAuth: opening browser…");
-          tui.requestRender();
-          try {
-            await loginOAuth("claude-agent", {
-              onAuth: ({ url, instructions }) => {
-                if (instructions) history.addSystem(instructions);
-                history.addSystem(chalk.cyan(url));
-                tui.requestRender();
-              },
-              onPrompt: async ({ message }) => {
-                history.addSystem(message);
-                tui.requestRender();
-                return promptOnceLocal("");
-              },
-            });
-            setActiveProvider("claude-agent");
-            bustCatalogCache();
-            history.addSystem(chalk.green("✓ Claude Pro/Max connected."));
-          } catch (err) {
-            history.addError(`Claude OAuth failed: ${(err as Error).message}`);
-          }
-          tui.requestRender();
-          return;
-        }
-      }
-
-      history.addSystem(`${p}: paste API key, then press Enter.`);
-      tui.requestRender();
-      const key = await promptOnceLocal(`${p.toUpperCase().replace(/-/g, "_")}_API_KEY: `);
-      if (key) {
-        loginApiKey(p, key);
-        setActiveProvider(p);
-        bustCatalogCache();
-        history.addSystem(chalk.green(`✓ ${p} key saved.`));
-        tui.requestRender();
-      }
-    },
-    startLogout: async (target?: string) => {
-      let pick = target;
-      if (!pick) {
-        const authed = listAuthorizedProviders();
-        if (authed.length === 0) {
-          history.addSystem("no providers to sign out from");
-          tui.requestRender();
-          return;
-        }
-        const items: SelectItem[] = [
-          ...authed.map((id) => ({ value: id, label: id, description: id === getActiveProvider() ? "(active)" : "" })),
-          { value: "__all__", label: chalk.red("all providers"), description: "Sign out from every provider" },
-        ];
-        const sel = await selectOnce(items);
-        if (!sel) return;
-        pick = sel.value;
-      }
-      if (pick === "__all__") {
-        logout();
-        history.addSystem("signed out of all providers");
-      } else {
-        logout(pick as ProviderId);
-        history.addSystem(`signed out of ${pick}`);
-      }
-      tui.requestRender();
-    },
+    startLogin: (target?: string) =>
+      startLogin({ tui, history, selectOnce, promptOnce: promptOnceLocal }, target),
+    startLogout: (target?: string) =>
+      startLogout({ tui, history, selectOnce, promptOnce: promptOnceLocal }, target),
     openSettings: async () => {
       const items: SelectItem[] = [
         { value: "theme", label: `theme: ${settingsStore.get("theme") ?? "dark"}` },
@@ -672,6 +528,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       history.addSystem(`session id   ${session?.id ?? "unsaved"}`);
       history.addSystem(`model        ${modelId}`);
       history.addSystem(`provider     ${provider}`);
+      history.addSystem(`thinking     ${thinkingLevel}`);
       history.addSystem(`cwd          ${cwd}`);
       history.addSystem(`tokens       in:${s.inputTokens} out:${s.outputTokens} cache:${s.cachedInputTokens}`);
       history.addSystem(`cost (sess)  $${s.usd.toFixed(4)}`);
@@ -833,16 +690,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     }
   }
 
-  const isCtrlC = (d: string) => d === CTRL_C || matchesKey(d, "ctrl+c");
-  const isCtrlD = (d: string) => d === CTRL_D || matchesKey(d, "ctrl+d");
-  const isCtrlL = (d: string) => d === "\x0c" || matchesKey(d, "ctrl+l");
-  const isCtrlO = (d: string) => d === "\x0f" || matchesKey(d, "ctrl+o");
-  const isCtrlV = (d: string) => d === "\x16" || matchesKey(d, "ctrl+v");
-  // NOTE: \x09 is TAB which legacy terminals share with Ctrl+I — we only match
-  // the Kitty-protocol Ctrl+I so autocomplete (Tab) keeps working.
-  const isCtrlI = (d: string) => matchesKey(d, "ctrl+i");
-  const isEsc = (d: string) => d === ESC || matchesKey(d, "escape");
-
   // Input listeners (run before editor)
   tui.addInputListener((data) => {
     if (isCtrlL(data)) {
@@ -962,15 +809,16 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       showWorking("Compacting");
       tui.requestRender();
     });
-    emitter.on("compact-end", async (r: { summary: string; tokensBefore: number; tokensAfter?: number }) => {
-      if (r.summary) history.addCompactionSummary(r.summary, r.tokensBefore);
+    emitter.on("compact-end", async (r: { summary: string; tokensBefore: number; tokensAfter?: number; aborted?: boolean }) => {
+      if (r.aborted) history.addSystem("compact aborted");
+      else if (r.summary) history.addCompactionSummary(r.summary, r.tokensBefore);
       if (typeof r.tokensAfter === "number") latestContextTokens = r.tokensAfter;
-      await refreshFooter();
+      refreshFooter();
       tui.requestRender();
     });
     emitter.on("finish", (event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }) => {
       history.finishAssistant();
-      void refreshFooter(pickContextUsage(event));
+      refreshFooter(pickContextUsage(event));
       tui.requestRender();
     });
     emitter.on("error", (err: unknown) => {
@@ -987,6 +835,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         abortSignal: abort.signal,
         tracker,
         emitter,
+        thinkingLevel,
       });
     } catch (err) {
       history.addError((err as Error).message);
@@ -1009,25 +858,3 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   tui.requestRender();
 }
 
-function providerLabel(id: string): string {
-  switch (id) {
-    case "xai":
-      return "xAI (Grok) — OAuth subscription or API key";
-    case "anthropic":
-      return "Anthropic — API key";
-    case "openai":
-      return "OpenAI — API key";
-    case "google":
-      return "Google — API key";
-    case "openrouter":
-      return "OpenRouter — API key";
-    case "github-copilot":
-      return "GitHub Copilot — OAuth (device flow)";
-    case "claude-agent":
-      return "Claude Agent SDK — API key or Claude Pro/Max OAuth";
-    case "cursor-agent":
-      return "Cursor Agent SDK — API key (Pro pool billing)";
-    default:
-      return "";
-  }
-}

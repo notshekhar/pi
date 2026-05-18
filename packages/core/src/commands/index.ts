@@ -9,6 +9,7 @@ export interface CommandContext {
   setProvider(p?: string): Promise<void> | void;
   newSession(): Promise<void>;
   manualCompact(): Promise<void>;
+  setThinking(level?: string): Promise<void> | void;
   showCost(): void;
   showSessions(): Promise<void>;
   exit(): void;
@@ -91,6 +92,9 @@ export function registerBuiltins(reg: CommandRegistry, opts: { cwd?: string } = 
     } },
     { name: "compact", description: "Manually compact the session context", handler: async (ctx) => {
       await ctx.manualCompact();
+    } },
+    { name: "thinking", description: "Set reasoning/thinking level (off|minimal|low|medium|high|xhigh)", handler: async (ctx, args) => {
+      await ctx.setThinking(args || undefined);
     } },
     { name: "resume", description: "Resume a different session", handler: async (ctx) => {
       await ctx.showSessions();

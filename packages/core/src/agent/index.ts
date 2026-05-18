@@ -12,12 +12,19 @@ import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
 import { CostTracker } from "./cost";
 import { compactedContextMessages, runCompact } from "./compact";
+import { buildProviderOptions, type ThinkingLevel } from "./thinking";
 import { getProviderKind } from "../types";
 import type { Session } from "../sessions";
 import type { UsageBlock } from "../types";
 
 export { CostTracker } from "./cost";
-export { runCompact } from "./compact";
+export { runCompact, CompactAbortedError } from "./compact";
+export {
+  THINKING_LEVELS,
+  THINKING_LEVEL_DESCRIPTIONS,
+  buildProviderOptions,
+  type ThinkingLevel,
+} from "./thinking";
 export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
 export { loadProjectSkills, type Skill } from "./skills";
 
@@ -30,6 +37,7 @@ export interface RunTurnOptions {
   tracker: CostTracker;
   emitter: EventEmitter;
   maxSteps?: number;
+  thinkingLevel?: ThinkingLevel;
 }
 
 function estimateContextTokens(messages: ModelMessage[]): number {
@@ -70,8 +78,16 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const tokens = estimateContextTokens(messages);
     if (tokens > modelInfo.contextWindow * threshold) {
       emitter.emit("compact-start", { reason: "auto" });
-      const result = await runCompact({ session, modelId });
-      emitter.emit("compact-end", result);
+      try {
+        const result = await runCompact({ session, modelId, abortSignal });
+        emitter.emit("compact-end", result);
+      } catch (err) {
+        if (abortSignal?.aborted) {
+          emitter.emit("compact-end", { summary: "", cutAt: 0, tokensBefore: 0, tokensAfter: 0, aborted: true });
+          return;
+        }
+        throw err;
+      }
     }
   }
 
@@ -117,6 +133,15 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     }
   }
 
+  const thinkingLevel: ThinkingLevel =
+    opts.thinkingLevel ?? ((settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off");
+  const catalogEntry = (await getCatalog())[modelId];
+  const { model: modelShortId } = parseModelId(modelId);
+  const providerOptions =
+    catalogEntry?.reasoning === false
+      ? undefined
+      : buildProviderOptions(provider, thinkingLevel, modelShortId);
+
   const result = streamText({
     model,
     system,
@@ -125,6 +150,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     stopWhen: stepCountIs(maxSteps),
     abortSignal,
     experimental_transform: smoothStream({ delayInMs: 20, chunking: "word" }),
+    ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
   });
 
   let assistantText = "";

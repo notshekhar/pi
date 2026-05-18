@@ -50,10 +50,24 @@ export function compactedContextMessages(session: Session): Array<{ role: "user"
   return [{ role: "user", content: summary }, ...messages.slice(compact.cutAt)];
 }
 
+export class CompactAbortedError extends Error {
+  constructor() {
+    super("compact aborted");
+    this.name = "CompactAbortedError";
+  }
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!err) return false;
+  const e = err as { name?: string; message?: string };
+  return e.name === "AbortError" || /aborted/i.test(e.message ?? "");
+}
+
 export async function runCompact(opts: {
   session: Session;
   modelId: string;
   keepTurns?: number;
+  abortSignal?: AbortSignal;
 }): Promise<CompactResult> {
   const keep = opts.keepTurns ?? 4;
   const messages = opts.session.messages();
@@ -64,6 +78,8 @@ export async function runCompact(opts: {
     return { summary: "", cutAt: 0, tokensBefore: 0, tokensAfter: 0 };
   }
 
+  if (opts.abortSignal?.aborted) throw new CompactAbortedError();
+
   const head = messages.slice(previousCut, cut);
   const previousSummary = previousCompact
     ? `${COMPACTION_SUMMARY_PREFIX}${previousCompact.summary}${COMPACTION_SUMMARY_SUFFIX}\n`
@@ -73,11 +89,21 @@ export async function runCompact(opts: {
   const tokensBefore = estimateTokens(fullContextText);
 
   const model = await getModel(opts.modelId);
-  const { text } = await generateText({
-    model,
-    system: COMPACT_PROMPT,
-    prompt: headText,
-  });
+  let text: string;
+  try {
+    const result = await generateText({
+      model,
+      system: COMPACT_PROMPT,
+      prompt: headText,
+      abortSignal: opts.abortSignal,
+    });
+    text = result.text;
+  } catch (err) {
+    if (isAbortError(err) || opts.abortSignal?.aborted) throw new CompactAbortedError();
+    throw err;
+  }
+
+  if (opts.abortSignal?.aborted) throw new CompactAbortedError();
 
   const tokensAfter = estimateTokens(text);
   await opts.session.append({

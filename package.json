@@ -11,7 +11,7 @@
     "build": "npm run gen:catalog && npm -w @pi/core run build && npm -w @pi/cli run build",
     "gen:catalog": "tsx packages/core/src/catalog/scripts/generate.ts",
     "link": "npm -w @pi/cli run build && npm -w @pi/cli link",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "npm -w @pi/core run typecheck && npm -w @pi/cli run typecheck"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

@@ -3,6 +3,10 @@ import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
+
+const FALLBACK_BY_ID: Record<string, ModelInfo> = Object.fromEntries(
+  FALLBACK_MODELS.map((m) => [m.id, m]),
+);
 import { getPiDir } from "../auth/storage";
 import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders } from "../auth";
 import type { ModelInfo, ProviderId } from "../types";
@@ -184,7 +188,7 @@ export async function getModel(id: string): Promise<ModelInfo | undefined> {
 }
 
 export function getModelSync(id: string): ModelInfo | undefined {
-  return GENERATED_MODELS[id];
+  return GENERATED_MODELS[id] ?? FALLBACK_BY_ID[id];
 }
 
 export { GENERATED_MODELS };

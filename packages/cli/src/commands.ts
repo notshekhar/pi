@@ -15,7 +15,8 @@ import { readStdinLine, type Args } from "./args";
 import { runPrint } from "./print";
 import { openBrowser } from "./open-browser";
 
-const UPGRADE_URL = "https://raw.githubusercontent.com/notshekhar/agent/main/install.sh";
+const UPGRADE_SH_URL = "https://raw.githubusercontent.com/notshekhar/agent/main/install.sh";
+const UPGRADE_PS1_URL = "https://raw.githubusercontent.com/notshekhar/agent/main/install.ps1";
 const RELEASES_API = "https://api.github.com/repos/notshekhar/agent/releases/latest";
 
 function semverGt(a: string, b: string): boolean {
@@ -50,7 +51,7 @@ Usage:
   pi models                List available models
   pi whoami                Show active provider + auth status
   pi rpc [--socket]        Start JSON-RPC server
-  pi upgrade               Pull latest and rebuild
+  pi upgrade [--force]     Download latest release binary
   pi version | -v          Print version
 
 Flags:
@@ -73,7 +74,13 @@ export async function runUpgrade(version: string, opts: { force?: boolean } = {}
     console.log("▶ Could not query latest release; running installer anyway.");
   }
   const env = { ...process.env, ...(opts.force ? { PI_FORCE: "1" } : {}) };
-  const r = spawnSync("bash", ["-c", `curl -fsSL ${UPGRADE_URL} | bash`], { stdio: "inherit", env });
+  const r = process.platform === "win32"
+    ? spawnSync(
+        "powershell",
+        ["-NoProfile", "-Command", `irm ${UPGRADE_PS1_URL} | iex`],
+        { stdio: "inherit", env },
+      )
+    : spawnSync("bash", ["-c", `curl -fsSL ${UPGRADE_SH_URL} | bash`], { stdio: "inherit", env });
   process.exit(r.status ?? 1);
 }
 

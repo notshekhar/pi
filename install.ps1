@@ -71,18 +71,44 @@ if (-not $Force -and $Installed) {
 }
 
 # ── Download tarball ───────────────────────────────────────────────────────
-$BaseUrl  = "https://github.com/$RepoSlug/releases/download/$Latest"
-$TarName  = "pi-$Latest-$target.tar.gz"
-$SumName  = "$TarName.sha256"
+$LatestNoV = $Latest -replace '^v',''
+$LatestV   = "v$LatestNoV"
 
 $Tmp = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ("pi-install-" + [guid]::NewGuid().ToString("N")))
-try {
-  $TarPath = Join-Path $Tmp $TarName
-  $SumPath = Join-Path $Tmp $SumName
 
-  Write-Bold "[Downloading] $TarName"
-  Invoke-WebRequest -Uri "$BaseUrl/$TarName" -OutFile $TarPath
-  try { Invoke-WebRequest -Uri "$BaseUrl/$SumName" -OutFile $SumPath -ErrorAction Stop } catch { }
+$TarName = $null
+$SumName = $null
+$TarPath = $null
+$SumPath = $null
+
+# Try tag with and without leading `v`, asset name with and without.
+:download foreach ($tagSeg in @($Latest, $LatestNoV)) {
+  foreach ($nameSeg in @($LatestV, $LatestNoV)) {
+    $candidate = "pi-$nameSeg-$target.tar.gz"
+    $url       = "https://github.com/$RepoSlug/releases/download/$tagSeg/$candidate"
+    Write-Bold "[Downloading] $candidate"
+    try {
+      $TarPath = Join-Path $Tmp $candidate
+      Invoke-WebRequest -Uri $url -OutFile $TarPath -ErrorAction Stop
+      $TarName = $candidate
+      $SumName = "$candidate.sha256"
+      $SumPath = Join-Path $Tmp $SumName
+      try { Invoke-WebRequest -Uri "$url.sha256" -OutFile $SumPath -ErrorAction Stop } catch { }
+      break download
+    } catch {
+      Remove-Item -Force $TarPath -ErrorAction SilentlyContinue
+      $TarPath = $null
+      Write-Dim "  miss: $url"
+    }
+  }
+}
+
+if (-not $TarName) {
+  Write-Err "No prebuilt binary for $target in release $Latest"
+  exit 1
+}
+
+try {
 
   if (Test-Path $SumPath) {
     $expected = (Get-Content $SumPath | Select-Object -First 1).Split(" ")[0]

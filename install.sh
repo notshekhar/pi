@@ -95,6 +95,8 @@ if [ -z "$LATEST_VERSION" ]; then
   err "could not resolve a release version. Set PI_VERSION=vX.Y.Z to pin one."
   exit 1
 fi
+# Normalize: always include leading `v` so asset names match `pi-vX.Y.Z-…`.
+case "$LATEST_VERSION" in v*) ;; *) LATEST_VERSION="v$LATEST_VERSION" ;; esac
 
 INSTALLED_VERSION=""
 if [ -x "$BIN_DIR/pi-bin/pi" ]; then
@@ -114,20 +116,37 @@ else
 fi
 
 # ── Download tarball ───────────────────────────────────────────────────────
-BASE_URL="https://github.com/${REPO_SLUG}/releases/download/${LATEST_VERSION}"
-TAR_NAME="pi-${LATEST_VERSION}-${target}.tar.gz"
-SUM_NAME="${TAR_NAME}.sha256"
-
+# Tag on GitHub may be `v0.1.3` or `0.1.3` depending on how it was pushed; the
+# tarball name is normalized to `pi-vX.Y.Z-<target>.tar.gz`. Try the tag with
+# and without the leading `v` for both URL segments.
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-bold "▶ Downloading $TAR_NAME"
-if ! curl -fL --progress-bar "${BASE_URL}/${TAR_NAME}" -o "$TMP_DIR/$TAR_NAME"; then
-  err "download failed: ${BASE_URL}/${TAR_NAME}"
-  err "no prebuilt binary for ${target} in release ${LATEST_VERSION}?"
+TAR_NAME=""
+SUM_NAME=""
+DOWNLOADED=""
+
+for tag_segment in "$LATEST_VERSION" "${LATEST_VERSION#v}"; do
+  for name_segment in "v${LATEST_VERSION#v}" "${LATEST_VERSION#v}"; do
+    candidate="pi-${name_segment}-${target}.tar.gz"
+    url="https://github.com/${REPO_SLUG}/releases/download/${tag_segment}/${candidate}"
+    bold "▶ Downloading $candidate"
+    if curl -fL --progress-bar "$url" -o "$TMP_DIR/$candidate" 2>/dev/null; then
+      TAR_NAME="$candidate"
+      SUM_NAME="${candidate}.sha256"
+      DOWNLOADED="$url"
+      curl -fsSL "${url}.sha256" -o "$TMP_DIR/$SUM_NAME" 2>/dev/null || true
+      break 2
+    fi
+    rm -f "$TMP_DIR/$candidate"
+    dim "  miss: $url"
+  done
+done
+
+if [ -z "$DOWNLOADED" ]; then
+  err "no prebuilt binary for ${target} in release ${LATEST_VERSION}"
   exit 1
 fi
-curl -fsSL "${BASE_URL}/${SUM_NAME}" -o "$TMP_DIR/$SUM_NAME" 2>/dev/null || true
 
 if [ -s "$TMP_DIR/$SUM_NAME" ]; then
   expected="$(awk '{print $1}' "$TMP_DIR/$SUM_NAME")"

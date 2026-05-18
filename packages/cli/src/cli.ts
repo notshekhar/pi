@@ -1,159 +1,31 @@
-import {
-  startStdioServer,
-  startSocketServer,
-  loginApiKey,
-  loginXaiOAuth,
-  logout,
-  listAuthorizedProviders,
-  getActiveProvider,
-  SessionManager,
-  getCatalog,
-} from "@pi/core";
 import type { ProviderId } from "@pi/core";
 import { runInteractive } from "./interactive/app";
-import { runPrint } from "./print";
-import { spawnSync } from "node:child_process";
+import { parseArgs } from "./args";
+import {
+  cmdLogin,
+  cmdLogout,
+  cmdModels,
+  cmdRpc,
+  cmdRun,
+  cmdSessions,
+  cmdWhoami,
+  printHelp,
+  runUpgrade,
+} from "./commands";
 
 // injected at build time via tsup define
 declare const __PI_VERSION__: string;
 const VERSION = typeof __PI_VERSION__ !== "undefined" ? __PI_VERSION__ : "0.0.0";
 
-const UPGRADE_URL = "https://raw.githubusercontent.com/notshekhar/agent/main/install.sh";
-
-function printHelp(): void {
-  console.log(`pi/agent — terminal coding agent (v${VERSION})
-
-Usage:
-  pi                       Start interactive TUI
-  pi run <prompt>          Run a single prompt and exit
-  pi login [provider]      Configure provider auth
-  pi logout [provider]     Remove auth
-  pi sessions              List sessions in current cwd
-  pi models                List available models
-  pi whoami                Show active provider + auth status
-  pi rpc [--socket]        Start JSON-RPC server
-  pi upgrade               Pull latest and rebuild
-  pi version | -v          Print version
-
-Flags:
-  --model <provider/id>    Override default model
-  --provider <id>          Override active provider
-  --cwd <path>             Working directory
-  --session <id>           Resume session by id`);
-}
-
-function runUpgrade(): void {
-  console.log(`▶ Upgrading pi (current v${VERSION})…`);
-  const r = spawnSync("bash", ["-c", `curl -fsSL ${UPGRADE_URL} | bash`], { stdio: "inherit" });
-  process.exit(r.status ?? 1);
-}
-
-interface Args {
-  cmd?: string;
-  positional: string[];
-  flags: Record<string, string | boolean>;
-}
-
-function parseArgs(argv: string[]): Args {
-  const out: Args = { positional: [], flags: {} };
-  let i = 0;
-  if (argv[0] && !argv[0].startsWith("-")) {
-    out.cmd = argv[0];
-    i = 1;
-  }
-  for (; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "-v") {
-      out.flags.v = true;
-      continue;
-    }
-    if (a === "-h") {
-      out.flags.h = true;
-      continue;
-    }
-    if (a.startsWith("--")) {
-      const eq = a.indexOf("=");
-      if (eq > 0) {
-        out.flags[a.slice(2, eq)] = a.slice(eq + 1);
-      } else {
-        const next = argv[i + 1];
-        if (next && !next.startsWith("--")) {
-          out.flags[a.slice(2)] = next;
-          i++;
-        } else {
-          out.flags[a.slice(2)] = true;
-        }
-      }
-    } else {
-      out.positional.push(a);
-    }
-  }
-  return out;
-}
-
-async function readStdinLine(prompt: string): Promise<string> {
-  process.stdout.write(prompt);
-  return new Promise((resolve) => {
-    let data = "";
-    process.stdin.setEncoding("utf8");
-    const onData = (chunk: string) => {
-      data += chunk;
-      const nl = data.indexOf("\n");
-      if (nl >= 0) {
-        process.stdin.off("data", onData);
-        process.stdin.pause();
-        resolve(data.slice(0, nl).trim());
-      }
-    };
-    process.stdin.resume();
-    process.stdin.on("data", onData);
-  });
-}
-
-async function cmdLogin(provider?: string): Promise<void> {
-  const p = (provider ?? "xai") as ProviderId;
-  if (p === "xai") {
-    const mode = await readStdinLine("xAI: [1] OAuth subscription  [2] API key  > ");
-    if (mode === "2") {
-      const key = await readStdinLine("XAI_API_KEY: ");
-      loginApiKey("xai", key);
-      console.log("xAI API key saved.");
-    } else {
-      await loginXaiOAuth(({ url, instructions }) => {
-        console.log(instructions);
-        console.log(url);
-      });
-      console.log("xAI OAuth login complete.");
-    }
-    return;
-  }
-  const key = await readStdinLine(`${p.toUpperCase()}_API_KEY: `);
-  loginApiKey(p, key);
-  console.log(`${p} API key saved.`);
-}
-
-async function cmdSessions(): Promise<void> {
-  const mgr = new SessionManager();
-  const sessions = mgr.list(process.cwd());
-  if (sessions.length === 0) {
-    console.log("No sessions in this cwd.");
-    return;
-  }
-  for (const s of sessions) {
-    console.log(`${s.id}  ${s.model}  ${new Date(s.mtime).toISOString()}  ${s.firstUserMessage ?? ""}`);
-  }
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  // version flags
   if (args.flags.version || args.flags.v) {
     console.log(VERSION);
     return;
   }
   if (args.flags.help || args.flags.h) {
-    printHelp();
+    printHelp(VERSION);
     return;
   }
 
@@ -163,60 +35,33 @@ async function main(): Promise<void> {
       console.log(VERSION);
       return;
     case "help":
-      printHelp();
+      printHelp(VERSION);
       return;
     case "upgrade":
     case "update":
-      runUpgrade();
+      await runUpgrade(VERSION, { force: Boolean(args.flags.force) });
       return;
     case "login":
       await cmdLogin(args.positional[0]);
       return;
-    case "logout": {
-      const target = args.positional[0] as ProviderId | undefined;
-      logout(target);
-      console.log(target ? `Logged out of ${target}.` : "Logged out of all providers.");
+    case "logout":
+      cmdLogout(args.positional[0] as ProviderId | undefined);
       return;
-    }
     case "sessions":
       await cmdSessions();
       return;
-    case "rpc": {
-      const sub = args.positional[0];
-      if (sub === "stop") {
-        // TODO: send SIGTERM via rpc.pid file
-        console.log("not implemented");
-        return;
-      }
-      if (args.flags.socket) {
-        const { socketPath } = startSocketServer();
-        console.log(`pi RPC daemon listening on ${socketPath}`);
-        return;
-      }
-      startStdioServer();
+    case "rpc":
+      cmdRpc(args);
       return;
-    }
-    case "run": {
-      const prompt = args.positional.join(" ");
-      await runPrint({
-        prompt,
-        modelId: (args.flags.model as string) || undefined,
-        cwd: (args.flags.cwd as string) || process.cwd(),
-      });
+    case "run":
+      await cmdRun(args);
       return;
-    }
-    case "models": {
-      const cat = await getCatalog();
-      for (const m of Object.values(cat)) {
-        console.log(`${m.id}\tctx:${m.contextWindow}\t$${m.cost.input}/$${m.cost.output}`);
-      }
+    case "models":
+      await cmdModels();
       return;
-    }
-    case "whoami": {
-      console.log(`Active provider: ${getActiveProvider() ?? "none"}`);
-      console.log(`Authorized: ${listAuthorizedProviders().join(", ") || "none"}`);
+    case "whoami":
+      cmdWhoami();
       return;
-    }
     case undefined:
     default:
       await runInteractive({

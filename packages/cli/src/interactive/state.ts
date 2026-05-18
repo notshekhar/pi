@@ -1,0 +1,19 @@
+import type { ProviderId, Session, ThinkingLevel } from "@pi/core";
+
+/**
+ * Mutable runtime state for the interactive app. Handlers in
+ * command-handlers / input-handler / turn-runner read and mutate fields here
+ * so app.ts doesn't have to thread dozens of `let` bindings through closures.
+ */
+export interface AppState {
+  cwd: string;
+  modelId: string;
+  provider: ProviderId;
+  thinkingLevel: ThinkingLevel;
+  session: Session | null;
+  latestContextTokens: number;
+  busy: boolean;
+  abort: AbortController;
+  pendingInjection: string | null;
+  lastCtrlCAt: number;
+}

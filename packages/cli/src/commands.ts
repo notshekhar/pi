@@ -13,6 +13,7 @@ import {
 import type { ProviderId } from "@pi/core";
 import { readStdinLine, type Args } from "./args";
 import { runPrint } from "./print";
+import { openBrowser } from "./open-browser";
 
 const UPGRADE_URL = "https://raw.githubusercontent.com/notshekhar/agent/main/install.sh";
 const RELEASES_API = "https://api.github.com/repos/notshekhar/agent/releases/latest";
@@ -88,6 +89,8 @@ export async function cmdLogin(provider?: string): Promise<void> {
       await loginXaiOAuth(({ url, instructions }) => {
         console.log(instructions);
         console.log(url);
+        const opened = openBrowser(url);
+        console.log(opened ? "(opened in browser)" : "(open this URL in a browser)");
       });
       console.log("xAI OAuth login complete.");
     }

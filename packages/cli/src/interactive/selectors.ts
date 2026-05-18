@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { DynamicBorder, getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import chalk from "chalk";
+import { isEsc } from "./keys";
 
 export function buildSelectorWrapper(
   items: SelectItem[],
@@ -69,9 +70,36 @@ export function promptOnce(
     wrapper.addChild(new DynamicBorder());
     wrapper.addChild(new Text(chalk.dim(" Enter to submit · Esc to cancel"), 0, 0));
     const close = host.showSelector(wrapper, tempEditor as never);
-    tempEditor.onSubmit = (text) => {
+
+    let done = false;
+    const finish = (v: string) => {
+      if (done) return;
+      done = true;
+      try {
+        removeEscListener?.();
+      } catch {}
       close();
-      resolve(text.trim());
+      resolve(v);
     };
+
+    // Editor doesn't expose its own onCancel; intercept Esc at the TUI level
+    // while this prompt is showing. Listeners are LIFO so this fires before
+    // the editor sees the key.
+    const escListener = (data: string) => {
+      if (isEsc(data)) {
+        finish("");
+        return { consume: true };
+      }
+      return undefined;
+    };
+    let removeEscListener: (() => void) | undefined;
+    const addInput = (host.tui as unknown as {
+      addInputListener?: (cb: (d: string) => { consume: boolean } | undefined) => () => void;
+    }).addInputListener;
+    if (typeof addInput === "function") {
+      removeEscListener = addInput.call(host.tui, escListener);
+    }
+
+    tempEditor.onSubmit = (text) => finish(text.trim());
   });
 }

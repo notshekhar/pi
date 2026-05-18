@@ -263,25 +263,29 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
       return startLogout(loginDeps, target);
     },
     async openSettings() {
-      const items: SelectItem[] = [
-        { value: "theme", label: `theme: ${settingsStore.get("theme") ?? "dark"}` },
-        { value: "maxSteps", label: `maxSteps: ${settingsStore.get("maxSteps") ?? 32}` },
-        { value: "autoCompactThreshold", label: `autoCompactThreshold: ${settingsStore.get("autoCompactThreshold") ?? 0.8}` },
-        { value: "piCompatMode", label: `piCompatMode: ${settingsStore.get("piCompatMode") ?? "direct"}` },
-        { value: "workspaceContext", label: `workspaceContext: ${settingsStore.get("workspaceContext") ?? true}` },
-      ];
-      const pick = await selectOnce(items);
-      if (!pick) return;
-      history.addSystem(`enter new value for ${pick.value}:`);
-      tui.requestRender();
-      const v = await promptOnce("");
-      if (!v) return;
-      const key = pick.value;
-      const cur = settingsStore.get(key);
-      const parsed = typeof cur === "number" ? Number(v) : typeof cur === "boolean" ? v === "true" : v;
-      settingsStore.set(key, parsed);
-      history.addSystem(`${key} → ${parsed}`);
-      tui.requestRender();
+      // Loop so Esc on the value prompt returns to the settings picker
+      // instead of bailing out of /settings entirely.
+      while (true) {
+        const items: SelectItem[] = [
+          { value: "theme", label: `theme: ${settingsStore.get("theme") ?? "dark"}` },
+          { value: "maxSteps", label: `maxSteps: ${settingsStore.get("maxSteps") ?? 32}` },
+          { value: "autoCompactThreshold", label: `autoCompactThreshold: ${settingsStore.get("autoCompactThreshold") ?? 0.8}` },
+          { value: "piCompatMode", label: `piCompatMode: ${settingsStore.get("piCompatMode") ?? "direct"}` },
+          { value: "workspaceContext", label: `workspaceContext: ${settingsStore.get("workspaceContext") ?? true}` },
+        ];
+        const pick = await selectOnce(items, "Settings (Esc to close)");
+        if (!pick) return;
+        history.addSystem(`enter new value for ${pick.value}: (Esc to go back)`);
+        tui.requestRender();
+        const v = await promptOnce("");
+        if (!v) continue;
+        const key = pick.value;
+        const cur = settingsStore.get(key);
+        const parsed = typeof cur === "number" ? Number(v) : typeof cur === "boolean" ? v === "true" : v;
+        settingsStore.set(key, parsed);
+        history.addSystem(`${key} → ${parsed}`);
+        tui.requestRender();
+      }
     },
     async openModelPicker() {
       const cat = await getCatalog();

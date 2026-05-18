@@ -44,8 +44,8 @@ export class CostFooter implements Component {
     let ctxStr: string;
     if (this.ctxMax > 0) {
       const pct = (this.ctxUsed / this.ctxMax) * 100;
-      const pctStr = `${pct.toFixed(1)}%/${fmtTokens(this.ctxMax)}`;
-      ctxStr = pct > 90 ? chalk.red(pctStr) : pct > 70 ? chalk.yellow(pctStr) : chalk.dim(pctStr);
+      const body = `ctx ${fmtTokens(this.ctxUsed)}/${fmtTokens(this.ctxMax)} (${pct.toFixed(1)}%)`;
+      ctxStr = pct > 90 ? chalk.red(body) : pct > 70 ? chalk.yellow(body) : chalk.dim(body);
     } else {
       ctxStr = chalk.dim(`ctx ${fmtTokens(this.ctxUsed)}`);
     }

@@ -12,7 +12,9 @@
     "gen:catalog": "bun packages/core/src/catalog/scripts/generate.ts",
     "compile": "bun scripts/compile.ts",
     "package": "bun scripts/package.ts",
-    "typecheck": "cd packages/core && bun run typecheck && cd ../cli && bun run typecheck"
+    "typecheck": "bun run build:core && cd packages/core && bun run typecheck && cd ../cli && bun run typecheck",
+    "build:core": "cd packages/core && bun run build",
+    "build:cli": "cd packages/cli && bun run build"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

@@ -17,8 +17,9 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
+      # core publishes its .d.ts via build; cli typecheck depends on it.
       - run: bun run build
+      - run: bun run typecheck
       - run: bun run compile
       - name: Smoke test built binary
         run: ./out/bun/pi --version

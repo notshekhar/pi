@@ -49,8 +49,8 @@ jobs:
           "
 
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
       - run: bun run build
+      - run: bun run typecheck
 
       - name: Cross-compile all targets
         run: bun run compile --all

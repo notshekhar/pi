@@ -226,6 +226,20 @@ done
 
 # ── Global link via npm ────────────────────────────────────────────────────
 bold "▶ Linking pi + agent globally"
+# Clear any prior pi/agent binaries: previous installs (npm i -g @notshekhar/pi,
+# pi-mono, or older curl runs) leave files in npm's global bin that block
+# `npm link` with EEXIST. Unlink known package names + force-remove bin files.
+for pkg in @notshekhar/pi pi agent pi-coding-agent @earendil-works/pi-coding-agent; do
+  npm uninstall -g "$pkg" --silent --no-audit --no-fund 2>/dev/null || true
+done
+NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
+if [ -n "$NPM_PREFIX" ]; then
+  for bin in "$NPM_PREFIX/bin/pi" "$NPM_PREFIX/bin/agent"; do
+    if [ -e "$bin" ] || [ -L "$bin" ]; then
+      rm -f "$bin" && dim "  removed stale bin: $bin" || true
+    fi
+  done
+fi
 (cd "$DEST/packages/cli" && npm link --silent --no-audit --no-fund)
 
 # Hash-cache flush so the current shell picks up new binaries immediately.

@@ -1,28 +1,37 @@
 #!/usr/bin/env bash
-# pi installer
+# pi installer — binary first, npm/source fallbacks.
 #   curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | bash
 #
-# Downloads the prebuilt release tarball, runs `bun install --production` for
-# runtime deps, atomically swaps into $PI_HOME, and links `pi` + `agent`
-# globally. Source build is the explicit fallback (set PI_FROM_SOURCE=1).
+# Default path: downloads prebuilt binary tarball from GitHub Releases
+# (bun --compile output, ~67 MB; zero runtime required, no node, no bun).
 #
-# Requires: bun ≥ 1.2, curl, tar. Node ≥ 20 needed only to RUN the linked CLI
-# (bundle targets node). Errors loudly with install hints when any are missing.
+# Layout after install:
+#   $PI_HOME/                          (default: ~/.pi-bin)
+#     ├── pi                           (executable; pi-coding-agent reads
+#     └── package.json                  alongside via dirname(execPath))
+#   $BIN_DIR/pi    → $PI_HOME/pi       (symlink)
+#   $BIN_DIR/agent → $PI_HOME/pi       (symlink)
 #
 # Env knobs:
-#   PI_REPO_SLUG    notshekhar/pi             override repo
-#   PI_VERSION      vX.Y.Z                    pin a specific tag
-#   PI_HOME         $HOME/.pi-src             install dir
-#   PI_FORCE        1                         skip "already up to date" gate
-#   PI_FROM_SOURCE  1                         git clone + build instead
+#   PI_REPO_SLUG    notshekhar/pi     override repo
+#   PI_VERSION      vX.Y.Z            pin a specific tag
+#   PI_HOME         $HOME/.pi-bin     install dir for binary + package.json
+#   PI_BIN_DIR                        symlink dir (auto: /usr/local/bin or
+#                                       $HOME/.local/bin)
+#   PI_FORCE        1                 skip "already up to date" gate
+#   PI_USE_NPM      1                 install via `npm i -g @notshekhar/pi`
+#                                       (requires node ≥20)
+#   PI_FROM_SOURCE  1                 clone + bun build from source
+#                                       (requires bun ≥1.2 and node ≥20)
 
 set -euo pipefail
 
 REPO_SLUG="${PI_REPO_SLUG:-notshekhar/pi}"
 REPO="${PI_REPO:-https://github.com/${REPO_SLUG}.git}"
 REF="${PI_REF:-main}"
-DEST="${PI_HOME:-$HOME/.pi-src}"
+PI_HOME="${PI_HOME:-$HOME/.pi-bin}"
 FORCE="${PI_FORCE:-0}"
+USE_NPM="${PI_USE_NPM:-0}"
 FROM_SOURCE="${PI_FROM_SOURCE:-0}"
 PIN_VERSION="${PI_VERSION:-}"
 
@@ -30,7 +39,6 @@ bold() { printf "\033[1m%s\033[0m\n" "$*"; }
 dim()  { printf "\033[2m%s\033[0m\n" "$*"; }
 err()  { printf "\033[31m%s\033[0m\n" "$*" >&2; }
 
-# ── Prerequisite checks ────────────────────────────────────────────────────
 need_tool() {
   local cmd="$1" hint="$2"
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -39,34 +47,6 @@ need_tool() {
     exit 1
   fi
 }
-ensure_node() {
-  if ! command -v node >/dev/null 2>&1; then
-    err "Missing required tool: node (runtime for pi binary)"
-    err "  macOS: brew install node    Linux: sudo apt install nodejs    Cross: https://nodejs.org/"
-    err "  Verify: node -v (must be ≥ 20)"
-    exit 1
-  fi
-  local major
-  major="$(node -p 'process.versions.node.split(".")[0]')"
-  if [ "$major" -lt 20 ] 2>/dev/null; then
-    err "node version too old: $(node -v) — pi requires ≥ 20.0.0"
-    exit 1
-  fi
-}
-ensure_bun() {
-  if ! command -v bun >/dev/null 2>&1; then
-    err "Missing required tool: bun (used to install deps / build)"
-    err "  Install: curl -fsSL https://bun.sh/install | bash"
-    err "  Then re-run this installer."
-    exit 1
-  fi
-}
-
-bold "▶ pi installer"
-ensure_node
-ensure_bun
-need_tool curl "macOS: preinstalled. Linux: sudo apt install curl"
-need_tool tar  "Standard on macOS/Linux."
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -87,73 +67,151 @@ ver_gt() {
   return 1
 }
 
-# ── Resolve target version ─────────────────────────────────────────────────
-LATEST_VERSION="${PIN_VERSION}"
-if [ -z "$LATEST_VERSION" ]; then
-  LATEST_VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null \
-    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(v\{0,1\}[0-9][^"]*\)".*/\1/p' \
-    | head -n1 || true)"
-fi
-if [ -z "$LATEST_VERSION" ] && [ "$FROM_SOURCE" != "1" ]; then
-  err "Could not resolve latest release tag from $REPO_SLUG."
-  err "Set PI_VERSION=vX.Y.Z to pin, or PI_FROM_SOURCE=1 to build from main."
-  exit 1
-fi
-case "${LATEST_VERSION:-}" in v*|"") ;; *) LATEST_VERSION="v$LATEST_VERSION" ;; esac
+# ── Detect target ─────────────────────────────────────────────────────────
+detect_target() {
+  local uname_s uname_m os arch
+  uname_s="$(uname -s)"
+  uname_m="$(uname -m)"
+  case "$uname_s" in
+    Darwin) os="darwin" ;;
+    Linux)  os="linux" ;;
+    *)      err "unsupported OS: $uname_s"; exit 1 ;;
+  esac
+  case "$uname_m" in
+    x86_64|amd64)   arch="x64" ;;
+    arm64|aarch64)  arch="arm64" ;;
+    *)              err "unsupported arch: $uname_m"; exit 1 ;;
+  esac
+  printf "%s-%s" "$os" "$arch"
+}
 
-# ── Detect already-installed version ──────────────────────────────────────
-INSTALLED_VERSION=""
-for candidate in \
-  "$DEST/packages/cli/package.json" \
-  "$HOME/.pi/pi-bin/package.json"
-do
-  if [ -f "$candidate" ]; then
-    INSTALLED_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$candidate" | head -n1 || true)"
-    [ -n "$INSTALLED_VERSION" ] && break
+# ── Resolve bin dir for symlinks ──────────────────────────────────────────
+resolve_bin_dir() {
+  if [ -n "${PI_BIN_DIR:-}" ]; then
+    mkdir -p "$PI_BIN_DIR"
+    printf "%s" "$PI_BIN_DIR"
+    return
   fi
-done
+  for d in /usr/local/bin /opt/homebrew/bin; do
+    if [ -w "$d" ] 2>/dev/null; then
+      printf "%s" "$d"
+      return
+    fi
+  done
+  local fallback="$HOME/.local/bin"
+  mkdir -p "$fallback"
+  printf "%s" "$fallback"
+}
 
-if [ "$FORCE" != "1" ] && [ -n "$LATEST_VERSION" ] && [ -n "$INSTALLED_VERSION" ]; then
-  if ! ver_gt "${LATEST_VERSION#v}" "${INSTALLED_VERSION#v}"; then
-    bold "✓ Up to date (installed $INSTALLED_VERSION, latest $LATEST_VERSION)"
-    dim "Set PI_FORCE=1 to reinstall."
-    exit 0
+# ── NPM path ──────────────────────────────────────────────────────────────
+install_via_npm() {
+  bold "▶ pi installer (npm)"
+  need_tool node "Install node ≥20: https://nodejs.org/"
+  need_tool npm  "Comes with node."
+  local major
+  major="$(node -p 'process.versions.node.split(".")[0]')"
+  if [ "$major" -lt 20 ] 2>/dev/null; then
+    err "node version too old: $(node -v) — pi requires ≥ 20.0.0"
+    exit 1
   fi
-  dim "  update: $INSTALLED_VERSION → $LATEST_VERSION"
-else
-  dim "  installing $LATEST_VERSION"
-fi
+  local pkg="@notshekhar/pi"
+  [ -n "$PIN_VERSION" ] && pkg="${pkg}@${PIN_VERSION#v}"
+  bold "▶ npm install -g $pkg"
+  npm install -g "$pkg"
+  # No marker needed; `pi upgrade` detects npm via execPath === node.
+  bold "✓ Installed via npm"
+  echo "  upgrade: npm i -g @notshekhar/pi@latest"
+}
 
-# ── Stage scratch ──────────────────────────────────────────────────────────
-SCRATCH="${DEST}.new.$$"
-trap 'rm -rf "$SCRATCH" 2>/dev/null || true' EXIT
+# ── Source build path ─────────────────────────────────────────────────────
+install_from_source() {
+  bold "▶ pi installer (source build)"
+  need_tool git "Install Git first: https://git-scm.com/downloads"
+  need_tool bun "Install: curl -fsSL https://bun.sh/install | bash"
 
-# ── Path A: download release tarball ───────────────────────────────────────
+  local scratch="${PI_HOME}.src.$$"
+  trap 'rm -rf "$scratch" 2>/dev/null || true' EXIT
+  bold "▶ Cloning $REPO ($REF)"
+  git clone --depth=1 --branch "$REF" "$REPO" "$scratch" 2>/dev/null \
+    || git clone --depth=1 "$REPO" "$scratch"
+  ( cd "$scratch" && bun install && bun run build && bun packages/cli/build-bin.ts )
+
+  local target
+  target="$(detect_target)"
+  local stage="$scratch/packages/cli/dist/bin/$target"
+  if [ ! -x "$stage/pi" ]; then
+    err "source build did not produce $stage/pi"
+    exit 1
+  fi
+  swap_into_place "$stage"
+  trap - EXIT
+  rm -rf "$scratch" 2>/dev/null || true
+  link_globally
+  printf "source\n" > "$PI_HOME/.install-method" 2>/dev/null || true
+  finish_message "from source"
+}
+
+# ── Binary release path ───────────────────────────────────────────────────
 install_from_release() {
-  [ "$FROM_SOURCE" = "1" ] && return 1
-  [ -n "$LATEST_VERSION" ] || return 1
+  bold "▶ pi installer (binary)"
+  need_tool curl "macOS: preinstalled. Linux: sudo apt install curl"
+  need_tool tar  "Standard on macOS/Linux."
 
-  mkdir -p "$SCRATCH"
-  local base tar sum url
-  base="https://github.com/${REPO_SLUG}/releases/download/${LATEST_VERSION}"
-  url="${base}/pi-${LATEST_VERSION}.tar.gz"
-  tar="$SCRATCH/pi.tar.gz"
-  sum="$SCRATCH/pi.tar.gz.sha256"
+  local target latest installed
+  target="$(detect_target)"
+  dim "  target: $target"
 
-  bold "▶ Downloading release ${LATEST_VERSION}"
+  latest="${PIN_VERSION}"
+  if [ -z "$latest" ]; then
+    latest="$(curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null \
+      | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(v\{0,1\}[0-9][^"]*\)".*/\1/p' \
+      | head -n1 || true)"
+  fi
+  if [ -z "$latest" ]; then
+    err "could not resolve latest release tag from $REPO_SLUG"
+    err "set PI_VERSION=vX.Y.Z to pin, PI_USE_NPM=1 for npm, or PI_FROM_SOURCE=1 to build"
+    exit 1
+  fi
+  case "$latest" in v*) ;; *) latest="v$latest" ;; esac
+
+  installed=""
+  if [ -f "$PI_HOME/package.json" ]; then
+    installed="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PI_HOME/package.json" | head -n1 || true)"
+  fi
+  if [ "$FORCE" != "1" ] && [ -n "$installed" ]; then
+    if ! ver_gt "${latest#v}" "${installed#v}"; then
+      bold "✓ Up to date (installed $installed, latest $latest)"
+      dim "  PI_FORCE=1 to reinstall"
+      exit 0
+    fi
+    dim "  update: $installed → $latest"
+  else
+    dim "  installing $latest"
+  fi
+
+  local scratch tar sum url base
+  scratch="${PI_HOME}.new.$$"
+  trap 'rm -rf "$scratch" 2>/dev/null || true' EXIT
+  mkdir -p "$scratch"
+
+  base="https://github.com/${REPO_SLUG}/releases/download/${latest}"
+  url="${base}/pi-${target}.tar.gz"
+  tar="$scratch/pi.tar.gz"
+  sum="$scratch/pi.tar.gz.sha256"
+
+  bold "▶ Downloading ${url##*/}"
   if ! curl -fL --progress-bar "$url" -o "$tar"; then
     err "download failed: $url"
-    return 1
+    err "release may not have $target asset; try PI_USE_NPM=1 or PI_FROM_SOURCE=1"
+    exit 1
   fi
-  curl -fsSL "${url}.sha256" -o "$sum" 2>/dev/null || true
-
-  if [ -s "$sum" ]; then
+  if curl -fsSL "${url}.sha256" -o "$sum" 2>/dev/null && [ -s "$sum" ]; then
     local expected got
     expected="$(awk '{print $1}' "$sum")"
     got="$(sha256_of "$tar")"
     if [ "$expected" != "$got" ]; then
       err "sha256 mismatch (expected $expected, got $got)"
-      return 1
+      exit 1
     fi
     dim "  sha256 ok"
   else
@@ -161,120 +219,100 @@ install_from_release() {
   fi
 
   bold "▶ Extracting"
-  tar -xzf "$tar" -C "$SCRATCH"
-  rm -f "$tar" "$sum"
-
-  if [ ! -f "$SCRATCH/packages/cli/dist/cli.js" ]; then
-    err "release tarball missing packages/cli/dist/cli.js"
-    return 1
+  tar -xzf "$tar" -C "$scratch"
+  if [ ! -x "$scratch/$target/pi" ]; then
+    err "tarball missing $target/pi"
+    exit 1
   fi
 
-  bold "▶ Installing runtime deps (bun install --production)"
-  (cd "$SCRATCH" && bun install --production --frozen-lockfile 2>/dev/null || bun install --production)
-  return 0
+  swap_into_place "$scratch/$target"
+  trap - EXIT
+  rm -rf "$scratch" 2>/dev/null || true
+
+  link_globally
+  printf "binary\n" > "$PI_HOME/.install-method" 2>/dev/null || true
+  finish_message "$latest"
 }
 
-# ── Path B: git clone + build from source ──────────────────────────────────
-install_from_source() {
-  need_tool git "Install Git first: https://git-scm.com/downloads"
-  mkdir -p "$(dirname "$SCRATCH")"
-  bold "▶ Cloning $REPO ($REF)"
-  git clone --depth=1 --branch "$REF" "$REPO" "$SCRATCH" 2>/dev/null \
-    || git clone --depth=1 "$REPO" "$SCRATCH"
-
-  (
-    cd "$SCRATCH"
-    bold "▶ Installing dependencies"
-    bun install
-    bold "▶ Building"
-    bun run build
-  )
-
-  if [ ! -f "$SCRATCH/packages/cli/dist/cli.js" ]; then
-    err "build did not produce packages/cli/dist/cli.js"
-    return 1
+# ── Atomic swap install dir ───────────────────────────────────────────────
+swap_into_place() {
+  local src="$1"
+  bold "▶ Installing to $PI_HOME"
+  mkdir -p "$(dirname "$PI_HOME")"
+  local backup=""
+  if [ -e "$PI_HOME" ]; then
+    backup="${PI_HOME}.old.$$"
+    mv "$PI_HOME" "$backup"
   fi
+  mv "$src" "$PI_HOME"
+  [ -n "$backup" ] && rm -rf "$backup" 2>/dev/null || true
 }
 
-if install_from_release; then
-  dim "  installed from release tarball"
-else
-  if [ "$FROM_SOURCE" != "1" ]; then
-    dim "  release path failed — falling back to source build"
-  fi
-  rm -rf "$SCRATCH"
-  install_from_source
-fi
+# ── Kill stale binaries + symlink fresh ones ──────────────────────────────
+link_globally() {
+  bold "▶ Linking pi + agent globally"
 
-# ── Atomic swap ────────────────────────────────────────────────────────────
-bold "▶ Swapping into place: $DEST"
-mkdir -p "$(dirname "$DEST")"
-BACKUP=""
-if [ -e "$DEST" ]; then
-  BACKUP="${DEST}.old.$$"
-  mv "$DEST" "$BACKUP"
-fi
-mv "$SCRATCH" "$DEST"
-trap - EXIT
-[ -n "$BACKUP" ] && rm -rf "$BACKUP" 2>/dev/null || true
-
-# ── Kill shadowing shims from previous installer styles ────────────────────
-for stale in "$HOME/.local/bin/pi" "$HOME/.local/bin/agent" "$HOME/.pi/pi-bin"; do
-  [ -e "$stale" ] && rm -rf "$stale" 2>/dev/null && dim "  removed legacy shim: $stale" || true
-done
-
-# ── Global link ────────────────────────────────────────────────────────────
-bold "▶ Linking pi + agent globally"
-# Clear any prior pi/agent binaries: previous installs (npm i -g @notshekhar/pi,
-# pi-mono, or older curl runs) leave files in npm/bun global bins that block
-# linking with EEXIST.
-if command -v npm >/dev/null 2>&1; then
-  for pkg in @notshekhar/pi pi agent pi-coding-agent @earendil-works/pi-coding-agent; do
-    npm uninstall -g "$pkg" --silent --no-audit --no-fund 2>/dev/null || true
-  done
-  NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
-  if [ -n "$NPM_PREFIX" ]; then
-    for bin in "$NPM_PREFIX/bin/pi" "$NPM_PREFIX/bin/agent"; do
-      if [ -e "$bin" ] || [ -L "$bin" ]; then
-        rm -f "$bin" && dim "  removed stale bin: $bin" || true
-      fi
+  # Wipe shims from prior installer styles (bun link, npm i -g, older curl run).
+  if command -v npm >/dev/null 2>&1; then
+    for p in @notshekhar/pi pi agent pi-coding-agent @earendil-works/pi-coding-agent; do
+      npm uninstall -g "$p" --silent --no-audit --no-fund 2>/dev/null || true
     done
+    local npm_prefix
+    npm_prefix="$(npm prefix -g 2>/dev/null || true)"
+    if [ -n "$npm_prefix" ]; then
+      for b in "$npm_prefix/bin/pi" "$npm_prefix/bin/agent"; do
+        [ -e "$b" ] || [ -L "$b" ] && rm -f "$b" 2>/dev/null && dim "  removed stale: $b" || true
+      done
+    fi
   fi
-fi
-BUN_BIN="$(bun pm -g bin 2>/dev/null || true)"
-if [ -n "$BUN_BIN" ]; then
-  for bin in "$BUN_BIN/pi" "$BUN_BIN/agent"; do
-    if [ -e "$bin" ] || [ -L "$bin" ]; then
-      rm -f "$bin" && dim "  removed stale bun bin: $bin" || true
+  if command -v bun >/dev/null 2>&1; then
+    local bun_bin
+    bun_bin="$(bun pm -g bin 2>/dev/null || true)"
+    if [ -n "$bun_bin" ]; then
+      for b in "$bun_bin/pi" "$bun_bin/agent"; do
+        [ -e "$b" ] || [ -L "$b" ] && rm -f "$b" 2>/dev/null && dim "  removed stale: $b" || true
+      done
+    fi
+  fi
+  for stale in "$HOME/.local/bin/pi" "$HOME/.local/bin/agent" "/usr/local/bin/pi" "/usr/local/bin/agent" "/opt/homebrew/bin/pi" "/opt/homebrew/bin/agent"; do
+    if [ -L "$stale" ] || [ -f "$stale" ]; then
+      # only remove if it points at us or is not our target, to allow re-symlink
+      rm -f "$stale" 2>/dev/null || true
     fi
   done
+
+  local bin_dir
+  bin_dir="$(resolve_bin_dir)"
+  ln -sf "$PI_HOME/pi" "$bin_dir/pi"
+  ln -sf "$PI_HOME/pi" "$bin_dir/agent"
+  hash -r 2>/dev/null || true
+
+  case ":$PATH:" in
+    *":$bin_dir:"*) ;;
+    *)
+      err "warning: $bin_dir is not on PATH"
+      err "  add to your shell rc: export PATH=\"$bin_dir:\$PATH\""
+      ;;
+  esac
+
+  PI_LINK_DIR="$bin_dir"
+}
+
+finish_message() {
+  local label="$1"
+  bold "✓ Installed $label"
+  echo "  pi:      $PI_LINK_DIR/pi"
+  echo "  agent:   $PI_LINK_DIR/agent"
+  echo "  target:  $PI_HOME"
+  echo
+  dim "Run \`pi\` to start. Run \`pi login\` to add a provider."
+}
+
+# ── Route ──────────────────────────────────────────────────────────────────
+if [ "$USE_NPM" = "1" ]; then
+  install_via_npm
+elif [ "$FROM_SOURCE" = "1" ]; then
+  install_from_source
+else
+  install_from_release
 fi
-(cd "$DEST/packages/cli" && bun link 2>/dev/null && bun link @notshekhar/pi 2>/dev/null || true)
-
-# Hash-cache flush so current shell picks up new binaries immediately.
-hash -r 2>/dev/null || true
-
-new_pi="$(command -v pi 2>/dev/null || true)"
-new_agent="$(command -v agent 2>/dev/null || true)"
-if [ -z "$new_pi" ] && [ -z "$new_agent" ]; then
-  err "Neither pi nor agent found on PATH after linking."
-  err "Check your bun global bin path:  bun pm -g bin"
-  err "Add it to your shell rc:  export PATH=\"\$(bun pm -g bin):\$PATH\""
-  exit 1
-fi
-
-if [ -n "$new_pi" ]; then
-  reported="$($new_pi --version 2>/dev/null || true)"
-  if [ -n "$reported" ] && [ -n "${LATEST_VERSION:-}" ] && [ "v${reported#v}" != "$LATEST_VERSION" ]; then
-    err "warning: \`pi --version\` reports $reported but installer expected $LATEST_VERSION."
-    err "  Something else on PATH may be shadowing this install. Try a fresh shell, or:"
-    err "    rm \"$(command -v pi)\" \"\$(command -v agent 2>/dev/null)\" && curl ... | bash"
-  fi
-fi
-
-bold "✓ Installed ${LATEST_VERSION:-from source}"
-[ -n "$new_pi" ]    && echo "  pi:    $new_pi"
-[ -n "$new_agent" ] && echo "  agent: $new_agent"
-echo "  source: $DEST"
-echo
-dim "Run \`pi\` or \`agent\` to start. Run \`pi login\` to add a provider."

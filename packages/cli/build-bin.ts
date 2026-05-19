@@ -93,9 +93,11 @@ for (const [src, dst] of assetMap) {
 }
 
 // Tarball for release. Windows users still get .tar.gz; install.sh expands it.
+// --force-local: GNU tar (incl. Git Bash on Windows runners) otherwise reads
+// "D:\path" as host:path and tries rsh. Flag forces local file handling.
 const tarball = join(import.meta.dir, "dist", "bin", `pi-${shortTarget}.tar.gz`);
 if (existsSync(tarball)) rmSync(tarball);
-await $`tar -czf ${tarball} -C ${join(import.meta.dir, "dist", "bin")} ${shortTarget}`;
+await $`tar --force-local -czf ${tarball} -C ${join(import.meta.dir, "dist", "bin")} ${shortTarget}`;
 
 console.log(`✓ built ${binPath}`);
 console.log(`✓ packaged ${tarball}`);

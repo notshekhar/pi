@@ -145,15 +145,23 @@ jobs:
             fs.writeFileSync('packages/cli/package.json', JSON.stringify(cli, null, 2) + '\n');
           "
 
+      # upload-artifact@v4 strips the common parent when given multiple
+      # paths, so `packages/cli/...` + `packages/core/...` would both lose
+      # the `packages/` prefix on download. Bundle into a single tarball
+      # to preserve structure.
+      - name: Bundle npm staging tarball
+        run: |
+          tar -czf npm-staging.tar.gz \
+            packages/cli/package.json \
+            packages/cli/dist \
+            packages/core/package.json \
+            packages/core/dist
+
       - name: Upload npm artifact
         uses: actions/upload-artifact@v4
         with:
           name: npm-build
-          path: |
-            packages/cli/package.json
-            packages/cli/dist/
-            packages/core/package.json
-            packages/core/dist/
+          path: npm-staging.tar.gz
           retention-days: 14
 
   # ─── Job 4: GitHub Release w/ all binary tarballs + checksums ────────────
@@ -216,6 +224,12 @@ jobs:
         with:
           name: npm-build
           path: .
+
+      - name: Extract npm staging
+        if: steps.check.outputs.publish == 'true'
+        run: |
+          tar -xzf npm-staging.tar.gz
+          ls -R packages/cli packages/core | head -40
 
       - uses: actions/setup-node@v4
         if: steps.check.outputs.publish == 'true'

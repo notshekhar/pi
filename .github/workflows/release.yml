@@ -29,10 +29,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
           registry-url: "https://registry.npmjs.org"
 
       - name: Resolve tag
@@ -51,7 +54,7 @@ jobs:
       - name: Sync package versions
         run: |
           v="${{ steps.tag.outputs.ver }}"
-          node -e "
+          bun -e "
             const fs = require('fs');
             for (const p of ['packages/core/package.json','packages/cli/package.json']) {
               const j = JSON.parse(fs.readFileSync(p,'utf8'));
@@ -60,9 +63,8 @@ jobs:
             }
           "
 
-      - run: npm ci --no-audit --no-fund
-      - run: npm run build
-      - run: npm run typecheck
+      - run: bun install --frozen-lockfile
+      - run: bun run build
 
       - name: Smoke test built binary
         run: node packages/cli/dist/cli.js --version
@@ -75,7 +77,7 @@ jobs:
           mkdir -p release
           tar -czf "release/${name}" \
             package.json \
-            package-lock.json \
+            bun.lock \
             packages/core/package.json packages/core/dist \
             packages/cli/package.json packages/cli/dist
           (cd release && sha256sum "${name}" > "${name}.sha256")
@@ -83,12 +85,9 @@ jobs:
           echo "name=${name}" >> "$GITHUB_OUTPUT"
 
       - name: Pin CLI's @notshekhar/pi-core dep to exact version
-        # Workspaces use `"@notshekhar/pi-core": "*"` locally. For an npm
-        # publish that range is invalid (npm clients couldn't resolve `*`
-        # outside a workspace). Pin it to the version we're about to publish.
         run: |
           v="${{ steps.tag.outputs.ver }}"
-          node -e "
+          bun -e "
             const fs = require('fs');
             const cli = JSON.parse(fs.readFileSync('packages/cli/package.json','utf8'));
             if (cli.dependencies && cli.dependencies['@notshekhar/pi-core']) {
@@ -109,10 +108,10 @@ jobs:
             packages/core/package.json
             packages/cli/package.json
             package.json
-            package-lock.json
+            bun.lock
           retention-days: 14
 
-  # ─── Job 2: GitHub Release (parallel with npm-publish) ─────────────────────
+  # ─── Job 2: GitHub Release ────────────────────────────────────────────────
   release:
     name: github-release
     needs: build
@@ -134,13 +133,11 @@ jobs:
             release/${{ needs.build.outputs.asset }}
             release/${{ needs.build.outputs.asset }}.sha256
 
-  # ─── Job 3: npm publish (parallel with github-release) ─────────────────────
+  # ─── Job 3: npm publish ───────────────────────────────────────────────────
   npm-publish:
     name: npm-publish
     needs: build
     runs-on: ubuntu-latest
-    # Skip silently if NPM_TOKEN secret is missing (the only required side
-    # effect of this workflow is a GH release; npm publish is opt-in).
     if: ${{ needs.build.result == 'success' }}
     steps:
       - name: Check NPM_TOKEN
@@ -171,8 +168,6 @@ jobs:
         working-directory: packages/core
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        # Core publishes first so the CLI (which pins core to this exact
-        # version) can resolve it on install.
         run: npm publish --access public --provenance
 
       - name: Publish @notshekhar/pi

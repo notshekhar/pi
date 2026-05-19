@@ -175,8 +175,15 @@ export async function getModel(id: string): Promise<ModelInfo | undefined> {
   return cat[id];
 }
 
+let FALLBACK_BY_ID: Record<string, ModelInfo> | null = null;
 export function getModelSync(id: string): ModelInfo | undefined {
-  return GENERATED_MODELS[id];
+  if (mergedCache?.[id]) return mergedCache[id];
+  if (GENERATED_MODELS[id]) return GENERATED_MODELS[id];
+  if (!FALLBACK_BY_ID) {
+    FALLBACK_BY_ID = {};
+    for (const m of FALLBACK_MODELS) FALLBACK_BY_ID[m.id] = m;
+  }
+  return FALLBACK_BY_ID[id];
 }
 
 export { GENERATED_MODELS };

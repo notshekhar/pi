@@ -19,10 +19,8 @@
 #   PI_BIN_DIR                        symlink dir (auto: /usr/local/bin or
 #                                       $HOME/.local/bin)
 #   PI_FORCE        1                 skip "already up to date" gate
-#   PI_USE_NPM      1                 install via `npm i -g @notshekhar/pi`
-#                                       (requires node ≥20)
 #   PI_FROM_SOURCE  1                 clone + bun build from source
-#                                       (requires bun ≥1.2 and node ≥20)
+#                                       (requires bun ≥1.2)
 
 set -euo pipefail
 
@@ -31,7 +29,6 @@ REPO="${PI_REPO:-https://github.com/${REPO_SLUG}.git}"
 REF="${PI_REF:-main}"
 PI_HOME="${PI_HOME:-$HOME/.pi-bin}"
 FORCE="${PI_FORCE:-0}"
-USE_NPM="${PI_USE_NPM:-0}"
 FROM_SOURCE="${PI_FROM_SOURCE:-0}"
 PIN_VERSION="${PI_VERSION:-}"
 
@@ -103,26 +100,6 @@ resolve_bin_dir() {
   printf "%s" "$fallback"
 }
 
-# ── NPM path ──────────────────────────────────────────────────────────────
-install_via_npm() {
-  bold "▶ pi installer (npm)"
-  need_tool node "Install node ≥20: https://nodejs.org/"
-  need_tool npm  "Comes with node."
-  local major
-  major="$(node -p 'process.versions.node.split(".")[0]')"
-  if [ "$major" -lt 20 ] 2>/dev/null; then
-    err "node version too old: $(node -v) — pi requires ≥ 20.0.0"
-    exit 1
-  fi
-  local pkg="@notshekhar/pi"
-  [ -n "$PIN_VERSION" ] && pkg="${pkg}@${PIN_VERSION#v}"
-  bold "▶ npm install -g $pkg"
-  npm install -g "$pkg"
-  # No marker needed; `pi upgrade` detects npm via execPath === node.
-  bold "✓ Installed via npm"
-  echo "  upgrade: npm i -g @notshekhar/pi@latest"
-}
-
 # ── Source build path ─────────────────────────────────────────────────────
 install_from_source() {
   bold "▶ pi installer (source build)"
@@ -169,7 +146,7 @@ install_from_release() {
   fi
   if [ -z "$latest" ]; then
     err "could not resolve latest release tag from $REPO_SLUG"
-    err "set PI_VERSION=vX.Y.Z to pin, PI_USE_NPM=1 for npm, or PI_FROM_SOURCE=1 to build"
+    err "set PI_VERSION=vX.Y.Z to pin, or PI_FROM_SOURCE=1 to build from source"
     exit 1
   fi
   case "$latest" in v*) ;; *) latest="v$latest" ;; esac
@@ -202,7 +179,7 @@ install_from_release() {
   bold "▶ Downloading ${url##*/}"
   if ! curl -fL --progress-bar "$url" -o "$tar"; then
     err "download failed: $url"
-    err "release may not have $target asset; try PI_USE_NPM=1 or PI_FROM_SOURCE=1"
+    err "release may not have $target asset; try PI_FROM_SOURCE=1 to build from source"
     exit 1
   fi
   if curl -fsSL "${url}.sha256" -o "$sum" 2>/dev/null && [ -s "$sum" ]; then
@@ -309,9 +286,7 @@ finish_message() {
 }
 
 # ── Route ──────────────────────────────────────────────────────────────────
-if [ "$USE_NPM" = "1" ]; then
-  install_via_npm
-elif [ "$FROM_SOURCE" = "1" ]; then
+if [ "$FROM_SOURCE" = "1" ]; then
   install_from_source
 else
   install_from_release

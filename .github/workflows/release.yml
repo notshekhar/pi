@@ -13,10 +13,9 @@ on:
 
 permissions:
   contents: write
-  id-token: write   # npm provenance
 
 jobs:
-  # ─── Job 1: resolve tag + ensure repo state is consistent ────────────────
+  # ─── Job 1: resolve tag ───────────────────────────────────────────────────
   prepare:
     name: prepare
     runs-on: ubuntu-latest
@@ -37,7 +36,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "ver=$v"   >> "$GITHUB_OUTPUT"
 
-  # ─── Job 2: per-platform binary build (matrix) ──────────────────────────
+  # ─── Job 2: per-platform binary build (matrix) ───────────────────────────
   # Cross-compile not possible — pi pulls native NAPI modules
   # (@mariozechner/clipboard, koffi) that ship platform-specific .node files.
   # Each target builds on a runner matching its OS+arch.
@@ -114,69 +113,7 @@ jobs:
             packages/cli/dist/bin/pi-${{ matrix.target }}.tar.gz.sha256
           retention-days: 14
 
-  # ─── Job 3: npm bundle build ─────────────────────────────────────────────
-  build-npm:
-    name: npm-build
-    needs: prepare
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Sync package versions
-        run: |
-          v="${{ needs.prepare.outputs.ver }}"
-          bun -e "
-            const fs = require('fs');
-            for (const p of ['packages/core/package.json','packages/cli/package.json']) {
-              const j = JSON.parse(fs.readFileSync(p,'utf8'));
-              j.version = '$v';
-              fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
-            }
-          "
-
-      - run: bun install --frozen-lockfile
-      - run: bun run build
-      - run: node packages/cli/dist/cli.js --version
-
-      - name: Pin CLI's @notshekhar/pi-core dep to exact version
-        run: |
-          v="${{ needs.prepare.outputs.ver }}"
-          bun -e "
-            const fs = require('fs');
-            const cli = JSON.parse(fs.readFileSync('packages/cli/package.json','utf8'));
-            if (cli.dependencies && cli.dependencies['@notshekhar/pi-core']) {
-              cli.dependencies['@notshekhar/pi-core'] = '$v';
-            }
-            fs.writeFileSync('packages/cli/package.json', JSON.stringify(cli, null, 2) + '\n');
-          "
-
-      # upload-artifact@v4 strips the common parent when given multiple
-      # paths, so `packages/cli/...` + `packages/core/...` would both lose
-      # the `packages/` prefix on download. Bundle into a single tarball
-      # to preserve structure.
-      - name: Bundle npm staging tarball
-        run: |
-          tar -czf npm-staging.tar.gz \
-            packages/cli/package.json \
-            packages/cli/dist \
-            packages/core/package.json \
-            packages/core/dist
-
-      - name: Upload npm artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-build
-          path: npm-staging.tar.gz
-          retention-days: 14
-
-  # ─── Job 4: GitHub Release w/ all binary tarballs + checksums ────────────
+  # ─── Job 3: GitHub Release ────────────────────────────────────────────────
   release:
     name: github-release
     needs: [prepare, build-binary]
@@ -195,11 +132,7 @@ jobs:
           ls -lh
           : > SHA256SUMS
           for f in pi-*.tar.gz; do
-            if command -v sha256sum >/dev/null; then
-              sha256sum "$f" >> SHA256SUMS
-            else
-              shasum -a 256 "$f" >> SHA256SUMS
-            fi
+            sha256sum "$f" >> SHA256SUMS
           done
           cat SHA256SUMS
 
@@ -213,53 +146,3 @@ jobs:
             release/pi-*.tar.gz
             release/pi-*.tar.gz.sha256
             release/SHA256SUMS
-
-  # ─── Job 5: npm publish (core then cli) ──────────────────────────────────
-  npm-publish:
-    name: npm-publish
-    # Gate on binary builds too — never ship npm if binary track failed.
-    needs: [prepare, build-npm, build-binary]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check NPM_TOKEN
-        id: check
-        run: |
-          if [ -n "${{ secrets.NPM_TOKEN }}" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::NPM_TOKEN not set — npm publish skipped."
-          fi
-
-      - name: Download npm artifact
-        if: steps.check.outputs.publish == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: npm-build
-          path: .
-
-      - name: Extract npm staging
-        if: steps.check.outputs.publish == 'true'
-        run: |
-          tar -xzf npm-staging.tar.gz
-          ls -R packages/cli packages/core | head -40
-
-      - uses: actions/setup-node@v4
-        if: steps.check.outputs.publish == 'true'
-        with:
-          node-version: 22
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Publish @notshekhar/pi-core
-        if: steps.check.outputs.publish == 'true'
-        working-directory: packages/core
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
-
-      - name: Publish @notshekhar/pi
-        if: steps.check.outputs.publish == 'true'
-        working-directory: packages/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance

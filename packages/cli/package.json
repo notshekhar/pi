@@ -11,7 +11,7 @@
     "url": "git+https://github.com/notshekhar/pi.git",
     "directory": "packages/cli"
   },
-  "keywords": ["ai", "agent", "cli", "tui", "coding", "claude", "cursor", "gpt", "grok", "gemini", "openrouter", "pi"],
+  "keywords": ["ai", "agent", "cli", "tui", "coding", "claude", "gpt", "grok", "gemini", "openrouter", "pi"],
   "bin": {
     "pi": "./dist/cli.js",
     "agent": "./dist/cli.js"
@@ -20,9 +20,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup && chmod +x dist/cli.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "build": "bun build.ts",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.74.1",
@@ -30,7 +29,5 @@
     "@notshekhar/pi-core": "*",
     "chalk": "^5.5.0"
   },
-  "devDependencies": {
-    "tsup": "^8.3.0"
-  }
+  "devDependencies": {}
 }

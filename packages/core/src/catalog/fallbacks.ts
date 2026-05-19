@@ -15,7 +15,6 @@ function m(
   cost: { input: number; output: number; cacheRead?: number; cacheWrite?: number },
   reasoning = false,
   modalities: string[] = ["text"],
-  kind: "language-model" | "external-agent" = "language-model",
 ): ModelInfo {
   return {
     id: `${provider}/${id}`,
@@ -32,7 +31,6 @@ function m(
     reasoning,
     modalities,
     available: true,
-    kind,
   };
 }
 
@@ -95,22 +93,6 @@ const GITHUB_COPILOT: ModelInfo[] = [
   m("github-copilot", "gemini-2.5-pro", "Copilot · Gemini 2.5 Pro", 1_000_000, 64_000, { input: 0, output: 0 }, true, ["text", "image"]),
 ];
 
-// Claude Agent SDK — external agent runtime (Anthropic-billed or Pro/Max OAuth)
-const CLAUDE_AGENT: ModelInfo[] = [
-  m("claude-agent", "claude-opus-4-7", "Claude Agent · Opus 4.7", 1_000_000, 128_000, { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 }, true, ["text", "image"], "external-agent"),
-  m("claude-agent", "claude-sonnet-4-6", "Claude Agent · Sonnet 4.6", 1_000_000, 128_000, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, true, ["text", "image"], "external-agent"),
-  m("claude-agent", "claude-haiku-4-5", "Claude Agent · Haiku 4.5", 200_000, 64_000, { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 }, true, ["text", "image"], "external-agent"),
-];
-
-// Cursor Agent SDK — Cursor-billed via Pro/Pro+/Ultra credit pool
-const CURSOR_AGENT: ModelInfo[] = [
-  m("cursor-agent", "composer-2.5", "Cursor · Composer 2.5", 200_000, 32_000, { input: 0.5, output: 2.5 }, true, ["text", "image"], "external-agent"),
-  m("cursor-agent", "composer-2", "Cursor · Composer 2", 200_000, 32_000, { input: 0.5, output: 2.5 }, true, ["text", "image"], "external-agent"),
-  m("cursor-agent", "gpt-5.5", "Cursor · GPT-5.5", 400_000, 128_000, { input: 0, output: 0 }, true, ["text", "image"], "external-agent"),
-  m("cursor-agent", "claude-opus-4-7", "Cursor · Claude Opus 4.7", 200_000, 64_000, { input: 0, output: 0 }, true, ["text", "image"], "external-agent"),
-  m("cursor-agent", "claude-sonnet-4-6", "Cursor · Claude Sonnet 4.6", 200_000, 64_000, { input: 0, output: 0 }, true, ["text", "image"], "external-agent"),
-];
-
 export const FALLBACK_MODELS: ModelInfo[] = [
   ...XAI,
   ...ANTHROPIC,
@@ -118,8 +100,6 @@ export const FALLBACK_MODELS: ModelInfo[] = [
   ...GOOGLE,
   ...OPENROUTER,
   ...GITHUB_COPILOT,
-  ...CLAUDE_AGENT,
-  ...CURSOR_AGENT,
 ];
 
 export const XAI_FALLBACK_MODELS = XAI;

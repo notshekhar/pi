@@ -294,11 +294,8 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         .filter((m) => m.provider === active && m.available)
         .sort((a, b) => a.id.localeCompare(b.id))
         .map((m) => {
-          const isExternal = m.kind === "external-agent";
-          const label = m.id.slice(active.length + 1) + (isExternal ? chalk.dim(" [agent]") : "");
-          const description = isExternal
-            ? `${m.name}  ·  external SDK runtime`
-            : `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`;
+          const label = m.id.slice(active.length + 1);
+          const description = `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`;
           return { value: m.id, label, description };
         });
       if (items.length === 0) {

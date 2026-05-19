@@ -2,12 +2,12 @@
 # pi installer
 #   curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | bash
 #
-# Downloads the prebuilt release tarball, runs `npm ci --omit=dev` for runtime
-# deps, atomically swaps into $PI_HOME, and links `pi` + `agent` globally.
-# Source build is the explicit fallback (set PI_FROM_SOURCE=1).
+# Downloads the prebuilt release tarball, runs `bun install --production` for
+# runtime deps, atomically swaps into $PI_HOME, and links `pi` + `agent`
+# globally. Source build is the explicit fallback (set PI_FROM_SOURCE=1).
 #
-# Requires: node ≥ 20, npm, curl, tar. Errors loudly with install hints when
-# any of these are missing.
+# Requires: bun ≥ 1.2, curl, tar. Node ≥ 20 needed only to RUN the linked CLI
+# (bundle targets node). Errors loudly with install hints when any are missing.
 #
 # Env knobs:
 #   PI_REPO_SLUG    notshekhar/pi             override repo
@@ -30,7 +30,7 @@ bold() { printf "\033[1m%s\033[0m\n" "$*"; }
 dim()  { printf "\033[2m%s\033[0m\n" "$*"; }
 err()  { printf "\033[31m%s\033[0m\n" "$*" >&2; }
 
-# ── Prerequisite checks (clear messages, not raw "command not found") ──────
+# ── Prerequisite checks ────────────────────────────────────────────────────
 need_tool() {
   local cmd="$1" hint="$2"
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -41,14 +41,9 @@ need_tool() {
 }
 ensure_node() {
   if ! command -v node >/dev/null 2>&1; then
-    err "Missing required tool: node"
-    err
-    err "Install Node.js ≥ 20 first, then re-run this installer:"
-    err "  macOS:        brew install node       (or use nvm)"
-    err "  Linux:        sudo apt install nodejs npm   (or nvm.sh)"
-    err "  Cross-plat:   https://nodejs.org/  /  https://github.com/nvm-sh/nvm"
-    err
-    err "Verify with:  node -v   (must be 20.0.0 or newer)"
+    err "Missing required tool: node (runtime for pi binary)"
+    err "  macOS: brew install node    Linux: sudo apt install nodejs    Cross: https://nodejs.org/"
+    err "  Verify: node -v (must be ≥ 20)"
     exit 1
   fi
   local major
@@ -58,10 +53,18 @@ ensure_node() {
     exit 1
   fi
 }
+ensure_bun() {
+  if ! command -v bun >/dev/null 2>&1; then
+    err "Missing required tool: bun (used to install deps / build)"
+    err "  Install: curl -fsSL https://bun.sh/install | bash"
+    err "  Then re-run this installer."
+    exit 1
+  fi
+}
 
 bold "▶ pi installer"
 ensure_node
-need_tool npm "Comes with Node.js; reinstall Node from nodejs.org if missing."
+ensure_bun
 need_tool curl "macOS: preinstalled. Linux: sudo apt install curl"
 need_tool tar  "Standard on macOS/Linux."
 
@@ -76,7 +79,6 @@ sha256_of() {
 }
 
 ver_gt() {
-  # ver_gt A B → returns 0 when A > B (semver, no pre-releases)
   local a="${1#v}" b="${2#v}"
   [ "$a" = "$b" ] && return 1
   local top
@@ -97,10 +99,9 @@ if [ -z "$LATEST_VERSION" ] && [ "$FROM_SOURCE" != "1" ]; then
   err "Set PI_VERSION=vX.Y.Z to pin, or PI_FROM_SOURCE=1 to build from main."
   exit 1
 fi
-# Normalize: always have leading `v` (matches asset names `pi-vX.Y.Z.tar.gz`).
 case "${LATEST_VERSION:-}" in v*|"") ;; *) LATEST_VERSION="v$LATEST_VERSION" ;; esac
 
-# ── Detect already-installed version (look in both legacy layouts) ─────────
+# ── Detect already-installed version ──────────────────────────────────────
 INSTALLED_VERSION=""
 for candidate in \
   "$DEST/packages/cli/package.json" \
@@ -135,7 +136,6 @@ install_from_release() {
   mkdir -p "$SCRATCH"
   local base tar sum url
   base="https://github.com/${REPO_SLUG}/releases/download/${LATEST_VERSION}"
-  # Asset naming convention: pi-vX.Y.Z.tar.gz (single tarball, all platforms).
   url="${base}/pi-${LATEST_VERSION}.tar.gz"
   tar="$SCRATCH/pi.tar.gz"
   sum="$SCRATCH/pi.tar.gz.sha256"
@@ -169,8 +169,8 @@ install_from_release() {
     return 1
   fi
 
-  bold "▶ Installing runtime deps (npm ci --omit=dev)"
-  (cd "$SCRATCH" && npm ci --omit=dev --silent --no-audit --no-fund)
+  bold "▶ Installing runtime deps (bun install --production)"
+  (cd "$SCRATCH" && bun install --production --frozen-lockfile 2>/dev/null || bun install --production)
   return 0
 }
 
@@ -185,9 +185,9 @@ install_from_source() {
   (
     cd "$SCRATCH"
     bold "▶ Installing dependencies"
-    npm install --silent --no-audit --no-fund
+    bun install
     bold "▶ Building"
-    npm run build --silent
+    bun run build
   )
 
   if [ ! -f "$SCRATCH/packages/cli/dist/cli.js" ]; then
@@ -219,42 +219,50 @@ trap - EXIT
 [ -n "$BACKUP" ] && rm -rf "$BACKUP" 2>/dev/null || true
 
 # ── Kill shadowing shims from previous installer styles ────────────────────
-# Older bun-compiled installs dropped binaries here.
 for stale in "$HOME/.local/bin/pi" "$HOME/.local/bin/agent" "$HOME/.pi/pi-bin"; do
   [ -e "$stale" ] && rm -rf "$stale" 2>/dev/null && dim "  removed legacy shim: $stale" || true
 done
 
-# ── Global link via npm ────────────────────────────────────────────────────
+# ── Global link ────────────────────────────────────────────────────────────
 bold "▶ Linking pi + agent globally"
 # Clear any prior pi/agent binaries: previous installs (npm i -g @notshekhar/pi,
-# pi-mono, or older curl runs) leave files in npm's global bin that block
-# `npm link` with EEXIST. Unlink known package names + force-remove bin files.
-for pkg in @notshekhar/pi pi agent pi-coding-agent @earendil-works/pi-coding-agent; do
-  npm uninstall -g "$pkg" --silent --no-audit --no-fund 2>/dev/null || true
-done
-NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
-if [ -n "$NPM_PREFIX" ]; then
-  for bin in "$NPM_PREFIX/bin/pi" "$NPM_PREFIX/bin/agent"; do
+# pi-mono, or older curl runs) leave files in npm/bun global bins that block
+# linking with EEXIST.
+if command -v npm >/dev/null 2>&1; then
+  for pkg in @notshekhar/pi pi agent pi-coding-agent @earendil-works/pi-coding-agent; do
+    npm uninstall -g "$pkg" --silent --no-audit --no-fund 2>/dev/null || true
+  done
+  NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
+  if [ -n "$NPM_PREFIX" ]; then
+    for bin in "$NPM_PREFIX/bin/pi" "$NPM_PREFIX/bin/agent"; do
+      if [ -e "$bin" ] || [ -L "$bin" ]; then
+        rm -f "$bin" && dim "  removed stale bin: $bin" || true
+      fi
+    done
+  fi
+fi
+BUN_BIN="$(bun pm -g bin 2>/dev/null || true)"
+if [ -n "$BUN_BIN" ]; then
+  for bin in "$BUN_BIN/pi" "$BUN_BIN/agent"; do
     if [ -e "$bin" ] || [ -L "$bin" ]; then
-      rm -f "$bin" && dim "  removed stale bin: $bin" || true
+      rm -f "$bin" && dim "  removed stale bun bin: $bin" || true
     fi
   done
 fi
-(cd "$DEST/packages/cli" && npm link --silent --no-audit --no-fund)
+(cd "$DEST/packages/cli" && bun link 2>/dev/null && bun link @notshekhar/pi 2>/dev/null || true)
 
-# Hash-cache flush so the current shell picks up new binaries immediately.
+# Hash-cache flush so current shell picks up new binaries immediately.
 hash -r 2>/dev/null || true
 
 new_pi="$(command -v pi 2>/dev/null || true)"
 new_agent="$(command -v agent 2>/dev/null || true)"
 if [ -z "$new_pi" ] && [ -z "$new_agent" ]; then
   err "Neither pi nor agent found on PATH after linking."
-  err "Check your npm global bin path:  npm bin -g"
-  err "Add it to your shell rc (PATH=\"\$(npm bin -g):\$PATH\")."
+  err "Check your bun global bin path:  bun pm -g bin"
+  err "Add it to your shell rc:  export PATH=\"\$(bun pm -g bin):\$PATH\""
   exit 1
 fi
 
-# Verify the resolved binary actually reports the new version.
 if [ -n "$new_pi" ]; then
   reported="$($new_pi --version 2>/dev/null || true)"
   if [ -n "$reported" ] && [ -n "${LATEST_VERSION:-}" ] && [ "v${reported#v}" != "$LATEST_VERSION" ]; then

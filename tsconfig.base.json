@@ -8,12 +8,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "resolveJsonModule": true,
+    "noEmit": true,
     "allowImportingTsExtensions": false,
-    "noEmitOnError": false,
-    "types": ["node"]
+    "types": ["bun", "node"]
   }
 }

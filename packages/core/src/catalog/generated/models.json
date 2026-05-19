@@ -6402,7 +6402,7 @@
     "provider": "openrouter",
     "name": "Mistral Small 3.1 24B",
     "contextWindow": 128000,
-    "maxOutput": 8192,
+    "maxOutput": 128000,
     "cost": {
       "input": 0.351,
       "output": 0.555,
@@ -6741,7 +6741,7 @@
     "provider": "openrouter",
     "name": "Qwen2.5 Coder 32B Instruct",
     "contextWindow": 32768,
-    "maxOutput": 8192,
+    "maxOutput": 32768,
     "cost": {
       "input": 0.66,
       "output": 1,

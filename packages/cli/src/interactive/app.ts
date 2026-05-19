@@ -73,8 +73,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     google: "google/gemini-3.1-pro",
     openrouter: "openrouter/anthropic/claude-sonnet-4-6",
     "github-copilot": "github-copilot/gpt-5",
-    "claude-agent": "claude-agent/claude-sonnet-4-6",
-    "cursor-agent": "cursor-agent/composer-2.5",
   };
   let initialModelId =
     opts.modelId ??

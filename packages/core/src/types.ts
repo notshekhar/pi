@@ -4,9 +4,7 @@ export type BuiltinProviderId =
   | "openai"
   | "google"
   | "openrouter"
-  | "github-copilot"
-  | "claude-agent"
-  | "cursor-agent";
+  | "github-copilot";
 export type ProviderId = BuiltinProviderId | (string & {});
 
 export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
@@ -16,18 +14,8 @@ export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
   "google",
   "openrouter",
   "github-copilot",
-  "claude-agent",
-  "cursor-agent",
 ];
 export const PROVIDER_IDS = BUILTIN_PROVIDER_IDS;
-
-export type ProviderKind = "language-model" | "external-agent";
-
-export const EXTERNAL_AGENT_PROVIDERS: BuiltinProviderId[] = ["claude-agent", "cursor-agent"];
-
-export function getProviderKind(id: ProviderId): ProviderKind {
-  return (EXTERNAL_AGENT_PROVIDERS as string[]).includes(id) ? "external-agent" : "language-model";
-}
 
 export type CustomProviderSdk = "openai" | "anthropic" | "google" | "openai-compatible";
 
@@ -57,7 +45,6 @@ export interface ModelInfo {
   reasoning: boolean;
   modalities: string[];
   available: boolean;
-  kind?: ProviderKind;
 }
 
 export interface UsageBlock {

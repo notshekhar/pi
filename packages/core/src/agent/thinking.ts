@@ -87,7 +87,6 @@ export function buildProviderOptions(
 
   switch (provider) {
     case "anthropic":
-    case "claude-agent":
       return {
         anthropic: {
           thinking: { type: "enabled", budgetTokens: budget },

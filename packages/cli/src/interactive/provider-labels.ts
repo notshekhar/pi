@@ -12,10 +12,6 @@ export function providerLabel(id: string): string {
       return "OpenRouter — API key";
     case "github-copilot":
       return "GitHub Copilot — OAuth (device flow)";
-    case "claude-agent":
-      return "Claude Agent SDK — API key or Claude Pro/Max OAuth";
-    case "cursor-agent":
-      return "Cursor Agent SDK — API key (Pro pool billing)";
     default:
       return "";
   }

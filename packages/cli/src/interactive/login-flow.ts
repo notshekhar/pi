@@ -97,40 +97,6 @@ async function loginCopilot(deps: LoginDeps): Promise<StepResult> {
   return "done";
 }
 
-async function loginClaudeAgent(deps: LoginDeps): Promise<StepResult> {
-  const { tui, history, promptOnce } = deps;
-  const mode = await deps.selectOnce(
-    [
-      { value: "apikey", label: "API key", description: "Paste your ANTHROPIC_API_KEY" },
-      { value: "oauth", label: "Claude Pro/Max OAuth", description: "Subscription bearer (no API spend)" },
-    ],
-    "Claude Agent — authentication method (Esc to go back)",
-  );
-  if (!mode) return "back";
-  if (mode.value === "oauth") {
-    history.addSystem("Anthropic OAuth: opening browser…");
-    tui.requestRender();
-    try {
-      await loginOAuth("claude-agent", {
-        onAuth: ({ url, instructions }) => presentAuth(deps, "Anthropic", url, instructions),
-        onPrompt: async ({ message }) => {
-          history.addSystem(message);
-          tui.requestRender();
-          return promptOnce("");
-        },
-      });
-      setActiveProvider("claude-agent");
-      bustCatalogCache();
-      history.addSystem(chalk.green("✓ Claude Pro/Max connected."));
-    } catch (err) {
-      history.addError(`Claude OAuth failed: ${(err as Error).message}`);
-    }
-    tui.requestRender();
-    return "done";
-  }
-  return apiKeyLogin(deps, "claude-agent", promptOnce);
-}
-
 async function apiKeyLogin(
   deps: LoginDeps,
   p: ProviderId,
@@ -155,8 +121,6 @@ async function loginForProvider(deps: LoginDeps, p: ProviderId): Promise<StepRes
       return loginXai(deps);
     case "github-copilot":
       return loginCopilot(deps);
-    case "claude-agent":
-      return loginClaudeAgent(deps);
     default:
       return apiKeyLogin(deps, p, deps.promptOnce);
   }

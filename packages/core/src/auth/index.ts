@@ -78,7 +78,7 @@ export async function getAccessToken(
   return fresh.access;
 }
 
-// ─── Generic OAuth (anthropic, github-copilot, claude-agent reuse) ────────────
+// ─── Generic OAuth (anthropic, github-copilot) ────────────
 
 export async function loginOAuth(provider: ProviderId, cb: OAuthLoginCallbacks): Promise<void> {
   const impl = getOAuthProvider(provider);

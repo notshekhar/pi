@@ -112,17 +112,9 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
   }
   // Gate non-public providers by auth presence.
   const authed = new Set(listAuthorizedProviders());
-  const hasClaudeAgent =
-    authed.has("claude-agent") ||
-    authed.has("anthropic") ||
-    !!process.env.ANTHROPIC_API_KEY ||
-    !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  const hasCursorAgent = authed.has("cursor-agent") || !!process.env.CURSOR_API_KEY;
   const hasCopilot = authed.has("github-copilot");
   for (const m of Object.values(out)) {
-    if (m.provider === "claude-agent") m.available = hasClaudeAgent;
-    else if (m.provider === "cursor-agent") m.available = hasCursorAgent;
-    else if (m.provider === "github-copilot") m.available = hasCopilot;
+    if (m.provider === "github-copilot") m.available = hasCopilot;
   }
 
   // Note: we do NOT downmark fallback models based on /v1/models availability.

@@ -19,23 +19,21 @@ import { openBrowser } from "./open-browser";
 
 const REPO_SLUG = "notshekhar/pi";
 const UPGRADE_URL = `https://raw.githubusercontent.com/${REPO_SLUG}/main/install.sh`;
+const UPGRADE_URL_PS1 = `https://raw.githubusercontent.com/${REPO_SLUG}/main/install.ps1`;
 const RELEASES_API = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
-const NPM_PACKAGE = "@notshekhar/pi";
 
-type InstallMethod = "binary" | "npm" | "source" | "unknown";
+type InstallMethod = "binary" | "source";
 
 // Identify how the running `pi` was installed so `pi upgrade` uses the
-// matching upgrade path. The installer writes `.install-method` next to the
-// binary (binary/source); npm installs have node as execPath.
+// matching upgrade path. The installer writes `.install-method` next to
+// the binary; default to "binary" otherwise.
 function detectInstallMethod(): InstallMethod {
   const execDir = dirname(process.execPath);
   const markerFile = join(execDir, ".install-method");
   if (existsSync(markerFile)) {
     const v = readFileSync(markerFile, "utf8").trim();
-    if (v === "binary" || v === "npm" || v === "source") return v;
+    if (v === "binary" || v === "source") return v;
   }
-  const execName = basename(process.execPath).toLowerCase();
-  if (execName === "node" || execName === "node.exe") return "npm";
   return "binary";
 }
 
@@ -97,26 +95,24 @@ export async function runUpgrade(version: string, opts: { force?: boolean } = {}
   const method = detectInstallMethod();
   console.log(`▶ Install method: ${method}`);
 
-  let cmd: string;
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (opts.force) env.PI_FORCE = "1";
+  if (method === "source") env.PI_FROM_SOURCE = "1";
 
-  switch (method) {
-    case "npm":
-      cmd = `npm install -g ${NPM_PACKAGE}@latest`;
-      break;
-    case "source":
-      env.PI_FROM_SOURCE = "1";
-      cmd = `curl -fsSL ${UPGRADE_URL} | bash`;
-      break;
-    case "binary":
-    case "unknown":
-    default:
-      cmd = `curl -fsSL ${UPGRADE_URL} | bash`;
-      break;
+  // Windows: invoke PowerShell installer. Mac/Linux: bash.
+  const isWin = process.platform === "win32";
+  let shell: string;
+  let args: string[];
+  if (isWin) {
+    shell = "powershell";
+    args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+      `irm ${UPGRADE_URL_PS1} | iex`];
+  } else {
+    shell = "bash";
+    args = ["-c", `curl -fsSL ${UPGRADE_URL} | bash`];
   }
 
-  const r = spawnSync("bash", ["-c", cmd], { stdio: "inherit", env });
+  const r = spawnSync(shell, args, { stdio: "inherit", env });
   process.exit(r.status ?? 1);
 }
 

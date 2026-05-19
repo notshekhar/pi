@@ -50,12 +50,13 @@ jobs:
         include:
           - target: darwin-arm64
             runner: macos-14
-          - target: darwin-x64
-            runner: macos-13
           - target: linux-x64
             runner: ubuntu-latest
           - target: linux-arm64
             runner: ubuntu-24.04-arm
+          # darwin-x64 dropped v1: macos-13 free runner queue is unreliable
+          # (10–30 min) and macOS 13 is being sunset. Re-add via
+          # macos-13-large (paid) when Intel users complain.
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -205,7 +206,8 @@ jobs:
   # ─── Job 5: npm publish (core then cli) ──────────────────────────────────
   npm-publish:
     name: npm-publish
-    needs: [prepare, build-npm]
+    # Gate on binary builds too — never ship npm if binary track failed.
+    needs: [prepare, build-npm, build-binary]
     runs-on: ubuntu-latest
     steps:
       - name: Check NPM_TOKEN

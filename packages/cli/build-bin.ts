@@ -11,9 +11,12 @@
 // pi-coding-agent's config.js calls `dirname(process.execPath)` to find
 // package.json at runtime — so it MUST sit next to the binary.
 
-import { readFileSync, mkdirSync, existsSync, rmSync, copyFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, mkdirSync, existsSync, rmSync, copyFileSync, cpSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import { $ } from "bun";
+
+const require = createRequire(import.meta.url);
 
 const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as { version: string };
 
@@ -69,6 +72,25 @@ await $`bun build ${join(import.meta.dir, "src/cli.ts")} \
 // Ship package.json alongside binary — pi-coding-agent reads it at runtime
 // via dirname(process.execPath).
 copyFileSync(join(import.meta.dir, "package.json"), pkgJsonPath);
+
+// Ship runtime assets pi-coding-agent loads from getPackageDir() when
+// running as compiled bun binary (see config.js: getThemesDir,
+// getInteractiveAssetsDir, getExportTemplateDir). Missing → runtime ENOENT.
+const pcaPkgJson = require.resolve("@earendil-works/pi-coding-agent/package.json");
+const pcaDir = dirname(pcaPkgJson);
+const assetMap: Array<[string, string]> = [
+  [join(pcaDir, "dist/modes/interactive/theme"), join(stageDir, "theme")],
+  [join(pcaDir, "dist/modes/interactive/assets"), join(stageDir, "assets")],
+  [join(pcaDir, "dist/core/export-html"), join(stageDir, "export-html")],
+];
+for (const [src, dst] of assetMap) {
+  if (!existsSync(src)) {
+    console.warn(`! missing source asset dir, skipping: ${src}`);
+    continue;
+  }
+  cpSync(src, dst, { recursive: true });
+  console.log(`  copied ${src} → ${dst}`);
+}
 
 // Tarball for release. Windows users still get .tar.gz; install.sh expands it.
 const tarball = join(import.meta.dir, "dist", "bin", `pi-${shortTarget}.tar.gz`);

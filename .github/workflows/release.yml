@@ -54,10 +54,17 @@ jobs:
             runner: ubuntu-latest
           - target: linux-arm64
             runner: ubuntu-24.04-arm
+          - target: windows-x64
+            runner: windows-latest
           # darwin-x64 dropped v1: macos-13 free runner queue is unreliable
           # (10–30 min) and macOS 13 is being sunset. Re-add via
           # macos-13-large (paid) when Intel users complain.
     runs-on: ${{ matrix.runner }}
+    # Force bash on Windows runners too (default is pwsh). Git Bash ships
+    # with windows-latest and provides sha256sum, tar, bun shell helpers.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -82,7 +89,11 @@ jobs:
       - run: bun packages/cli/build-bin.ts bun-${{ matrix.target }}
 
       - name: Smoke test binary
-        run: ./packages/cli/dist/bin/${{ matrix.target }}/pi --version
+        run: |
+          # bun --compile appends .exe on windows targets
+          bin="./packages/cli/dist/bin/${{ matrix.target }}/pi"
+          [ -x "${bin}.exe" ] && bin="${bin}.exe"
+          "$bin" --version
 
       - name: Compute sha256
         working-directory: packages/cli/dist/bin

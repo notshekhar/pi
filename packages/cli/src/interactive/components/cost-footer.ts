@@ -9,8 +9,37 @@ function fmtTokens(n: number): string {
   return `${Math.round(n / 1_000_000)}M`;
 }
 
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
 function ansiLen(s: string): number {
-  return s.replace(/\x1b\[[0-9;]*m/g, "").length;
+  return s.replace(ANSI_RE, "").length;
+}
+
+// Slice keeping ANSI escapes intact, counting only visible chars toward width.
+function ansiSlice(s: string, width: number): string {
+  let out = "";
+  let visible = 0;
+  let i = 0;
+  while (i < s.length && visible < width) {
+    if (s[i] === "\x1b" && s[i + 1] === "[") {
+      const end = s.indexOf("m", i);
+      if (end >= 0) {
+        out += s.slice(i, end + 1);
+        i = end + 1;
+        continue;
+      }
+    }
+    out += s[i];
+    visible++;
+    i++;
+  }
+  // append trailing reset/closing ANSI sequences so colors don't bleed
+  while (i < s.length && s[i] === "\x1b" && s[i + 1] === "[") {
+    const end = s.indexOf("m", i);
+    if (end < 0) break;
+    out += s.slice(i, end + 1);
+    i = end + 1;
+  }
+  return out;
 }
 
 export class CostFooter implements Component {
@@ -60,8 +89,28 @@ export class CostFooter implements Component {
       ctxStr,
     ];
     const sep = chalk.dim(" · ");
-    let line = parts.join(sep);
-    if (ansiLen(line) > width) line = line.slice(0, width);
-    return [line];
+    const sepLen = ansiLen(sep);
+    const lines: string[] = [];
+    let cur = "";
+    let curLen = 0;
+    for (const p of parts) {
+      const pLen = ansiLen(p);
+      if (cur === "") {
+        cur = p;
+        curLen = pLen;
+        continue;
+      }
+      if (curLen + sepLen + pLen <= width) {
+        cur += sep + p;
+        curLen += sepLen + pLen;
+      } else {
+        lines.push(cur);
+        cur = p;
+        curLen = pLen;
+      }
+    }
+    if (cur) lines.push(cur);
+    // Hard-clip any single part that still exceeds width (rare).
+    return lines.map((l) => (ansiLen(l) > width ? ansiSlice(l, width) : l));
   }
 }

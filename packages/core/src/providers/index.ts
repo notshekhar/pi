@@ -15,8 +15,19 @@ import {
 import { COPILOT_HEADERS, getCopilotBaseUrl } from "../auth/oauth/github-copilot";
 import type { CustomProviderConfig, ProviderId } from "../types";
 
+type FetchInput = Parameters<typeof fetch>[0];
+type FetchInit = Parameters<typeof fetch>[1];
+
+function withPreconnect(
+  fn: (input: FetchInput, init?: FetchInit) => Promise<Response>,
+): typeof fetch {
+  const wrapped = fn as typeof fetch & { preconnect: typeof fetch.preconnect };
+  wrapped.preconnect = fetch.preconnect.bind(fetch);
+  return wrapped;
+}
+
 function copilotAuthFetch(): typeof fetch {
-  return async (input, init) => {
+  return withPreconnect(async (input, init) => {
     const token = await resolveAuthToken("github-copilot");
     if (!token) throw new Error("No GitHub Copilot credentials. Run: /login github-copilot");
     const headers = new Headers(init?.headers);
@@ -25,7 +36,7 @@ function copilotAuthFetch(): typeof fetch {
     headers.set("X-Initiator", "user");
     headers.set("Openai-Intent", "conversation-edits");
     return fetch(input, { ...(init as RequestInit), headers });
-  };
+  });
 }
 
 export function parseModelId(full: string): { provider: ProviderId; model: string } {
@@ -41,7 +52,7 @@ export function parseModelId(full: string): { provider: ProviderId; model: strin
 }
 
 function xaiAuthFetch(): typeof fetch {
-  return async (input, init) => {
+  return withPreconnect(async (input, init) => {
     let token: string;
     try {
       token = await getAccessToken("xai");
@@ -63,16 +74,16 @@ function xaiAuthFetch(): typeof fetch {
       }
     }
     return res;
-  };
+  });
 }
 
 function customFetch(extraHeaders?: Record<string, string>): typeof fetch | undefined {
   if (!extraHeaders || Object.keys(extraHeaders).length === 0) return undefined;
-  return async (input, init) => {
+  return withPreconnect(async (input, init) => {
     const headers = new Headers(init?.headers);
     for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
     return fetch(input, { ...(init as RequestInit), headers });
-  };
+  });
 }
 
 function normalizeBaseURL(sdk: CustomProviderConfig["sdk"], baseURL: string): string {

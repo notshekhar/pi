@@ -1774,6 +1774,28 @@
     ],
     "available": true
   },
+  "google/gemini-3.5-flash": {
+    "id": "google/gemini-3.5-flash",
+    "provider": "google",
+    "name": "Gemini 3.5 Flash",
+    "contextWindow": 1048576,
+    "maxOutput": 65536,
+    "cost": {
+      "input": 1.5,
+      "output": 9,
+      "cacheRead": 0.15,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "available": true
+  },
   "google/gemini-1.5-flash": {
     "id": "google/gemini-1.5-flash",
     "provider": "google",

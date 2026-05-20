@@ -67,8 +67,9 @@ const OPENAI: ModelInfo[] = [
   m("openai", "gpt-4.1-mini", "GPT-4.1 Mini", 1_000_000, 32_000, { input: 0.4, output: 1.6, cacheRead: 0.1 }, false, ["text", "image"]),
 ];
 
-// Google — Gemini 2.5
+// Google — Gemini 3.x + 2.5
 const GOOGLE: ModelInfo[] = [
+  m("google", "gemini-3.5-flash", "Gemini 3.5 Flash", 1_000_000, 64_000, { input: 0.3, output: 2.5, cacheRead: 0.075 }, true, ["text", "image"]),
   m("google", "gemini-2.5-pro", "Gemini 2.5 Pro", 2_000_000, 64_000, { input: 1.25, output: 10, cacheRead: 0.31 }, true, ["text", "image"]),
   m("google", "gemini-2.5-flash", "Gemini 2.5 Flash", 1_000_000, 64_000, { input: 0.3, output: 2.5, cacheRead: 0.075 }, true, ["text", "image"]),
   m("google", "gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", 1_000_000, 64_000, { input: 0.1, output: 0.4 }, false, ["text", "image"]),

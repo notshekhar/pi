@@ -1,5 +1,31 @@
 import type { ProviderId } from "@notshekhar/pi-core";
 import { runInteractive } from "./interactive/app";
+
+// Silence ai-sdk warning logger. We intentionally implement
+// LanguageModelV2 manually (e.g. for cursor) — the "compatibility mode"
+// notice is noise for end users.
+(globalThis as unknown as { AI_SDK_LOG_WARNINGS: false }).AI_SDK_LOG_WARNINGS = false;
+
+// Cursor SDK uses connectRPC over HTTP/2 with multiple streams; one of
+// them sometimes closes with NGHTTP2_FRAME_SIZE_ERROR AFTER the actual
+// data stream completes successfully. Swallow that specific noise so it
+// doesn't print a scary stack trace below a working response.
+function isCursorTransportNoise(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("NGHTTP2_FRAME_SIZE_ERROR") ||
+         msg.includes("Stream closed with error code");
+}
+process.on("unhandledRejection", (err) => {
+  if (isCursorTransportNoise(err)) return;
+  // Re-raise non-cursor unhandled rejections so we don't hide real bugs.
+  console.error("Unhandled rejection:", err);
+  process.exitCode = 1;
+});
+process.on("uncaughtException", (err) => {
+  if (isCursorTransportNoise(err)) return;
+  console.error("Uncaught exception:", err);
+  process.exitCode = 1;
+});
 import { parseArgs } from "./args";
 import {
   cmdLogin,

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
+import { buildCursorCatalog } from "../providers/cursor/models";
 import { getPiDir } from "../auth/storage";
 import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders } from "../auth";
 import type { ModelInfo, ProviderId } from "../types";
@@ -110,11 +111,19 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
     const available = provAvail ? provAvail.includes(id) : true;
     out[id] = { ...m, available };
   }
+  // Cursor models — static fallback catalog (Cursor.models.list() runtime
+  // refresh lands in v2).
+  for (const [id, m] of Object.entries(buildCursorCatalog())) {
+    if (!out[id]) out[id] = m;
+  }
+
   // Gate non-public providers by auth presence.
   const authed = new Set(listAuthorizedProviders());
   const hasCopilot = authed.has("github-copilot");
+  const hasCursor = authed.has("cursor") || !!process.env.CURSOR_API_KEY;
   for (const m of Object.values(out)) {
     if (m.provider === "github-copilot") m.available = hasCopilot;
+    if (m.provider === "cursor") m.available = hasCursor;
   }
 
   // Note: we do NOT downmark fallback models based on /v1/models availability.

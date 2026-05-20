@@ -4,6 +4,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createXai } from "@ai-sdk/xai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
+import { createCursor } from "./cursor";
 import {
   getAccessToken,
   getApiKey,
@@ -15,8 +16,19 @@ import {
 import { COPILOT_HEADERS, getCopilotBaseUrl } from "../auth/oauth/github-copilot";
 import type { CustomProviderConfig, ProviderId } from "../types";
 
-function copilotAuthFetch(): typeof fetch {
-  return async (input, init) => {
+// Bun's globals.d.ts declares `typeof fetch` with a required `preconnect`
+// method (Node 22+ runtime API). Our auth wrappers only implement the call
+// signature; ai-sdk never invokes preconnect on the override. Wrap returns
+// in this helper so TS sees a satisfying shape.
+type FetchLike = typeof fetch;
+function asFetchLike(
+  fn: (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => Promise<Response>,
+): FetchLike {
+  return Object.assign(fn, { preconnect: () => {} }) as FetchLike;
+}
+
+function copilotAuthFetch(): FetchLike {
+  return asFetchLike(async (input, init) => {
     const token = await resolveAuthToken("github-copilot");
     if (!token) throw new Error("No GitHub Copilot credentials. Run: /login github-copilot");
     const headers = new Headers(init?.headers);
@@ -25,7 +37,7 @@ function copilotAuthFetch(): typeof fetch {
     headers.set("X-Initiator", "user");
     headers.set("Openai-Intent", "conversation-edits");
     return fetch(input, { ...(init as RequestInit), headers });
-  };
+  });
 }
 
 export function parseModelId(full: string): { provider: ProviderId; model: string } {
@@ -40,8 +52,8 @@ export function parseModelId(full: string): { provider: ProviderId; model: strin
   return { provider: full.slice(0, idx) as ProviderId, model: full.slice(idx + 1) };
 }
 
-function xaiAuthFetch(): typeof fetch {
-  return async (input, init) => {
+function xaiAuthFetch(): FetchLike {
+  return asFetchLike(async (input, init) => {
     let token: string;
     try {
       token = await getAccessToken("xai");
@@ -63,16 +75,16 @@ function xaiAuthFetch(): typeof fetch {
       }
     }
     return res;
-  };
+  });
 }
 
-function customFetch(extraHeaders?: Record<string, string>): typeof fetch | undefined {
+function customFetch(extraHeaders?: Record<string, string>): FetchLike | undefined {
   if (!extraHeaders || Object.keys(extraHeaders).length === 0) return undefined;
-  return async (input, init) => {
+  return asFetchLike(async (input, init) => {
     const headers = new Headers(init?.headers);
     for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
     return fetch(input, { ...(init as RequestInit), headers });
-  };
+  });
 }
 
 function normalizeBaseURL(sdk: CustomProviderConfig["sdk"], baseURL: string): string {
@@ -152,6 +164,11 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
       if (!token) throw new Error("No GitHub Copilot credentials. Run: /login github-copilot");
       const baseURL = getCopilotBaseUrl(token);
       return createOpenAI({ apiKey: "placeholder", baseURL, fetch: copilotAuthFetch() })(model);
+    }
+    case "cursor": {
+      const key = getApiKey("cursor") ?? process.env.CURSOR_API_KEY;
+      if (!key) throw new Error("No Cursor API key. Run: pi login cursor");
+      return createCursor({ apiKey: key })(model);
     }
     default:
       throw new Error(`Unknown provider: ${provider}`);

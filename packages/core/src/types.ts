@@ -4,7 +4,8 @@ export type BuiltinProviderId =
   | "openai"
   | "google"
   | "openrouter"
-  | "github-copilot";
+  | "github-copilot"
+  | "cursor";
 export type ProviderId = BuiltinProviderId | (string & {});
 
 export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
@@ -14,6 +15,7 @@ export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
   "google",
   "openrouter",
   "github-copilot",
+  "cursor",
 ];
 export const PROVIDER_IDS = BUILTIN_PROVIDER_IDS;
 

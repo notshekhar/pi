@@ -26,4 +26,20 @@ if (!result.success) {
   process.exit(1);
 }
 
-console.log(`✓ built core (${result.outputs.length} files)`);
+// Emit .d.ts via tsc so consumers of @notshekhar/pi-core get full types.
+// (Bun.build does not produce declaration files.)
+const tsc = Bun.spawnSync({
+  cmd: ["bunx", "tsc", "--emitDeclarationOnly", "--declaration", "--outDir", "dist",
+        "--rootDir", "src", "--target", "ES2022", "--module", "ESNext",
+        "--moduleResolution", "Bundler", "--esModuleInterop", "--resolveJsonModule",
+        "--skipLibCheck", "--types", "bun,node", "src/index.ts"],
+  cwd: import.meta.dir,
+  stdout: "inherit",
+  stderr: "inherit",
+});
+if (tsc.exitCode !== 0) {
+  console.error("tsc declaration emit failed");
+  process.exit(1);
+}
+
+console.log(`✓ built core (${result.outputs.length} files + .d.ts)`);

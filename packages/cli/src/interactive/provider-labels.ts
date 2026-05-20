@@ -12,6 +12,8 @@ export function providerLabel(id: string): string {
       return "OpenRouter — API key";
     case "github-copilot":
       return "GitHub Copilot — OAuth (device flow)";
+    case "cursor":
+      return "Cursor — API key (Composer + routed models)";
     default:
       return "";
   }

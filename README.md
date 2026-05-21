@@ -1,89 +1,142 @@
-# pi · terminal coding agent
+# pi
 
-`pi` (alias: `agent`) is a fast, multi-provider terminal coding agent. Bring your own model — xAI, Anthropic, OpenAI, Google, OpenRouter, GitHub Copilot, or run Claude / Cursor agent SDKs natively — and work in your shell with file edits, command execution, sessions, and a TUI that doesn't fight you.
+Terminal coding agent. Bring your own model.
 
-```
-$ npm i -g @notshekhar/pi
-$ pi
-```
-
-…or:
+**macOS / Linux / WSL**
 
 ```
 curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | bash
 ```
 
+**Windows (PowerShell)**
+
+```
+irm https://raw.githubusercontent.com/notshekhar/pi/main/install.ps1 | iex
+```
+
+**Windows (cmd.exe)**
+
+```
+curl -fsSLo %TEMP%\pi-install.cmd https://raw.githubusercontent.com/notshekhar/pi/main/install.cmd && %TEMP%\pi-install.cmd
+```
+
+Then:
+
+```
+pi login
+pi
+```
+
+Prebuilt binaries — no Node required. Targets: `darwin-x64`, `darwin-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`.
+
+> **Built on top of [pi-mono](https://github.com/earendil-works/pi)** by Mario Zechner / earendil-works.
+> pi-mono provides the TUI, tool-execution renderer, theme, selectors, and session format.
+> This repo wires those primitives to multiple model providers and external agent SDKs.
+> See [Credits](#credits).
+
 ---
 
-## What works today
+## What it does
 
-### Language model providers
+- One TUI, many models. Switch with `/model`.
+- Renders streaming text, reasoning, tool calls, and diffs inline.
+- Stores sessions as JSONL per cwd. Compatible with pi-mono.
+- Works from a one-shot prompt (`pi run "..."`) or interactively.
+- Exposes a JSON-RPC server for programmatic use.
 
-| Provider          | Auth                          | Notes                                  |
-|-------------------|-------------------------------|----------------------------------------|
-| xAI (Grok)        | OAuth (SuperGrok) or API key  | Default model: `xai/grok-4`            |
-| Anthropic         | API key                       | Claude 4.x (Opus / Sonnet / Haiku)     |
-| OpenAI            | API key                       | GPT-5, GPT-5.5, o3-mini                |
-| Google            | API key                       | Gemini 3.1 Pro / Flash / Flash-Lite    |
-| OpenRouter        | API key                       | 100+ models routed through OR          |
-| GitHub Copilot    | OAuth (device flow)           | Subscription-billed models             |
+## Providers
 
-### External agent SDKs (their full toolchain, our TUI)
+| Provider       | Auth                            | Notes                                |
+|----------------|---------------------------------|--------------------------------------|
+| xAI (Grok)     | OAuth (SuperGrok) or API key    | Default: `xai/grok-4`                |
+| Anthropic      | API key                         | Claude 4.x — Opus / Sonnet / Haiku   |
+| OpenAI         | API key                         | GPT-5, GPT-5.5, o3-mini              |
+| Google         | API key                         | Gemini 3.1 Pro / Flash / Flash-Lite  |
+| OpenRouter     | API key                         | 100+ models routed through OR        |
+| GitHub Copilot | OAuth (device flow)             | Subscription-billed                  |
 
-| Agent             | Auth                                  | Notes                                      |
-|-------------------|---------------------------------------|--------------------------------------------|
-| Claude Agent SDK  | API key **or** Claude Pro/Max OAuth   | Anthropic's full coding-agent runtime      |
-| Cursor Agent SDK  | API key                               | Cursor's Composer 2.5 + Composer 2 + subagents |
+### External agent SDKs
 
-### Features
+The full upstream toolchain, rendered in pi's TUI.
 
-- **Streaming TUI** — text, thinking/reasoning, tool calls, tool results, all live.
-- **Tools (canonical 7)** — `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls` rendered with colored diffs, syntax-highlighted output, file previews.
-- **Slash commands** — `/help`, `/login`, `/model`, `/provider`, `/thinking`, `/compact`, `/session`, `/sessions`, `/cost`, `/attach`, `/cwd`, `/copy`, `/export`, `/import`, `/settings`, `/hotkeys`, `/reload`.
-- **Thinking levels** — `off / minimal / low / medium / high / xhigh`. Mapped per provider (Anthropic budget tokens, OpenAI/xAI/OpenRouter reasoning effort, Google `thinkingConfig`).
-- **Sessions** — JSONL per cwd in `~/.pi/agent/sessions/`. Auto-compaction at ~80% context. Manual `/compact`. Pi-mono session format compatible (forks on first write).
-- **Skills** — drop `*.md` under `~/.pi/agent/skills/` or `.pi/skills/`; auto-registered as `/skill:<name>`.
-- **Prompts** — drop `*.md` under `~/.pi/agent/prompts/` to invoke as a slash command.
-- **Vision** — paste an image (Cmd+V on macOS, Ctrl+V elsewhere), `/attach <path>`, or `Ctrl+I` file picker. Sent inline to vision-capable models.
-- **Subagents** — Cursor's `task` lifecycle rendered as flat `▸ subagent started … ✓ subagent done` indicators in the chat.
-- **Self-upgrade** — `pi upgrade` checks latest GitHub release and reinstalls only when newer.
-- **JSON-RPC server** — `pi rpc` (stdio) or `pi rpc --socket` (Unix socket) for programmatic control. Same agent loop as the TUI.
+| SDK              | Auth                                 | Notes                                          |
+|------------------|--------------------------------------|------------------------------------------------|
+| Claude Agent SDK | API key or Claude Pro/Max OAuth      | Anthropic's coding-agent runtime               |
+| Cursor Agent SDK | API key                              | Composer 2.5 + Composer 2 + subagents          |
 
-### What's **not** here yet
+---
 
-- No background / cloud agents (no Cursor cloud runtime, no Claude background tasks).
-- No multi-device session sync.
-- No web UI / desktop app — terminal only.
-- No MCP server passthrough yet (external agents use their bundled tools).
-- No first-class macOS/Windows binary — install requires Node ≥ 20.
-- No Windows-native installer; `install.ps1` is on the roadmap.
+## Usage
+
+```bash
+pi                              # interactive TUI
+pi run "explain this repo"      # one-shot
+pi run -- --session <id> "..."  # resume a session
+pi login [provider]             # auth
+pi sessions                     # list sessions in cwd
+pi models                       # list catalog
+pi upgrade                      # self-update
+pi rpc [--socket]               # JSON-RPC over stdio or Unix socket
+```
+
+Flags: `--model <provider/id>`, `--provider <id>`, `--cwd <path>`, `--session <id>`.
+
+### Slash commands
+
+`/help` `/login` `/model` `/provider` `/thinking` `/compact` `/session` `/sessions` `/cost` `/attach` `/cwd` `/copy` `/export` `/import` `/settings` `/hotkeys` `/reload`
+
+### Tools
+
+`read` · `bash` · `edit` · `write` · `grep` · `find` · `ls` — colored diffs, syntax-highlighted output, file previews.
+
+### Thinking
+
+`/thinking off | minimal | low | medium | high | xhigh`
+
+Mapped per provider: Anthropic budget tokens, OpenAI/xAI/OpenRouter reasoning effort, Google `thinkingConfig`.
+
+### Vision
+
+Paste image (Cmd+V on macOS, Ctrl+V elsewhere), `/attach <path>`, or `Ctrl+I` for the file picker.
+
+### Skills & prompts
+
+Drop `*.md` under `~/.pi/agent/skills/` or `.pi/skills/` — auto-registered as `/skill:<name>`.
+Drop `*.md` under `~/.pi/agent/prompts/` — invokable as a slash command.
 
 ---
 
 ## Install
 
-### Requirements
-
-- **Node.js ≥ 20** — installer fails clearly with install hints if missing.
-- macOS, Linux, or WSL (Windows native still TBD).
-
-### Option A — npm (recommended)
-
-```bash
-npm i -g @notshekhar/pi
-pi --version
-pi
-```
-
-### Option B — release tarball via curl
+### macOS / Linux / WSL
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | bash
 ```
 
-The script downloads the latest GitHub Release tarball, verifies sha256, runs `npm ci --omit=dev` for runtime deps, and links `pi` + `agent` globally. Env knobs: `PI_VERSION`, `PI_FORCE`, `PI_FROM_SOURCE`, `PI_HOME`.
+Downloads the latest GitHub Release binary tarball (bun-compiled, ~67 MB, zero runtime), verifies sha256, symlinks `pi` and `agent` into `/usr/local/bin` or `~/.local/bin`.
 
-### Option C — source
+Env knobs: `PI_VERSION`, `PI_FORCE`, `PI_FROM_SOURCE`, `PI_HOME`, `PI_BIN_DIR`.
+
+### Windows
+
+PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/notshekhar/pi/main/install.ps1 | iex
+```
+
+cmd.exe (bootstraps PowerShell):
+
+```cmd
+curl -fsSLo %TEMP%\pi-install.cmd https://raw.githubusercontent.com/notshekhar/pi/main/install.cmd && %TEMP%\pi-install.cmd
+```
+
+Installs to `%USERPROFILE%\.pi-bin\pi.exe`, adds it to user `PATH`. Open a new terminal after install. First run shows SmartScreen — click "More info" → "Run anyway".
+
+Env knobs: `$env:PI_VERSION`, `$env:PI_FORCE`, `$env:PI_HOME`.
+
+### From source
 
 ```bash
 git clone https://github.com/notshekhar/pi.git
@@ -95,100 +148,53 @@ npm run link
 
 ---
 
-## Quickstart
+## Config
 
-```bash
-pi login          # pick a provider, OAuth or paste API key
-pi                # start the TUI
-```
-
-In the TUI:
-
-```
-/model            # pick a model
-/thinking high    # crank reasoning effort
-/attach screenshot.png   # add an image
-```
-
-One-shot, no TUI:
-
-```bash
-pi run "summarize what this repo does"
-```
-
----
-
-## Commands
-
-| Command                        | Purpose                                          |
-|--------------------------------|--------------------------------------------------|
-| `pi`                           | Interactive TUI                                  |
-| `pi run <prompt>`              | One-shot non-interactive run                     |
-| `pi login [provider]`          | Configure auth (OAuth or API key)                |
-| `pi logout [provider]`         | Remove auth                                      |
-| `pi whoami`                    | Show active provider + authorized providers      |
-| `pi sessions`                  | List sessions in current cwd                     |
-| `pi models`                    | List all known models from the catalog           |
-| `pi rpc [--socket]`            | Start JSON-RPC server (stdio / Unix socket)      |
-| `pi upgrade [--force]`         | Self-update via the installer                    |
-| `pi -v` / `pi --version`       | Print version                                    |
-
-Flags: `--model <provider/id>`, `--provider <id>`, `--cwd <path>`, `--session <id>`.
-
----
-
-## Config & data
-
-All under `~/.pi/`:
+Everything under `~/.pi/`:
 
 ```
 ~/.pi/
-├── auth.json                # provider tokens (mode 600)
-├── settings.json            # defaultModel, thinkingLevel, maxSteps, etc.
-├── cost.json                # lifetime + per-provider cost tracking
-├── catalog.json             # model catalog cache
+├── auth.json                           # provider tokens (mode 600)
+├── settings.json                       # defaultModel, thinkingLevel, maxSteps
+├── cost.json                           # cost tracking
+├── catalog.json                        # model catalog cache
 └── agent/
-    ├── sessions/<cwd-slug>/<id>.jsonl   # per-cwd session JSONL
-    ├── prompts/*.md                     # custom slash commands
-    └── skills/*.md                      # auto-registered skills
+    ├── sessions/<cwd-slug>/<id>.jsonl  # session JSONL, per cwd
+    ├── prompts/*.md                    # custom slash commands
+    └── skills/*.md                     # auto-registered skills
 ```
 
-Pi-mono compatible: existing `~/.pi/agent/sessions/` files are readable and fork on first write.
+Existing pi-mono sessions are read directly and fork on first write.
 
 ---
 
-## Tech stack
+## Stack
 
-- **TypeScript** (strict, ESM), **Node ≥ 20**
-- **Build**: [`tsup`](https://tsup.egoist.dev/) for the ESM bundle, `tsc` for `.d.ts`
-- **AI runtime**: [Vercel AI SDK v6](https://sdk.vercel.ai/) (`ai`, `@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/google`, `@ai-sdk/xai`, `@openrouter/ai-sdk-provider`) — provider-agnostic streaming + tool use
-- **External agent SDKs**: [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript), [`@cursor/sdk`](https://cursor.com/docs/sdk/typescript) — both dynamic-imported, optional
-- **TUI**: [`@earendil-works/pi-tui`](https://github.com/earendil-works/pi) and [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi) — chat rendering, tool execution components, theme, selectors, dynamic borders
-- **Schemas**: [`zod`](https://zod.dev/) v4
-- **Storage**: [`configstore`](https://github.com/yeoman/configstore) for JSON config, JSONL for sessions
-- **Distribution**: GitHub Releases + npm (`@notshekhar/pi`, `@notshekhar/pi-core`)
+- TypeScript (strict, ESM). Runtime: bun-compiled single binary (no Node required for users). Dev: Node ≥ 20 or bun ≥ 1.2
+- [Vercel AI SDK v6](https://sdk.vercel.ai/) — agent loop, streaming, tool use, reasoning
+- [`@earendil-works/pi-tui`](https://github.com/earendil-works/pi) + [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi) — TUI renderer, components, theme
+- [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript), [`@cursor/sdk`](https://cursor.com/docs/sdk/typescript) — dynamic-imported, optional
+- [`zod`](https://zod.dev/) v4 schemas, [`configstore`](https://github.com/yeoman/configstore) for config, JSONL for sessions
+- `tsup` for the ESM bundle, `tsc` for `.d.ts`
+- Distributed as GitHub Release tarballs
 
-### Monorepo layout
+### Layout
 
 ```
 packages/
-  core/   @notshekhar/pi-core  — auth, providers, catalog, sessions, agent loop, tools, RPC, compaction, thinking
-  cli/    @notshekhar/pi       — bin: `pi` / `agent` (interactive TUI + `run` + RPC server)
+  core/   @notshekhar/pi-core  — auth, providers, catalog, sessions, agent loop, tools, RPC
+  cli/    @notshekhar/pi       — bin: `pi` / `agent` (TUI + run + RPC)
 ```
 
 ---
 
-## Credits
+## Not (yet) here
 
-Huge thanks to:
-
-- **Mario Zechner / earendil-works** — [`pi-tui`](https://github.com/earendil-works/pi) and `pi-coding-agent`. The TUI primitives (renderer, tool execution component, theme, selectors, dynamic borders) and the pi-mono session JSONL format are theirs. `pi` here consumes their published packages from npm — we don't vendor or modify them. Without `pi-mono` this CLI would be a fraction of what it is.
-- **Vercel** — the [AI SDK](https://sdk.vercel.ai/) is the agent loop's foundation. Multi-provider streaming, tool use, and reasoning support all ride on it.
-- **Anthropic** — for the Claude Agent SDK (subscription-friendly OAuth + Claude Code's tool suite).
-- **Cursor** — for the Cursor TypeScript SDK (Composer 2.5, subagents, full coding harness).
-- **xAI / OpenAI / Google / OpenRouter / GitHub** — model APIs we route through.
-
-If you use `pi`, you're standing on all of their shoulders.
+- No background / cloud agents.
+- No multi-device sync.
+- No web / desktop UI — terminal only.
+- No MCP server passthrough (external SDKs use their bundled tools).
+- No package-manager distribution (Homebrew, Scoop, winget) yet.
 
 ---
 
@@ -202,35 +208,39 @@ npm run build        # both packages: gen catalog → core → cli
 npm run typecheck
 ```
 
-To release:
+Release:
 
 ```bash
 git tag v0.x.y
 git push origin v0.x.y
 ```
 
-The release workflow runs three jobs:
-
-1. **build** — version sync, `npm ci`, `npm run build`, typecheck, smoke test, tar+sha256, upload artifact
-2. **github-release** — creates / updates the GitHub Release with the tarball
-3. **npm-publish** (gated on `NPM_TOKEN` secret) — publishes `@notshekhar/pi-core` then `@notshekhar/pi` with `--access public --provenance`
-
-Both 2 and 3 run in parallel after build.
+CI runs **build** (version sync, `npm ci`, build, typecheck, smoke test, tar+sha256) then **github-release** (uploads tarball to the GitHub Release).
 
 ---
 
 ## Roadmap
 
-Short list (in rough order of want):
-
-- MCP server passthrough — register tools with Cursor / Claude SDKs so the canonical 7 (read / bash / edit / write / grep / find / ls) replace their bundled equivalents and render identically.
-- Windows-native `install.ps1` + prebuilt single-file binary (bun-compile or node SEA).
-- Per-tool detail rendering for cursor / claude SDKs (shell stdout streaming, multi-edit previews).
-- More providers — Amazon Bedrock, Azure OpenAI, Mistral, custom OpenAI-compatible endpoints (catalog already supports the shape).
-- Web UI / desktop client via the JSON-RPC server (the contract is already there).
+- MCP passthrough so the canonical 7 tools replace bundled equivalents inside Cursor / Claude SDKs.
+- Package-manager distribution: Homebrew tap, Scoop bucket, winget.
+- Per-tool detail rendering for Cursor / Claude SDKs (stdout streaming, multi-edit previews).
+- More providers — Bedrock, Azure OpenAI, Mistral, custom OpenAI-compatible endpoints.
+- Web / desktop client over JSON-RPC.
 - Background / async jobs.
 
 PRs welcome.
+
+---
+
+## Credits
+
+`pi` exists because other people did the hard parts first.
+
+- **[Mario Zechner](https://github.com/badlogic) / [earendil-works](https://github.com/earendil-works)** — author of **[pi-mono](https://github.com/earendil-works/pi)** ([`@earendil-works/pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui), [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)). The TUI renderer, tool-execution components, theme, selectors, dynamic borders, and session JSONL format are all his. This repo consumes those packages from npm unmodified. Without pi-mono this CLI would be a fraction of what it is.
+- **Vercel** — the [AI SDK](https://sdk.vercel.ai/) carries the agent loop, multi-provider streaming, tool use, and reasoning.
+- **Anthropic** — the Claude Agent SDK (OAuth + Claude Code's tool suite).
+- **Cursor** — the TypeScript SDK (Composer 2.5, subagents).
+- **xAI / OpenAI / Google / OpenRouter / GitHub** — model APIs.
 
 ---
 

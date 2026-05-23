@@ -57,7 +57,7 @@ function toModelMessages(session: Session): ModelMessage[] {
 
 export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const { session, modelId, userInput, cwd, abortSignal, tracker, emitter } = opts;
-  const maxSteps = opts.maxSteps ?? (settingsStore.get("maxSteps") as number) ?? 32;
+  const maxSteps = opts.maxSteps ?? (settingsStore.get("maxSteps") as number) ?? 10000;
 
   // Extract any image paths from the user input → ai-sdk image parts
   const { textWithoutPaths, images } = extractImagesFromInput(userInput, cwd);

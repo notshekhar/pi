@@ -72,6 +72,13 @@ detect_target() {
   case "$uname_s" in
     Darwin) os="darwin" ;;
     Linux)  os="linux" ;;
+    MINGW*|MSYS*|CYGWIN*)
+      err "Detected Git Bash / MSYS on Windows. Use the PowerShell installer instead:"
+      err "  irm https://raw.githubusercontent.com/${REPO_SLUG}/main/install.ps1 | iex"
+      err "Or from cmd.exe:"
+      err "  curl -fsSLo %TEMP%\\pi-install.cmd https://raw.githubusercontent.com/${REPO_SLUG}/main/install.cmd && %TEMP%\\pi-install.cmd"
+      exit 1
+      ;;
     *)      err "unsupported OS: $uname_s"; exit 1 ;;
   esac
   case "$uname_m" in

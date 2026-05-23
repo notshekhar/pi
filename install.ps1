@@ -92,8 +92,14 @@ try {
 
 try {
     $sumUrl = "$url.sha256"
-    $sumTxt = (Invoke-WebRequest -Uri $sumUrl -UseBasicParsing).Content
-    $expected = ($sumTxt -split '\s+')[0]
+    $resp = Invoke-WebRequest -Uri $sumUrl -UseBasicParsing
+    # .Content is byte[] when server sends application/octet-stream — decode.
+    $sumTxt = if ($resp.Content -is [byte[]]) {
+        [System.Text.Encoding]::ASCII.GetString($resp.Content)
+    } else {
+        [string]$resp.Content
+    }
+    $expected = ($sumTxt.Trim() -split '\s+')[0]
     $got = (Get-FileHash -Algorithm SHA256 -Path $tar).Hash.ToLower()
     if ($expected.ToLower() -ne $got) {
         Err "sha256 mismatch (expected $expected, got $got)"

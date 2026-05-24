@@ -59,7 +59,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   initTheme();
 
   const APP_KEYBINDINGS = {
-    "app.tools.expand": { defaultKeys: "ctrl+o", description: "Toggle tool output" },
+    "app.tools.expand": { defaultKeys: "ctrl+e", description: "Toggle tool output" },
     "app.interrupt": { defaultKeys: "escape", description: "Interrupt agent" },
     "app.clear": { defaultKeys: "ctrl+c", description: "Clear / exit" },
   } as const;

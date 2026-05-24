@@ -1,7 +1,7 @@
 import type { CommandContext } from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
-import { isCtrlC, isCtrlD, isCtrlI, isCtrlL, isCtrlO, isCtrlV, isEsc } from "./keys";
+import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc } from "./keys";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
 
 export type InputListener = (data: string) => { consume: boolean } | undefined;
@@ -14,7 +14,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
       ctx.clearScreen();
       return { consume: true };
     }
-    if (isCtrlO(data)) {
+    if (isCtrlE(data)) {
       const now = history.toggleToolsExpanded();
       history.addSystem(`tools ${now ? "expanded" : "collapsed"}`);
       tui.requestRender();

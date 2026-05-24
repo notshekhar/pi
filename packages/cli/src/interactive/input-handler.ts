@@ -15,8 +15,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
       return { consume: true };
     }
     if (isCtrlE(data)) {
-      const now = history.toggleToolsExpanded();
-      history.addSystem(`tools ${now ? "expanded" : "collapsed"}`);
+      history.toggleToolsExpanded();
       tui.requestRender();
       return { consume: true };
     }

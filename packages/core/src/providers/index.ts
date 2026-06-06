@@ -68,6 +68,40 @@ export async function listOllamaModels(): Promise<OllamaModelTag[] | null> {
   }
 }
 
+export interface OllamaModelDetail {
+  capabilities: string[];
+  contextLength?: number;
+}
+
+/**
+ * Inspects one installed model via POST /api/show. Returns its capability list
+ * ("thinking", "vision", "tools", …) and trained context length. Null on error.
+ */
+export async function showOllamaModel(name: string): Promise<OllamaModelDetail | null> {
+  try {
+    const res = await fetch(`${ollamaBaseURL()}/api/show`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: name }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      capabilities?: string[];
+      model_info?: Record<string, unknown>;
+    };
+    const info = body.model_info ?? {};
+    const ctxKey = Object.keys(info).find((k) => k.endsWith(".context_length"));
+    const ctx = ctxKey ? Number(info[ctxKey]) : undefined;
+    return {
+      capabilities: body.capabilities ?? [],
+      contextLength: Number.isFinite(ctx) ? ctx : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function parseModelId(full: string): { provider: ProviderId; model: string } {
   // custom provider ids look like "custom:bifrost/claude-opus-4-7"
   if (full.startsWith("custom:")) {

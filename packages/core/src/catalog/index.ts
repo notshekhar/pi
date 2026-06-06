@@ -5,7 +5,7 @@ import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
 import { getPiDir } from "../auth/storage";
 import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders } from "../auth";
-import { listOllamaModels } from "../providers";
+import { listOllamaModels, showOllamaModel } from "../providers";
 import type { ModelInfo, ProviderId } from "../types";
 
 const cacheStore = new Configstore(
@@ -74,21 +74,20 @@ async function fetchAvailability(provider: ProviderId): Promise<Set<string> | nu
 async function fetchOllamaCatalog(): Promise<ModelInfo[]> {
   const models = await listOllamaModels();
   if (!models) return [];
-  return models.map((m) => {
-    const family = (m.details?.family ?? "").toLowerCase();
-    const hay = `${family} ${m.name}`.toLowerCase();
-    const vision = /llava|vision|minicpm-v|moondream/.test(hay);
-    // Models that emit a separate thinking stream when `think: true` is set.
-    const reasoning = /deepseek-r1|qwen3|qwq|marco-o1|smallthinker|magistral|cogito|exaone-deep/.test(hay);
+  // Query each model's real capabilities (thinking/vision) + context length
+  // via /api/show, rather than guessing from the name. Runs in parallel.
+  const details = await Promise.all(models.map((m) => showOllamaModel(m.name)));
+  return models.map((m, i) => {
+    const caps = details[i]?.capabilities ?? [];
     return {
       id: `ollama/${m.name}`,
       provider: "ollama" as ProviderId,
       name: m.name,
-      contextWindow: 8192,
+      contextWindow: details[i]?.contextLength ?? 8192,
       maxOutput: 4096,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      reasoning,
-      modalities: vision ? ["text", "image"] : ["text"],
+      reasoning: caps.includes("thinking"),
+      modalities: caps.includes("vision") ? ["text", "image"] : ["text"],
       available: true,
     };
   });

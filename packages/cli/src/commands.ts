@@ -57,6 +57,16 @@ async function fetchLatestTag(): Promise<string | null> {
   }
 }
 
+// Silent startup check. Returns the newer release tag (e.g. "v0.0.3") when one
+// exists, else null. Network/parse failures resolve to null so startup is never
+// blocked or noisy. Set PI_SKIP_VERSION_CHECK to disable.
+export async function checkForUpdate(version: string): Promise<string | null> {
+  if (process.env.PI_SKIP_VERSION_CHECK) return null;
+  const latest = await fetchLatestTag();
+  if (latest && semverGt(latest, `v${version}`)) return latest;
+  return null;
+}
+
 export function printHelp(version: string): void {
   console.log(`pi/agent — terminal coding agent (v${version})
 

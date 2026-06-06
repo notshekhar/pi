@@ -5,7 +5,9 @@
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/notshekhar/pi#readme",
-  "bugs": { "url": "https://github.com/notshekhar/pi/issues" },
+  "bugs": {
+    "url": "https://github.com/notshekhar/pi/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/notshekhar/pi.git",
@@ -34,6 +36,7 @@
     "ai": "^6.0.0",
     "configstore": "^7.0.0",
     "diff": "^8.0.0",
+    "ollama-ai-provider-v2": "^3.5.1",
     "proper-lockfile": "^4.1.2",
     "ulid": "^3.0.0",
     "zod": "^4.3.5"

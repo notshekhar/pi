@@ -45,7 +45,6 @@ const XAI: ModelInfo[] = [
   m("xai", "grok-4", "Grok 4", 256_000, 30_000, { input: 3, output: 15, cacheRead: 0.75 }, true, ["text", "image"]),
   m("xai", "grok-code-fast-1", "Grok Code Fast 1", 256_000, 30_000, { input: 0.2, output: 1.5, cacheRead: 0.02 }, true),
   m("xai", "grok-3", "Grok 3", 131_072, 8_192, { input: 3, output: 15 }),
-  m("xai", "grok-composer-2.5", "Grok Composer 2.5", 2_000_000, 30_000, { input: 2, output: 6, cacheRead: 0.2 }, true, ["text", "image"]),
 ];
 
 // Anthropic — Claude 4.x

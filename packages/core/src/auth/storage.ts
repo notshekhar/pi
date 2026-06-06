@@ -15,7 +15,7 @@ export const settingsStore = new Configstore(
   {
     defaultModel: null,
     theme: "dark",
-    maxSteps: 32,
+    maxSteps: 0, // 0 = unlimited; loop ends when the model stops calling tools
     autoCompactThreshold: 0.8,
     piCompatMode: "direct",
     workspaceContext: true,

@@ -57,7 +57,10 @@ function toModelMessages(session: Session): ModelMessage[] {
 
 export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const { session, modelId, userInput, cwd, abortSignal, tracker, emitter } = opts;
-  const maxSteps = opts.maxSteps ?? (settingsStore.get("maxSteps") as number) ?? 10000;
+  // Step cap is only an upper safety bound — the loop ends naturally when the
+  // model returns no tool call. 0 / unset means "run until the model decides".
+  const configuredSteps = opts.maxSteps ?? (settingsStore.get("maxSteps") as number | undefined) ?? 0;
+  const maxSteps = configuredSteps > 0 ? configuredSteps : Number.MAX_SAFE_INTEGER;
 
   // Extract any image paths from the user input → ai-sdk image parts
   const { textWithoutPaths, images } = extractImagesFromInput(userInput, cwd);
@@ -119,10 +122,23 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     opts.thinkingLevel ?? ((settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off");
   const catalogEntry = (await getCatalog())[modelId];
   const { model: modelShortId } = parseModelId(modelId);
-  const providerOptions =
+  let providerOptions =
     catalogEntry?.reasoning === false
       ? undefined
       : buildProviderOptions(provider, thinkingLevel, modelShortId);
+
+  // Ollama defaults num_ctx to ~4096 regardless of the model's real context,
+  // which truncates long agent loops and makes the model stop early. Pin it to
+  // the model's actual context window so history isn't silently dropped.
+  if (provider === "ollama") {
+    const numCtx = catalogEntry?.contextWindow ?? 8192;
+    const existing = (providerOptions?.ollama as Record<string, unknown> | undefined) ?? {};
+    const existingOpts = (existing.options as Record<string, unknown> | undefined) ?? {};
+    providerOptions = {
+      ...providerOptions,
+      ollama: { ...existing, options: { ...existingOpts, num_ctx: numCtx } },
+    };
+  }
 
   const result = streamText({
     model,

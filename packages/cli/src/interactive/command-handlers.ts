@@ -268,7 +268,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
       while (true) {
         const items: SelectItem[] = [
           { value: "theme", label: `theme: ${settingsStore.get("theme") ?? "dark"}` },
-          { value: "maxSteps", label: `maxSteps: ${settingsStore.get("maxSteps") ?? 32}` },
+          { value: "maxSteps", label: `maxSteps: ${(settingsStore.get("maxSteps") as number) || "unlimited"}` },
           { value: "autoCompactThreshold", label: `autoCompactThreshold: ${settingsStore.get("autoCompactThreshold") ?? 0.8}` },
           { value: "piCompatMode", label: `piCompatMode: ${settingsStore.get("piCompatMode") ?? "direct"}` },
           { value: "workspaceContext", label: `workspaceContext: ${settingsStore.get("workspaceContext") ?? true}` },

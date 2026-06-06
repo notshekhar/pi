@@ -3,6 +3,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createXai } from "@ai-sdk/xai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { createOllama } from "ollama-ai-provider-v2";
 import type { LanguageModel } from "ai";
 import {
   getAccessToken,
@@ -37,6 +38,34 @@ function copilotAuthFetch(): typeof fetch {
     headers.set("Openai-Intent", "conversation-edits");
     return fetch(input, { ...(init as RequestInit), headers });
   });
+}
+
+/** Ollama host root (no /api suffix). Override with PI_OLLAMA_BASE_URL. */
+export function ollamaBaseURL(): string {
+  return (process.env.PI_OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
+}
+
+export interface OllamaModelTag {
+  name: string;
+  details?: { family?: string; parameter_size?: string };
+}
+
+/**
+ * Lists models installed on the local Ollama daemon via GET /api/tags.
+ * Returns null when the daemon is unreachable (not running), [] when running
+ * with no models pulled.
+ */
+export async function listOllamaModels(): Promise<OllamaModelTag[] | null> {
+  try {
+    const res = await fetch(`${ollamaBaseURL()}/api/tags`, {
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { models?: OllamaModelTag[] };
+    return body.models ?? [];
+  } catch {
+    return null;
+  }
 }
 
 export function parseModelId(full: string): { provider: ProviderId; model: string } {
@@ -163,6 +192,10 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
       if (!token) throw new Error("No GitHub Copilot credentials. Run: /login github-copilot");
       const baseURL = getCopilotBaseUrl(token);
       return createOpenAI({ apiKey: "placeholder", baseURL, fetch: copilotAuthFetch() })(model);
+    }
+    case "ollama": {
+      // Local daemon — no auth. createOllama wants the /api root.
+      return createOllama({ baseURL: `${ollamaBaseURL()}/api` })(model);
     }
     default:
       throw new Error(`Unknown provider: ${provider}`);

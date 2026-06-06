@@ -69,6 +69,7 @@ async function main(): Promise<void> {
         provider: (args.flags.provider as ProviderId) || undefined,
         cwd: (args.flags.cwd as string) || process.cwd(),
         sessionId: (args.flags.session as string) || undefined,
+        version: VERSION,
       });
   }
 }

@@ -8,6 +8,8 @@ import {
   loginOAuth,
   loginXaiOAuth,
   logout,
+  listOllamaModels,
+  ollamaBaseURL,
   PROVIDER_IDS,
   setActiveProvider,
   type ProviderId,
@@ -97,6 +99,36 @@ async function loginCopilot(deps: LoginDeps): Promise<StepResult> {
   return "done";
 }
 
+async function loginOllama(deps: LoginDeps): Promise<StepResult> {
+  const { tui, history } = deps;
+  history.addSystem("Ollama: checking local daemon…");
+  tui.requestRender();
+  const models = await listOllamaModels();
+  if (models === null) {
+    history.addError(
+      `Ollama not reachable at ${ollamaBaseURL()}. Start it (\`ollama serve\`) or set PI_OLLAMA_BASE_URL.`,
+    );
+    tui.requestRender();
+    return "done";
+  }
+  if (models.length === 0) {
+    history.addSystem(
+      chalk.yellow("Ollama is running but no models are installed. Pull one, e.g. `ollama pull llama3.2`, then retry."),
+    );
+    tui.requestRender();
+    return "done";
+  }
+  // Local provider has no key; store a placeholder so it counts as authorized.
+  loginApiKey("ollama", "local");
+  setActiveProvider("ollama");
+  bustCatalogCache();
+  history.addSystem(
+    chalk.green(`✓ Ollama connected — ${models.length} model${models.length === 1 ? "" : "s"} installed.`),
+  );
+  tui.requestRender();
+  return "done";
+}
+
 async function apiKeyLogin(
   deps: LoginDeps,
   p: ProviderId,
@@ -121,6 +153,8 @@ async function loginForProvider(deps: LoginDeps, p: ProviderId): Promise<StepRes
       return loginXai(deps);
     case "github-copilot":
       return loginCopilot(deps);
+    case "ollama":
+      return loginOllama(deps);
     default:
       return apiKeyLogin(deps, p, deps.promptOnce);
   }

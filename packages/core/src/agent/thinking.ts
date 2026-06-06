@@ -77,6 +77,8 @@ export function buildProviderOptions(
         return { anthropic: { thinking: { type: "disabled" } } };
       case "google":
         return { google: { thinkingConfig: { thinkingBudget: 0 } } };
+      case "ollama":
+        return { ollama: { think: false } };
       default:
         return undefined;
     }
@@ -102,6 +104,9 @@ export function buildProviderOptions(
       return xaiSupportsEffort(modelShortId) ? { xai: { reasoningEffort: XAI_EFFORT[lv] } } : undefined;
     case "openrouter":
       return { openrouter: { reasoning: { effort: OPENROUTER_EFFORT[lv] } } };
+    case "ollama":
+      // Ollama thinking is a boolean toggle (DeepSeek-R1, Qwen3, etc.); no budget.
+      return { ollama: { think: true } };
     default:
       return undefined;
   }

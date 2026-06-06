@@ -39,6 +39,7 @@ import { CostFooter } from "./components/cost-footer";
 import { selectOnce as selectOnceShared, promptOnce as promptOnceShared } from "./selectors";
 import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
+import { checkForUpdate } from "../commands";
 import { createTurnRunner } from "./turn-runner";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
@@ -48,6 +49,7 @@ export interface InteractiveOptions {
   provider?: ProviderId;
   cwd: string;
   sessionId?: string;
+  version?: string;
 }
 
 const editorTheme: EditorTheme = {
@@ -167,6 +169,17 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   root.addChild(editorContainer);
   root.addChild(footer);
   tui.addChild(root);
+
+  // Silent background update check; suggest upgrade if a newer release exists.
+  // Fire-and-forget so startup never blocks on the network.
+  if (opts.version) {
+    void checkForUpdate(opts.version).then((latest) => {
+      if (latest) {
+        history.addSystem(`Update available: v${opts.version} → ${latest}. Run \`pi update\` to upgrade.`);
+        tui.requestRender();
+      }
+    });
+  }
 
   let workingLoader: Loader | null = null;
   function showWorking(message = "Generating…"): void {

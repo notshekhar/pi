@@ -6,7 +6,7 @@ import {
   type SelectItem,
   Text,
   TUI,
-} from "@earendil-works/pi-tui";
+} from "@notshekhar/pi-tui";
 import { DynamicBorder } from "./ui/messages";
 import { getSelectListTheme } from "./ui/theme";
 import chalk from "chalk";

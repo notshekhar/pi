@@ -1,4 +1,4 @@
-import { Container, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text, type TUI } from "@notshekhar/pi-tui";
 import {
   AssistantMessageComponent,
   CompactionSummaryMessageComponent,
@@ -173,6 +173,7 @@ export class ChatHistory extends Container {
     comp.updateResult({ content: [{ type: "text", text }], isError }, false);
     this.toolComponents.delete(toolCallId);
   }
+
 
   addSystem(text: string): void {
     this.addChild(new Text(chalk.dim(text), 1, 0));

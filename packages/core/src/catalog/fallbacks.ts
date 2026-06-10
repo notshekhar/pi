@@ -36,7 +36,7 @@ function m(
 
 // xAI — pi-grok subscription + public API
 const XAI: ModelInfo[] = [
-  m("xai", "grok-build", "Grok Build", 1_000_000, 30_000, COST_ZERO, true, ["text", "image"]),
+  m("xai", "grok-build-0.1", "Grok Build 0.1", 256_000, 256_000, { input: 1, output: 2, cacheRead: 0.2 }, true, ["text", "image"]),
   m("xai", "grok-4.3", "Grok 4.3", 1_000_000, 30_000, { input: 1.25, output: 2.5, cacheRead: 0.2 }, true, ["text", "image"]),
   m("xai", "grok-4.20-0309-reasoning", "Grok 4.20 Reasoning", 2_000_000, 30_000, { input: 2, output: 6, cacheRead: 0.2 }, true, ["text", "image"]),
   m("xai", "grok-4.20-0309-non-reasoning", "Grok 4.20 Non-Reasoning", 2_000_000, 30_000, { input: 2, output: 6, cacheRead: 0.2 }, false, ["text", "image"]),
@@ -49,10 +49,10 @@ const XAI: ModelInfo[] = [
 
 // Anthropic — Claude 4.x
 const ANTHROPIC: ModelInfo[] = [
-  m("anthropic", "claude-opus-4-7", "Claude Opus 4.7", 1_000_000, 128_000, { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 }, true, ["text", "image"]),
+  m("anthropic", "claude-opus-4-7", "Claude Opus 4.7", 1_000_000, 128_000, { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 }, true, ["text", "image"]),
   m("anthropic", "claude-sonnet-4-6", "Claude Sonnet 4.6", 1_000_000, 128_000, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, true, ["text", "image"]),
-  m("anthropic", "claude-haiku-4-5", "Claude Haiku 4.5", 200_000, 64_000, { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 }, true, ["text", "image"]),
-  m("anthropic", "claude-opus-4-5", "Claude Opus 4.5", 1_000_000, 128_000, { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 }, true, ["text", "image"]),
+  m("anthropic", "claude-haiku-4-5", "Claude Haiku 4.5", 200_000, 64_000, { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 }, true, ["text", "image"]),
+  m("anthropic", "claude-opus-4-5", "Claude Opus 4.5", 1_000_000, 128_000, { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 }, true, ["text", "image"]),
   m("anthropic", "claude-sonnet-4-5", "Claude Sonnet 4.5", 1_000_000, 128_000, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, true, ["text", "image"]),
 ];
 
@@ -76,7 +76,7 @@ const GOOGLE: ModelInfo[] = [
 
 // OpenRouter — popular routes (full list comes from models.dev / live)
 const OPENROUTER: ModelInfo[] = [
-  m("openrouter", "anthropic/claude-opus-4-7", "OR · Claude Opus 4.7", 1_000_000, 128_000, { input: 15, output: 75 }, true, ["text", "image"]),
+  m("openrouter", "anthropic/claude-opus-4-7", "OR · Claude Opus 4.7", 1_000_000, 128_000, { input: 5, output: 25 }, true, ["text", "image"]),
   m("openrouter", "anthropic/claude-sonnet-4-6", "OR · Claude Sonnet 4.6", 1_000_000, 128_000, { input: 3, output: 15 }, true, ["text", "image"]),
   m("openrouter", "openai/gpt-5", "OR · GPT-5", 400_000, 128_000, { input: 1.25, output: 10 }, true, ["text", "image"]),
   m("openrouter", "google/gemini-2.5-pro", "OR · Gemini 2.5 Pro", 2_000_000, 64_000, { input: 1.25, output: 10 }, true, ["text", "image"]),

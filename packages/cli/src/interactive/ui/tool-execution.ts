@@ -6,7 +6,7 @@
  * collapses to a preview and expands with ctrl+e, diff coloring for edit/write,
  * syntax highlighting for read.
  */
-import { Box, Container, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
+import { Box, Container, Spacer, Text, type TUI } from "@notshekhar/pi-tui";
 import { getLanguageFromPath, highlightCode, theme } from "./theme";
 
 const COLLAPSED_LINES = 6;

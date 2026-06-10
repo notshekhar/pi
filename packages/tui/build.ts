@@ -5,14 +5,10 @@ import { join } from "node:path";
 const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as {
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
-  optionalDependencies?: Record<string, string>;
 };
 const externals = [
   ...Object.keys(pkg.dependencies ?? {}),
   ...Object.keys(pkg.peerDependencies ?? {}),
-  // optionalDependencies must stay external: claude-agent-sdk resolves its
-  // vendored cli.js relative to its own package dir — bundling breaks the spawn.
-  ...Object.keys(pkg.optionalDependencies ?? {}),
   "node:*",
 ];
 
@@ -30,4 +26,4 @@ if (!result.success) {
   process.exit(1);
 }
 
-console.log(`✓ built core (${result.outputs.length} files)`);
+console.log(`✓ built tui (${result.outputs.length} files)`);

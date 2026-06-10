@@ -7,7 +7,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MarkdownTheme, SelectListTheme } from "@earendil-works/pi-tui";
+import type { MarkdownTheme, SelectListTheme } from "@notshekhar/pi-tui";
 import chalk from "chalk";
 import { DARK_THEME, LIGHT_THEME, type ThemeColors, type ThemeJson } from "./themes";
 

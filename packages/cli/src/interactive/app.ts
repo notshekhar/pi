@@ -14,7 +14,7 @@ import {
   TUI_KEYBINDINGS,
   type EditorTheme,
   type SlashCommand as TuiSlashCommand,
-} from "@earendil-works/pi-tui";
+} from "@notshekhar/pi-tui";
 import { DynamicBorder } from "./ui/messages";
 import { getSelectListTheme, initTheme } from "./ui/theme";
 import chalk from "chalk";
@@ -70,7 +70,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   const initialProvider = (opts.provider ?? getActiveProvider() ?? "xai") as ProviderId;
   const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
-    xai: "xai/grok-4",
+    xai: "xai/grok-build-0.1",
     anthropic: "anthropic/claude-sonnet-4-6",
     openai: "openai/gpt-5",
     google: "google/gemini-3.1-pro",
@@ -81,7 +81,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     opts.modelId ??
     (settingsStore.get("defaultModel") as string) ??
     PROVIDER_DEFAULT_MODEL[initialProvider] ??
-    `${initialProvider}/grok-4`;
+    `${initialProvider}/grok-build-0.1`;
 
   const manager = new SessionManager();
   const initialSession: Session | null = opts.sessionId ? await manager.open(opts.sessionId) : null;

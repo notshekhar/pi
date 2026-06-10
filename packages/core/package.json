@@ -1,7 +1,7 @@
 {
   "name": "@notshekhar/pi-core",
   "version": "0.0.2",
-  "description": "Core engine for pi — auth, providers, catalog, sessions, agent loop, tools, RPC.",
+  "description": "Core engine for pi \u2014 auth, providers, catalog, sessions, agent loop, tools, RPC.",
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/notshekhar/pi#readme",

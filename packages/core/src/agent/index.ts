@@ -88,6 +88,8 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   // Persist user message verbatim (paths intact for reference in transcripts)
   await session.append({ type: "message", ts: Date.now(), role: "user", content: userInput });
 
+  const { provider, model: modelShortId } = parseModelId(modelId);
+
   // auto-compact check
   const catalog = await getCatalog();
   const modelInfo = catalog[modelId];
@@ -115,7 +117,6 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const skillsEnabled = (settingsStore.get("skills") as boolean) !== false;
   const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
 
-  const { provider, model: modelShortId } = parseModelId(modelId);
   const system = buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text }) + (skills.promptBlock ?? "");
   const tools = createTools({ cwd, abortSignal });
   const model = await getModel(modelId);

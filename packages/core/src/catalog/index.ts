@@ -208,9 +208,10 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
     }
   }
 
-  // Ollama: dynamic, machine-local. Only the models actually installed are
-  // listed (GET /api/tags). Gated on auth so we don't hit localhost otherwise.
-  if (authed.has("ollama")) {
+  // Ollama: dynamic, machine-local, zero-login. fetchOllamaCatalog probes the
+  // daemon (3s timeout, null when not running) — if it answers, the installed
+  // models appear; if not, the provider simply doesn't exist. No /login needed.
+  {
     const tags = await fetchOllamaCatalog();
     for (const m of tags) out[m.id] = m;
   }

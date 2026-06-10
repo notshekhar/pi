@@ -12,7 +12,7 @@ const result = await Bun.build({
   // keep dynamic imports as separate chunks so `pi --version` doesn't eval the TUI stack
   splitting: true,
   minify: { whitespace: true, identifiers: false, syntax: true },
-  external: ["@notshekhar/pi-core", "@earendil-works/pi-tui", "chalk", "highlight.js"],
+  external: ["@notshekhar/pi-core", "@notshekhar/pi-tui", "chalk", "highlight.js"],
   banner: "#!/usr/bin/env node",
   define: { __PI_VERSION__: JSON.stringify(pkg.version) },
 });

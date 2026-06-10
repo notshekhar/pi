@@ -71,10 +71,16 @@ export function buildProviderOptions(
   level: ThinkingLevel,
   modelShortId = "",
 ): Record<string, Record<string, unknown>> | undefined {
+  // Claude 4.7+ (and Fable) removed budget_tokens — sending it returns a 400.
+  // Claude 4.6 deprecates it. Adaptive thinking replaces fixed budgets there.
+  const anthropicAdaptiveOnly = /opus-4-[7-9]|fable/i.test(modelShortId);
+  const anthropicAdaptive = anthropicAdaptiveOnly || /(opus|sonnet)-4-6/i.test(modelShortId);
+
   if (level === "off") {
     switch (provider) {
       case "anthropic":
-        return { anthropic: { thinking: { type: "disabled" } } };
+        // Fable 5 rejects an explicit {type:"disabled"} — omit the param instead.
+        return anthropicAdaptiveOnly ? undefined : { anthropic: { thinking: { type: "disabled" } } };
       case "google":
         return { google: { thinkingConfig: { thinkingBudget: 0 } } };
       case "ollama":
@@ -89,12 +95,14 @@ export function buildProviderOptions(
 
   switch (provider) {
     case "anthropic":
-      return {
-        anthropic: {
-          thinking: { type: "enabled", budgetTokens: budget },
-          sendReasoning: true,
-        },
-      };
+      return anthropicAdaptive
+        ? { anthropic: { thinking: { type: "adaptive" }, sendReasoning: true } }
+        : {
+            anthropic: {
+              thinking: { type: "enabled", budgetTokens: budget },
+              sendReasoning: true,
+            },
+          };
     case "openai":
     case "github-copilot":
       return { openai: { reasoningEffort: OPENAI_EFFORT[lv], reasoningSummary: "auto" } };

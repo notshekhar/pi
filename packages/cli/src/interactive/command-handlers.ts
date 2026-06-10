@@ -436,7 +436,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
     async reload() {
       bustCatalogCache();
       const fresh = new CommandRegistry();
-      registerBuiltins(fresh, { cwd: state.cwd });
+      await registerBuiltins(fresh, { cwd: state.cwd });
       (commands as unknown as { commands: Map<string, unknown> }).commands = (
         fresh as unknown as { commands: Map<string, unknown> }
       ).commands;

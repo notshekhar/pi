@@ -103,6 +103,29 @@ function readUserOverrides(): Record<string, Partial<ModelInfo>> {
   }
 }
 
+let refreshInFlight: Promise<Record<string, string[]>> | null = null;
+
+async function refreshAvailability(): Promise<Record<string, string[]>> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const providers: ProviderId[] = ["xai", "anthropic", "openai", "openrouter"];
+    const results = await Promise.all(providers.map((p) => fetchAvailability(p)));
+    const availability: Record<string, string[]> = {};
+    for (let i = 0; i < providers.length; i++) {
+      const set = results[i];
+      if (set) availability[providers[i]] = [...set];
+    }
+    cacheStore.set("availability", availability);
+    cacheStore.set("ts", Date.now());
+    return availability;
+  })();
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
 export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Record<string, ModelInfo>> {
   if (mergedCache && !opts.refresh) return mergedCache;
 
@@ -110,16 +133,17 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
   const stored = (cacheStore.get("availability") as Record<string, string[]>) ?? {};
   let availability: Record<string, string[]> = stored;
 
-  if (opts.refresh || Date.now() - ts > TTL_MS) {
-    const providers: ProviderId[] = ["xai", "anthropic", "openai", "openrouter"];
-    const results = await Promise.all(providers.map((p) => fetchAvailability(p)));
-    availability = {};
-    for (let i = 0; i < providers.length; i++) {
-      const set = results[i];
-      if (set) availability[providers[i]] = [...set];
-    }
-    cacheStore.set("availability", availability);
-    cacheStore.set("ts", Date.now());
+  if (opts.refresh) {
+    availability = await refreshAvailability();
+  } else if (Date.now() - ts > TTL_MS) {
+    // Stale-while-revalidate: serve the stored availability immediately and
+    // refresh in the background. Blocking here stalled the first prompt of a
+    // session by up to 10s (4 provider /models fetches behind one await).
+    void refreshAvailability()
+      .then(() => {
+        mergedCache = null; // next getCatalog() rebuilds with fresh availability
+      })
+      .catch(() => {});
   }
 
   const out: Record<string, ModelInfo> = {};

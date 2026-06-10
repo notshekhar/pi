@@ -75,7 +75,7 @@ jobs:
           v="${{ needs.prepare.outputs.ver }}"
           bun -e "
             const fs = require('fs');
-            for (const p of ['packages/core/package.json','packages/cli/package.json']) {
+            for (const p of ['packages/core/package.json','packages/tui/package.json','packages/cli/package.json']) {
               const j = JSON.parse(fs.readFileSync(p,'utf8'));
               j.version = '$v';
               fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
@@ -85,6 +85,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run gen:catalog
       - run: bun packages/core/build.ts
+      - run: bun packages/tui/build.ts
       - run: bun packages/cli/build-bin.ts bun-${{ matrix.target }}
 
       - name: Smoke test binary

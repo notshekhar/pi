@@ -56,6 +56,12 @@ export interface UsageBlock {
   cachedInputTokens?: number;
   reasoningTokens?: number;
   cost?: number;
+  // ai-sdk v6 detail block — needed to bill cache writes (1.25x on Anthropic)
+  inputTokenDetails?: {
+    noCacheTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
 }
 
 export interface CostBreakdown {

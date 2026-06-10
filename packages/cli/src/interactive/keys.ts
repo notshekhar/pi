@@ -1,4 +1,4 @@
-import { matchesKey } from "@earendil-works/pi-tui";
+import { matchesKey } from "@notshekhar/pi-tui";
 
 export const CTRL_C = "\x03";
 export const CTRL_D = "\x04";

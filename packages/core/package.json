@@ -1,7 +1,7 @@
 {
   "name": "@notshekhar/pi-core",
   "version": "0.0.2",
-  "description": "Core engine for pi — auth, providers, catalog, sessions, agent loop, tools, RPC.",
+  "description": "Core engine for pi \u2014 auth, providers, catalog, sessions, agent loop, tools, RPC.",
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/notshekhar/pi#readme",
@@ -31,7 +31,6 @@
     "@ai-sdk/google": "^3.0.0",
     "@ai-sdk/openai": "^3.0.0",
     "@ai-sdk/xai": "^3.0.0",
-    "@earendil-works/pi-coding-agent": "^0.74.1",
     "@openrouter/ai-sdk-provider": "6.0.0-alpha.1",
     "ai": "^6.0.0",
     "configstore": "^7.0.0",

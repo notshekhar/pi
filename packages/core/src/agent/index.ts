@@ -46,6 +46,24 @@ function estimateContextTokens(messages: ModelMessage[]): number {
   return total;
 }
 
+/**
+ * Anthropic prompt caching: two ephemeral breakpoints (limit is 4).
+ * One on the system message — the cache prefix is tools → system, so this
+ * covers both. One on the last message so the whole conversation prefix is
+ * a cache hit on the next turn (90% input-cost discount on reads).
+ * Other providers (OpenAI, xAI, Google) cache automatically server-side.
+ */
+function withAnthropicCaching(system: string, messages: ModelMessage[]): ModelMessage[] {
+  const cache = { anthropic: { cacheControl: { type: "ephemeral" as const } } };
+  const out: ModelMessage[] = [
+    { role: "system", content: system, providerOptions: cache },
+    ...messages,
+  ];
+  const last = out[out.length - 1];
+  out[out.length - 1] = { ...last, providerOptions: cache } as ModelMessage;
+  return out;
+}
+
 function toModelMessages(session: Session): ModelMessage[] {
   const out: ModelMessage[] = [];
   for (const m of compactedContextMessages(session)) {
@@ -69,6 +87,8 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   }
   // Persist user message verbatim (paths intact for reference in transcripts)
   await session.append({ type: "message", ts: Date.now(), role: "user", content: userInput });
+
+  const { provider, model: modelShortId } = parseModelId(modelId);
 
   // auto-compact check
   const catalog = await getCatalog();
@@ -95,9 +115,8 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const workspaceContext =
     (settingsStore.get("workspaceContext") as boolean) !== false ? loadWorkspaceContext(cwd) : { text: "", files: [] };
   const skillsEnabled = (settingsStore.get("skills") as boolean) !== false;
-  const skills = skillsEnabled ? loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
+  const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
 
-  const { provider } = parseModelId(modelId);
   const system = buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text }) + (skills.promptBlock ?? "");
   const tools = createTools({ cwd, abortSignal });
   const model = await getModel(modelId);
@@ -120,10 +139,8 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
   const thinkingLevel: ThinkingLevel =
     opts.thinkingLevel ?? ((settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off");
-  const catalogEntry = (await getCatalog())[modelId];
-  const { model: modelShortId } = parseModelId(modelId);
   let providerOptions =
-    catalogEntry?.reasoning === false
+    modelInfo?.reasoning === false
       ? undefined
       : buildProviderOptions(provider, thinkingLevel, modelShortId);
 
@@ -131,7 +148,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   // which truncates long agent loops and makes the model stop early. Pin it to
   // the model's actual context window so history isn't silently dropped.
   if (provider === "ollama") {
-    const numCtx = catalogEntry?.contextWindow ?? 8192;
+    const numCtx = modelInfo?.contextWindow ?? 8192;
     const existing = (providerOptions?.ollama as Record<string, unknown> | undefined) ?? {};
     const existingOpts = (existing.options as Record<string, unknown> | undefined) ?? {};
     providerOptions = {
@@ -140,10 +157,12 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     };
   }
 
+  const anthropicCaching = provider === "anthropic";
   const result = streamText({
     model,
-    system,
-    messages,
+    ...(anthropicCaching
+      ? { messages: withAnthropicCaching(system, messages) }
+      : { system, messages }),
     tools,
     stopWhen: stepCountIs(maxSteps),
     abortSignal,

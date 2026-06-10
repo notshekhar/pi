@@ -29,7 +29,8 @@ export class RpcServer {
   private commands = new CommandRegistry();
 
   constructor() {
-    registerBuiltins(this.commands);
+    // fire-and-forget: registry is only read after the event loop turns
+    void registerBuiltins(this.commands);
   }
 
   attach(transport: Transport): { feed: (chunk: Buffer | string) => void } {

@@ -1,17 +1,11 @@
 import type { ProviderId } from "@notshekhar/pi-core";
-import { runInteractive } from "./interactive/app";
 import { parseArgs } from "./args";
-import {
-  cmdLogin,
-  cmdLogout,
-  cmdModels,
-  cmdRpc,
-  cmdRun,
-  cmdSessions,
-  cmdWhoami,
-  printHelp,
-  runUpgrade,
-} from "./commands";
+
+// The interactive app and subcommands transitively pull in pi-tui, highlight.js,
+// and core (~400ms of module eval). Dynamic-import them per command so
+// --version/--help stay instant and each command only loads what it needs.
+const commands = () => import("./commands");
+const interactive = () => import("./interactive/app");
 
 // injected at build time via tsup define
 declare const __PI_VERSION__: string;
@@ -25,7 +19,7 @@ async function main(): Promise<void> {
     return;
   }
   if (args.flags.help || args.flags.h) {
-    printHelp(VERSION);
+    (await commands()).printHelp(VERSION);
     return;
   }
 
@@ -35,36 +29,36 @@ async function main(): Promise<void> {
       console.log(VERSION);
       return;
     case "help":
-      printHelp(VERSION);
+      (await commands()).printHelp(VERSION);
       return;
     case "upgrade":
     case "update":
-      await runUpgrade(VERSION, { force: Boolean(args.flags.force) });
+      await (await commands()).runUpgrade(VERSION, { force: Boolean(args.flags.force) });
       return;
     case "login":
-      await cmdLogin(args.positional[0]);
+      await (await commands()).cmdLogin(args.positional[0]);
       return;
     case "logout":
-      cmdLogout(args.positional[0] as ProviderId | undefined);
+      (await commands()).cmdLogout(args.positional[0] as ProviderId | undefined);
       return;
     case "sessions":
-      await cmdSessions();
+      await (await commands()).cmdSessions();
       return;
     case "rpc":
-      cmdRpc(args);
+      (await commands()).cmdRpc(args);
       return;
     case "run":
-      await cmdRun(args);
+      await (await commands()).cmdRun(args);
       return;
     case "models":
-      await cmdModels();
+      await (await commands()).cmdModels();
       return;
     case "whoami":
-      cmdWhoami();
+      (await commands()).cmdWhoami();
       return;
     case undefined:
     default:
-      await runInteractive({
+      await (await interactive()).runInteractive({
         modelId: (args.flags.model as string) || undefined,
         provider: (args.flags.provider as ProviderId) || undefined,
         cwd: (args.flags.cwd as string) || process.cwd(),

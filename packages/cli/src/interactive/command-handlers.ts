@@ -4,7 +4,7 @@ import {
   CombinedAutocompleteProvider,
   type SelectItem,
   type SlashCommand as TuiSlashCommand,
-} from "@earendil-works/pi-tui";
+} from "@notshekhar/pi-tui";
 import chalk from "chalk";
 import {
   CommandRegistry,
@@ -65,7 +65,14 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
       tui.requestRender();
     },
     async setProvider(p) {
+      // auth'd providers + zero-login ollama (daemon detected via the catalog)
       const authed = listAuthorizedProviders();
+      const detectedCat = await getCatalog();
+      for (const m of Object.values(detectedCat)) {
+        if (m.available && m.provider === "ollama" && !authed.includes(m.provider)) {
+          authed.push(m.provider);
+        }
+      }
       if (authed.length === 0) {
         history.addSystem(chalk.yellow("no providers authenticated. /login first."));
         tui.requestRender();
@@ -436,7 +443,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
     async reload() {
       bustCatalogCache();
       const fresh = new CommandRegistry();
-      registerBuiltins(fresh, { cwd: state.cwd });
+      await registerBuiltins(fresh, { cwd: state.cwd });
       (commands as unknown as { commands: Map<string, unknown> }).commands = (
         fresh as unknown as { commands: Map<string, unknown> }
       ).commands;

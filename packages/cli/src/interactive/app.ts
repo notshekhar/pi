@@ -14,8 +14,9 @@ import {
   TUI_KEYBINDINGS,
   type EditorTheme,
   type SlashCommand as TuiSlashCommand,
-} from "@earendil-works/pi-tui";
-import { DynamicBorder, getSelectListTheme, initTheme } from "@earendil-works/pi-coding-agent";
+} from "@notshekhar/pi-tui";
+import { DynamicBorder } from "./ui/messages";
+import { getSelectListTheme, initTheme } from "./ui/theme";
 import chalk from "chalk";
 import {
   CommandRegistry,
@@ -69,7 +70,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   const initialProvider = (opts.provider ?? getActiveProvider() ?? "xai") as ProviderId;
   const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
-    xai: "xai/grok-4",
+    xai: "xai/grok-build-0.1",
     anthropic: "anthropic/claude-sonnet-4-6",
     openai: "openai/gpt-5",
     google: "google/gemini-3.1-pro",
@@ -80,7 +81,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     opts.modelId ??
     (settingsStore.get("defaultModel") as string) ??
     PROVIDER_DEFAULT_MODEL[initialProvider] ??
-    `${initialProvider}/grok-4`;
+    `${initialProvider}/grok-build-0.1`;
 
   const manager = new SessionManager();
   const initialSession: Session | null = opts.sessionId ? await manager.open(opts.sessionId) : null;
@@ -88,7 +89,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   const tracker = new CostTracker();
   const commands = new CommandRegistry();
-  registerBuiltins(commands, { cwd: opts.cwd });
+  await registerBuiltins(commands, { cwd: opts.cwd });
 
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, true);
@@ -290,7 +291,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     }
   }
   if ((settingsStore.get("skills") as boolean) !== false) {
-    const sk = loadProjectSkills(state.cwd);
+    const sk = await loadProjectSkills(state.cwd);
     if (sk.skills.length > 0) {
       history.addSystem(chalk.dim(`skills (${sk.skills.length}):`));
       for (const s of sk.skills) {

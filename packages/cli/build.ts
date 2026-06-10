@@ -9,8 +9,10 @@ const result = await Bun.build({
   outdir: join(import.meta.dir, "dist"),
   target: "node",
   format: "esm",
+  // keep dynamic imports as separate chunks so `pi --version` doesn't eval the TUI stack
+  splitting: true,
   minify: { whitespace: true, identifiers: false, syntax: true },
-  external: ["@notshekhar/pi-core", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "chalk"],
+  external: ["@notshekhar/pi-core", "@notshekhar/pi-tui", "chalk", "highlight.js"],
   banner: "#!/usr/bin/env node",
   define: { __PI_VERSION__: JSON.stringify(pkg.version) },
 });

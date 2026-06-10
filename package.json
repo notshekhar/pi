@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "dev": "bun packages/cli/src/cli.ts",
-    "build": "bun run gen:catalog && bun run --filter @notshekhar/pi-core build && bun run --filter @notshekhar/pi build",
+    "build": "bun run gen:catalog && bun run --filter @notshekhar/pi-core build && bun run --filter @notshekhar/pi-tui build && bun run --filter @notshekhar/pi build",
     "gen:catalog": "bun packages/core/src/catalog/scripts/generate.ts",
     "link": "bun run --filter @notshekhar/pi build && cd packages/cli && bun link"
   },

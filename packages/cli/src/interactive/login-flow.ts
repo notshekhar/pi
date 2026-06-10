@@ -2,8 +2,11 @@ import { type SelectItem, type TUI } from "@notshekhar/pi-tui";
 import chalk from "chalk";
 import {
   bustCatalogCache,
+  deleteCustomProvider,
+  fetchCustomProviderModels,
   getActiveProvider,
   listAuthorizedProviders,
+  listCustomProviders,
   loginApiKey,
   loginOAuth,
   loginXaiOAuth,
@@ -11,7 +14,9 @@ import {
   listOllamaModels,
   ollamaBaseURL,
   PROVIDER_IDS,
+  saveCustomProvider,
   setActiveProvider,
+  type CustomProviderConfig,
   type ProviderId,
 } from "@notshekhar/pi-core";
 import type { ChatHistory } from "./components/chat-history";
@@ -37,13 +42,116 @@ function presentAuth(deps: LoginDeps, label: string, url: string, instructions?:
 }
 
 async function pickProvider(deps: LoginDeps): Promise<ProviderId | null> {
-  const items: SelectItem[] = PROVIDER_IDS.map((id) => ({
-    value: id,
-    label: id,
-    description: providerLabel(id),
-  }));
+  const items: SelectItem[] = [
+    ...PROVIDER_IDS.map((id) => ({
+      value: id as string,
+      label: id as string,
+      description: providerLabel(id),
+    })),
+    {
+      value: "custom",
+      label: "custom",
+      description: "Any compatible endpoint/gateway — bifrost, litellm, proxies (OpenAI/Anthropic/Google compatible)",
+    },
+  ];
   const pick = await deps.selectOnce(items, "Sign in to provider");
   return pick ? (pick.value as ProviderId) : null;
+}
+
+/**
+ * Custom provider wizard: name → compat sdk → baseURL → key → headers, then
+ * model discovery (sdk-appropriate /models call). When the gateway can't list
+ * models, falls back to asking the user for model ids — that manual path is
+ * always available, discovery is just the happy path.
+ */
+async function loginCustom(deps: LoginDeps): Promise<StepResult> {
+  const { tui, history, promptOnce, selectOnce } = deps;
+
+  history.addSystem("Custom provider — name (lowercase, e.g. bifrost). Esc to go back.");
+  tui.requestRender();
+  const rawName = await promptOnce("name: ");
+  if (!rawName) return "back";
+  const name = rawName.trim().toLowerCase();
+  if (!/^[a-z0-9-]+$/.test(name)) {
+    history.addError("name must be lowercase letters, digits, hyphens");
+    tui.requestRender();
+    return "back";
+  }
+
+  const sdkPick = await selectOnce(
+    [
+      { value: "anthropic", label: "Anthropic-compatible", description: "Claude API shape (/v1/messages)" },
+      { value: "openai", label: "OpenAI-compatible", description: "Chat completions shape (/v1/chat/completions)" },
+      { value: "google", label: "Google-compatible", description: "Gemini API shape (/v1beta)" },
+    ],
+    `custom:${name} — which API is the endpoint compatible with?`,
+  );
+  if (!sdkPick) return "back";
+  const sdk = sdkPick.value as CustomProviderConfig["sdk"];
+
+  history.addSystem("Base URL of the endpoint (e.g. http://bifrost.internal/anthropic).");
+  tui.requestRender();
+  const baseURL = (await promptOnce("baseURL: ")).trim();
+  if (!baseURL) return "back";
+
+  history.addSystem("API key (Enter to skip if the gateway only uses headers).");
+  tui.requestRender();
+  const apiKey = (await promptOnce("apiKey: ")).trim();
+
+  history.addSystem('Extra headers, optional. Format: "X-Header: value; Other-Header: value". Enter to skip.');
+  tui.requestRender();
+  const headersRaw = (await promptOnce("headers: ")).trim();
+  const headers: Record<string, string> = {};
+  for (const pair of headersRaw.split(";")) {
+    const idx = pair.indexOf(":");
+    if (idx > 0) headers[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+  }
+
+  const cfg: CustomProviderConfig = {
+    name,
+    sdk,
+    baseURL,
+    apiKey,
+    ...(Object.keys(headers).length ? { headers } : {}),
+  };
+
+  history.addSystem("Discovering models from the endpoint…");
+  tui.requestRender();
+  const discovered = await fetchCustomProviderModels(cfg);
+
+  if (discovered?.length) {
+    cfg.models = discovered.map((m) => ({
+      id: m.id,
+      ...(m.name ? { name: m.name } : {}),
+      ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
+      ...(m.maxOutput ? { maxOutput: m.maxOutput } : {}),
+    }));
+    history.addSystem(chalk.green(`✓ found ${discovered.length} models:`));
+    for (const m of discovered.slice(0, 12)) history.addSystem(chalk.dim(`  • ${m.id}`));
+    if (discovered.length > 12) history.addSystem(chalk.dim(`  … +${discovered.length - 12} more`));
+  } else {
+    history.addSystem(
+      chalk.yellow("Endpoint doesn't expose a model list — enter model ids manually (comma-separated)."),
+    );
+    tui.requestRender();
+    const ids = (await promptOnce("model ids: "))
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (ids.length === 0) {
+      history.addError("no models given — custom provider not saved");
+      tui.requestRender();
+      return "back";
+    }
+    cfg.models = ids.map((id) => ({ id }));
+  }
+
+  saveCustomProvider(cfg);
+  setActiveProvider(`custom:${name}`);
+  bustCatalogCache();
+  history.addSystem(chalk.green(`✓ custom provider "${name}" saved (${cfg.models!.length} models) and set active.`));
+  tui.requestRender();
+  return "done";
 }
 
 async function loginXai(deps: LoginDeps): Promise<StepResult> {
@@ -149,6 +257,8 @@ async function apiKeyLogin(
 
 async function loginForProvider(deps: LoginDeps, p: ProviderId): Promise<StepResult> {
   switch (p) {
+    case "custom":
+      return loginCustom(deps);
     case "xai":
       return loginXai(deps);
     case "github-copilot":
@@ -165,8 +275,8 @@ export async function startLogin(deps: LoginDeps, target?: string): Promise<void
 
   // Validate explicit `target` once; if invalid, surface and exit.
   if (target) {
-    if (!(PROVIDER_IDS as readonly string[]).includes(target)) {
-      history.addSystem(`unknown provider: ${target}. options: ${PROVIDER_IDS.join(", ")}`);
+    if (!(PROVIDER_IDS as readonly string[]).includes(target) && target !== "custom") {
+      history.addSystem(`unknown provider: ${target}. options: ${[...PROVIDER_IDS, "custom"].join(", ")}`);
       tui.requestRender();
       return;
     }
@@ -189,7 +299,10 @@ export async function startLogout(deps: LoginDeps, target?: string): Promise<voi
   const { tui, history, selectOnce } = deps;
   let pick = target;
   if (!pick) {
-    const authed = listAuthorizedProviders();
+    const authed: string[] = [
+      ...listAuthorizedProviders(),
+      ...listCustomProviders().map((c) => `custom:${c.name}`),
+    ];
     if (authed.length === 0) {
       history.addSystem("no providers to sign out from");
       tui.requestRender();
@@ -205,7 +318,12 @@ export async function startLogout(deps: LoginDeps, target?: string): Promise<voi
   }
   if (pick === "__all__") {
     logout();
+    for (const c of listCustomProviders()) deleteCustomProvider(c.name);
     history.addSystem("signed out of all providers");
+  } else if (pick.startsWith("custom:")) {
+    deleteCustomProvider(pick.slice("custom:".length));
+    bustCatalogCache();
+    history.addSystem(`removed custom provider ${pick}`);
   } else {
     logout(pick as ProviderId);
     history.addSystem(`signed out of ${pick}`);

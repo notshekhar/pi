@@ -170,7 +170,20 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
   // OAuth bearer token. So fallback entries stay available unconditionally.
   void XAI_FALLBACK_MODELS;
 
-  // custom providers' declared models — falls back to sdk defaults if empty
+  // custom providers' declared models — falls back to sdk defaults if empty.
+  // Pricing: gateways proxy known vendor models, so when the user hasn't set
+  // a cost we match the model id against the known catalog (exact short id,
+  // or with the -YYYYMMDD date suffix stripped) and inherit real prices —
+  // token usage comes back real from the gateway, so cost tracking stays
+  // accurate. No match → $0.
+  const knownByShortId = new Map<string, ModelInfo>();
+  for (const m of Object.values(out)) {
+    const short = m.id.slice(m.id.indexOf("/") + 1);
+    if (!knownByShortId.has(short)) knownByShortId.set(short, m);
+  }
+  const inferKnown = (id: string): ModelInfo | undefined =>
+    knownByShortId.get(id) ?? knownByShortId.get(id.replace(/-20\d{6}$/, ""));
+
   for (const cfg of listCustomProviders()) {
     const provId = `custom:${cfg.name}`;
     const userModels = cfg.models ?? [];
@@ -189,20 +202,21 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
     }
     for (const m of entries) {
       const fullId = `${provId}/${m.id}`;
+      const known = inferKnown(m.id);
       out[fullId] = {
         id: fullId,
         provider: provId,
-        name: m.name ?? m.id,
-        contextWindow: m.contextWindow ?? 200_000,
-        maxOutput: m.maxOutput ?? 16_000,
+        name: m.name ?? known?.name ?? m.id,
+        contextWindow: m.contextWindow ?? known?.contextWindow ?? 200_000,
+        maxOutput: m.maxOutput ?? known?.maxOutput ?? 16_000,
         cost: {
-          input: m.cost?.input ?? 0,
-          output: m.cost?.output ?? 0,
-          cacheRead: m.cost?.cacheRead ?? 0,
-          cacheWrite: m.cost?.cacheWrite ?? 0,
+          input: m.cost?.input ?? known?.cost.input ?? 0,
+          output: m.cost?.output ?? known?.cost.output ?? 0,
+          cacheRead: m.cost?.cacheRead ?? known?.cost.cacheRead ?? 0,
+          cacheWrite: m.cost?.cacheWrite ?? known?.cost.cacheWrite ?? 0,
         },
-        reasoning: false,
-        modalities: ["text"],
+        reasoning: known?.reasoning ?? false,
+        modalities: known?.modalities ?? ["text"],
         available: true,
       };
     }

@@ -1,9 +1,11 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2024",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2024"
+    ],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -11,6 +13,18 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "allowImportingTsExtensions": false,
-    "types": ["bun", "node"]
+    "types": [
+      "bun",
+      "node"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@notshekhar/pi-core": [
+        "packages/core/src/index.ts"
+      ],
+      "@notshekhar/pi-tui": [
+        "packages/tui/src/index.ts"
+      ]
+    }
   }
 }

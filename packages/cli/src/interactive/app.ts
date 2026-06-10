@@ -304,6 +304,27 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   tui.addInputListener(createInputHandler(state, deps, ctx));
   editor.onSubmit = createTurnRunner(state, deps, ctx);
 
+  // Stray console output from libraries (warnings, deprecation notices)
+  // bypasses the renderer and tears frames. Route it into the chat as
+  // messages instead — errors red, the rest dim. stdout/stderr writes from
+  // native code still bypass this, but console.* covers the practical cases.
+  const origConsole = { log: console.log, warn: console.warn, error: console.error };
+  const fmt = (args: unknown[]) => args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+  console.log = (...args: unknown[]) => {
+    history.addSystem(fmt(args));
+    tui.requestRender();
+  };
+  console.warn = (...args: unknown[]) => {
+    history.addSystem(fmt(args));
+    tui.requestRender();
+  };
+  console.error = (...args: unknown[]) => {
+    history.addError(fmt(args));
+    tui.requestRender();
+  };
+  const restoreConsole = () => Object.assign(console, origConsole);
+  process.once("exit", restoreConsole);
+
   tui.setFocus(editor);
   tui.start();
   tui.requestRender();

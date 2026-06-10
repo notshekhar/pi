@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
 import { settingsStore } from "../auth/storage";
+import { getCustomProvider, isCustomProvider, parseCustomProviderId } from "../auth";
 import { createTools } from "../tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { loadWorkspaceContext } from "./context";
@@ -73,6 +74,11 @@ function toModelMessages(session: Session): ModelMessage[] {
   return out;
 }
 
+// AI SDK prints advisory warnings (e.g. about system messages inside the
+// messages array — our deliberate Anthropic prompt-caching pattern) straight
+// to the console, which tears the TUI's differential rendering. Silence them.
+(globalThis as Record<string, unknown>).AI_SDK_LOG_WARNINGS = false;
+
 export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const { session, modelId, userInput, cwd, abortSignal, tracker, emitter } = opts;
   // Step cap is only an upper safety bound — the loop ends naturally when the
@@ -139,10 +145,18 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
   const thinkingLevel: ThinkingLevel =
     opts.thinkingLevel ?? ((settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off");
+  // Custom providers (gateways like bifrost) proxy a real vendor API — map
+  // thinking/caching by the configured sdk so e.g. an anthropic-compatible
+  // gateway gets adaptive thinking + prompt-cache breakpoints.
+  let effectiveProvider: string = provider;
+  if (isCustomProvider(provider)) {
+    const sdk = getCustomProvider(parseCustomProviderId(provider)!)?.sdk;
+    if (sdk) effectiveProvider = sdk === "openai-compatible" ? "openai" : sdk;
+  }
   let providerOptions =
     modelInfo?.reasoning === false
       ? undefined
-      : buildProviderOptions(provider, thinkingLevel, modelShortId);
+      : buildProviderOptions(effectiveProvider, thinkingLevel, modelShortId);
 
   // Ollama defaults num_ctx to ~4096 regardless of the model's real context,
   // which truncates long agent loops and makes the model stop early. Pin it to
@@ -157,11 +171,13 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     };
   }
 
-  const anthropicCaching = provider === "anthropic";
+  const anthropicCaching = effectiveProvider === "anthropic";
   const result = streamText({
     model,
     ...(anthropicCaching
-      ? { messages: withAnthropicCaching(system, messages) }
+      ? // system inside messages is our deliberate Anthropic prompt-caching
+        // pattern — allowSystemInMessages opts out of the AI SDK warning.
+        { messages: withAnthropicCaching(system, messages), allowSystemInMessages: true }
       : { system, messages }),
     tools,
     stopWhen: stepCountIs(maxSteps),

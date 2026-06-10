@@ -1,3 +1,7 @@
+// AI SDK prints advisory warnings to the console mid-stream, which tears the
+// TUI's differential rendering. Disable globally before anything runs.
+(globalThis as Record<string, unknown>).AI_SDK_LOG_WARNINGS = false;
+
 import type { ProviderId } from "@notshekhar/pi-core";
 import { parseArgs } from "./args";
 

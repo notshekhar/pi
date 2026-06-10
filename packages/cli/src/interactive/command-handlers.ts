@@ -17,6 +17,7 @@ import {
   getActiveProvider,
   getCatalog,
   listAuthorizedProviders,
+  listCustomProviders,
   parseModelId,
   registerBuiltins,
   runCompact,
@@ -66,12 +67,17 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
     },
     async setProvider(p) {
       // auth'd providers + zero-login ollama (daemon detected via the catalog)
+      // + saved custom providers (gateways like bifrost)
       const authed = listAuthorizedProviders();
       const detectedCat = await getCatalog();
       for (const m of Object.values(detectedCat)) {
         if (m.available && m.provider === "ollama" && !authed.includes(m.provider)) {
           authed.push(m.provider);
         }
+      }
+      for (const c of listCustomProviders()) {
+        const id = `custom:${c.name}` as ProviderId;
+        if (!authed.includes(id)) authed.push(id);
       }
       if (authed.length === 0) {
         history.addSystem(chalk.yellow("no providers authenticated. /login first."));

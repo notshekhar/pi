@@ -6,6 +6,8 @@ export {
   listOllamaModels,
   showOllamaModel,
   ollamaBaseURL,
+  fetchCustomProviderModels,
+  type DiscoveredModel,
 } from "./providers";
 export * from "./catalog";
 export * from "./sessions";

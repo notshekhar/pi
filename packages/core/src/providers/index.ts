@@ -186,6 +186,71 @@ async function customModel(cfg: CustomProviderConfig, model: string): Promise<La
   }
 }
 
+export interface DiscoveredModel {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxOutput?: number;
+}
+
+/**
+ * Model discovery for custom providers (gateways like bifrost, litellm, or any
+ * compatible endpoint). Hits the sdk-appropriate models listing with the
+ * provider's auth + custom headers. Returns null when the endpoint doesn't
+ * support listing (404/timeout/parse error) — caller falls back to asking the
+ * user for model ids.
+ */
+export async function fetchCustomProviderModels(
+  cfg: Pick<CustomProviderConfig, "sdk" | "baseURL" | "apiKey" | "headers">,
+): Promise<DiscoveredModel[] | null> {
+  const base = normalizeBaseURL(cfg.sdk, cfg.baseURL);
+  const headers: Record<string, string> = { ...(cfg.headers ?? {}) };
+  try {
+    if (cfg.sdk === "anthropic") {
+      headers["anthropic-version"] ??= "2023-06-01";
+      if (cfg.apiKey) headers["x-api-key"] ??= cfg.apiKey;
+      const res = await fetch(`${base}/models`, { headers, signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) return null;
+      const body = (await res.json()) as {
+        data?: Array<{ id: string; display_name?: string; max_input_tokens?: number; max_tokens?: number }>;
+      };
+      if (!body.data?.length) return null;
+      return body.data.map((m) => ({
+        id: m.id,
+        name: m.display_name,
+        contextWindow: m.max_input_tokens,
+        maxOutput: m.max_tokens,
+      }));
+    }
+    if (cfg.sdk === "google") {
+      const res = await fetch(`${base}/models?key=${encodeURIComponent(cfg.apiKey)}`, {
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as {
+        models?: Array<{ name: string; displayName?: string; inputTokenLimit?: number; outputTokenLimit?: number }>;
+      };
+      if (!body.models?.length) return null;
+      return body.models.map((m) => ({
+        id: m.name.replace(/^models\//, ""),
+        name: m.displayName,
+        contextWindow: m.inputTokenLimit,
+        maxOutput: m.outputTokenLimit,
+      }));
+    }
+    // openai + openai-compatible
+    if (cfg.apiKey) headers.Authorization ??= `Bearer ${cfg.apiKey}`;
+    const res = await fetch(`${base}/models`, { headers, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: Array<{ id: string }> };
+    if (!body.data?.length) return null;
+    return body.data.map((m) => ({ id: m.id }));
+  } catch {
+    return null;
+  }
+}
+
 export async function getModel(fullId: string): Promise<LanguageModel> {
   const { provider, model } = parseModelId(fullId);
   if (isCustomProvider(provider)) {

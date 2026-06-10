@@ -16,7 +16,7 @@
  * Claude Code handler types (http/mcp_tool/prompt/agent) are not supported.
  */
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { settingsStore } from "../auth/storage";
 import { isTrusted } from "./trust";
@@ -76,14 +76,32 @@ const SUPPORTED_EVENTS: HookEvent[] = [
   "SessionEnd",
 ];
 
-function readHooksFromFile(path: string): HooksConfig {
-  if (!existsSync(path)) return {};
+// mtime-keyed JSON cache: runHooks fires twice per tool call, so config files
+// are re-checked with a cheap stat instead of a full read+parse every time.
+const jsonCache = new Map<string, { mtimeMs: number; data: unknown }>();
+
+function readJsonFile(path: string): unknown {
+  let mtimeMs: number;
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as { hooks?: HooksConfig };
-    return parsed.hooks ?? {};
+    mtimeMs = statSync(path).mtimeMs;
   } catch {
-    return {};
+    return undefined;
   }
+  const hit = jsonCache.get(path);
+  if (hit && hit.mtimeMs === mtimeMs) return hit.data;
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    data = undefined;
+  }
+  jsonCache.set(path, { mtimeMs, data });
+  return data;
+}
+
+function readHooksFromFile(path: string): HooksConfig {
+  const parsed = readJsonFile(path) as { hooks?: HooksConfig } | undefined;
+  return parsed?.hooks ?? {};
 }
 
 // Claude Code tool names → our tool names, so imported Claude hooks fire
@@ -118,13 +136,64 @@ function remapClaudeMatcher(matcher: string | undefined): string | undefined {
 function readClaudeHooks(files: string[]): HooksConfig {
   const merged: HooksConfig = {};
   for (const f of files) {
-    const cfg = readHooksFromFile(f);
-    for (const ev of SUPPORTED_EVENTS) {
-      const groups = cfg[ev];
-      if (!groups?.length) continue;
-      const remapped = groups.map((g) => ({ ...g, matcher: remapClaudeMatcher(g.matcher) }));
-      merged[ev] = [...(merged[ev] ?? []), ...remapped];
-    }
+    mergeClaudeConfig(merged, readHooksFromFile(f));
+  }
+  return merged;
+}
+
+function mergeClaudeConfig(into: HooksConfig, cfg: HooksConfig, pluginRoot?: string): void {
+  for (const ev of SUPPORTED_EVENTS) {
+    const groups = cfg[ev];
+    if (!Array.isArray(groups) || !groups.length) continue;
+    const prepared = groups.map((g) => ({
+      ...g,
+      matcher: remapClaudeMatcher(g.matcher),
+      hooks: (g.hooks ?? []).map((h) =>
+        pluginRoot ? { ...h, command: h.command.replaceAll("${CLAUDE_PLUGIN_ROOT}", pluginRoot) } : h,
+      ),
+    }));
+    into[ev] = [...(into[ev] ?? []), ...prepared];
+  }
+}
+
+/**
+ * Hooks shipped by enabled Claude Code plugins (e.g. caveman, superpowers).
+ * Plugins are resolved through ~/.claude/settings.json `enabledPlugins` →
+ * ~/.claude/plugins/installed_plugins.json install paths. A plugin defines
+ * hooks either inline in .claude-plugin/plugin.json (`hooks` object), via a
+ * path in that field, or in hooks/hooks.json at the plugin root.
+ * `${CLAUDE_PLUGIN_ROOT}` in commands expands to the install path.
+ */
+function readClaudePluginHooks(home: string): HooksConfig {
+  const settings = readJsonFile(join(home, ".claude", "settings.json")) as
+    | { enabledPlugins?: Record<string, boolean> }
+    | undefined;
+  const enabled = settings?.enabledPlugins;
+  if (!enabled) return {};
+  const installed = readJsonFile(join(home, ".claude", "plugins", "installed_plugins.json")) as
+    | { plugins?: Record<string, Array<{ installPath?: string }>> }
+    | undefined;
+  if (!installed?.plugins) return {};
+
+  const unwrap = (data: unknown): HooksConfig | undefined => {
+    if (!data || typeof data !== "object") return undefined;
+    const wrapped = (data as { hooks?: unknown }).hooks;
+    return (wrapped && typeof wrapped === "object" ? wrapped : data) as HooksConfig;
+  };
+
+  const merged: HooksConfig = {};
+  for (const [key, on] of Object.entries(enabled)) {
+    if (!on) continue;
+    const root = installed.plugins[key]?.[0]?.installPath;
+    if (!root) continue;
+    const manifest = readJsonFile(join(root, ".claude-plugin", "plugin.json")) as
+      | { hooks?: HooksConfig | string }
+      | undefined;
+    let cfg: HooksConfig | undefined;
+    if (manifest?.hooks && typeof manifest.hooks === "object") cfg = manifest.hooks;
+    else if (typeof manifest?.hooks === "string") cfg = unwrap(readJsonFile(join(root, manifest.hooks)));
+    else cfg = unwrap(readJsonFile(join(root, "hooks", "hooks.json")));
+    if (cfg) mergeClaudeConfig(merged, cfg, root);
   }
   return merged;
 }

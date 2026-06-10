@@ -15,7 +15,8 @@ import {
   type EditorTheme,
   type SlashCommand as TuiSlashCommand,
 } from "@earendil-works/pi-tui";
-import { DynamicBorder, getSelectListTheme, initTheme } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder } from "./ui/messages";
+import { getSelectListTheme, initTheme } from "./ui/theme";
 import chalk from "chalk";
 import {
   CommandRegistry,
@@ -88,7 +89,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   const tracker = new CostTracker();
   const commands = new CommandRegistry();
-  registerBuiltins(commands, { cwd: opts.cwd });
+  await registerBuiltins(commands, { cwd: opts.cwd });
 
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, true);
@@ -290,7 +291,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     }
   }
   if ((settingsStore.get("skills") as boolean) !== false) {
-    const sk = loadProjectSkills(state.cwd);
+    const sk = await loadProjectSkills(state.cwd);
     if (sk.skills.length > 0) {
       history.addSystem(chalk.dim(`skills (${sk.skills.length}):`));
       for (const s of sk.skills) {

@@ -30,7 +30,8 @@ pi
 Prebuilt binaries — no Node required. Targets: `darwin-x64`, `darwin-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`.
 
 > **Built on top of [pi-mono](https://github.com/earendil-works/pi)** by Mario Zechner / earendil-works.
-> pi-mono provides the TUI, tool-execution renderer, theme, selectors, and session format.
+> pi-mono provides the TUI renderer (`pi-tui`) and the session format; the message/tool
+> renderers, theme engine, and skills loader are our own ports of pi-mono's components.
 > This repo wires those primitives to multiple model providers and external agent SDKs.
 > See [Credits](#credits).
 
@@ -172,7 +173,7 @@ Existing pi-mono sessions are read directly and fork on first write.
 
 - TypeScript (strict, ESM). Runtime: bun-compiled single binary (no Node required for users). Dev: Node ≥ 20 or bun ≥ 1.2
 - [Vercel AI SDK v6](https://sdk.vercel.ai/) — agent loop, streaming, tool use, reasoning
-- [`@earendil-works/pi-tui`](https://github.com/earendil-works/pi) + [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi) — TUI renderer, components, theme
+- [`@earendil-works/pi-tui`](https://github.com/earendil-works/pi) — TUI renderer (differential rendering, editor, markdown, select lists). Message/tool components, theme engine, and skills loader are in-repo ports of pi-mono's equivalents
 - [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript), [`@cursor/sdk`](https://cursor.com/docs/sdk/typescript) — dynamic-imported, optional
 - [`zod`](https://zod.dev/) v4 schemas, [`configstore`](https://github.com/yeoman/configstore) for config, JSONL for sessions
 - `tsup` for the ESM bundle, `tsc` for `.d.ts`
@@ -236,7 +237,7 @@ PRs welcome.
 
 `pi` exists because other people did the hard parts first.
 
-- **[Mario Zechner](https://github.com/badlogic) / [earendil-works](https://github.com/earendil-works)** — author of **[pi-mono](https://github.com/earendil-works/pi)** ([`@earendil-works/pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui), [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)). The TUI renderer, tool-execution components, theme, selectors, dynamic borders, and session JSONL format are all his. This repo consumes those packages from npm unmodified. Without pi-mono this CLI would be a fraction of what it is.
+- **[Mario Zechner](https://github.com/badlogic) / [earendil-works](https://github.com/earendil-works)** — author of **[pi-mono](https://github.com/earendil-works/pi)** ([`@earendil-works/pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui)). The TUI renderer and session JSONL format are his, consumed from npm unmodified. The message components, tool renderer, theme engine, and skills loader in this repo are ports of pi-mono's MIT-licensed source. Without pi-mono this CLI would be a fraction of what it is.
 - **Vercel** — the [AI SDK](https://sdk.vercel.ai/) carries the agent loop, multi-provider streaming, tool use, and reasoning.
 - **Anthropic** — the Claude Agent SDK (OAuth + Claude Code's tool suite).
 - **Cursor** — the TypeScript SDK (Composer 2.5, subagents).

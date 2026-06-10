@@ -7,7 +7,8 @@ import {
   Text,
   TUI,
 } from "@earendil-works/pi-tui";
-import { DynamicBorder, getSelectListTheme } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder } from "./ui/messages";
+import { getSelectListTheme } from "./ui/theme";
 import chalk from "chalk";
 import { isEsc } from "./keys";
 

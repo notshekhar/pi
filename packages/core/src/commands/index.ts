@@ -64,7 +64,7 @@ export class CommandRegistry {
   }
 }
 
-export function registerBuiltins(reg: CommandRegistry, opts: { cwd?: string } = {}): void {
+export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: string } = {}): Promise<void> {
   const cwd = opts.cwd ?? process.cwd();
   const cmds: SlashCommand[] = [
     { name: "help", description: "Show available commands", handler: (ctx) => {
@@ -153,7 +153,7 @@ export function registerBuiltins(reg: CommandRegistry, opts: { cwd?: string } = 
 
   // skills as /skill:name commands (pi-mono parity)
   try {
-    const sk = loadProjectSkills(cwd);
+    const sk = await loadProjectSkills(cwd);
     for (const skill of sk.skills) {
       const name = `skill:${skill.name}`;
       reg.register({

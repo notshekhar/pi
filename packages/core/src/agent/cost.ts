@@ -10,7 +10,8 @@ export class CostTracker {
     const { provider } = parseModelId(modelId);
     const inTok = usage.inputTokens ?? 0;
     const outTok = usage.outputTokens ?? 0;
-    const cacheTok = usage.cachedInputTokens ?? 0;
+    const cacheTok = usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? 0;
+    const cacheWriteTok = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
 
     let usd: number;
     if (typeof usage.cost === "number" && provider === "openrouter") {
@@ -20,11 +21,13 @@ export class CostTracker {
       if (!model) {
         usd = 0;
       } else {
-        const billedIn = Math.max(0, inTok - cacheTok);
+        const billedIn =
+          usage.inputTokenDetails?.noCacheTokens ?? Math.max(0, inTok - cacheTok - cacheWriteTok);
         usd =
           (billedIn / 1_000_000) * model.cost.input +
           (outTok / 1_000_000) * model.cost.output +
-          (cacheTok / 1_000_000) * model.cost.cacheRead;
+          (cacheTok / 1_000_000) * model.cost.cacheRead +
+          (cacheWriteTok / 1_000_000) * model.cost.cacheWrite;
       }
     }
 

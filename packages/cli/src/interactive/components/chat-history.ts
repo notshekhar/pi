@@ -1,12 +1,12 @@
-import { Container, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text, type TUI } from "@notshekhar/pi-tui";
 import {
   AssistantMessageComponent,
   CompactionSummaryMessageComponent,
   parseSkillBlock,
   SkillInvocationMessageComponent,
-  ToolExecutionComponent,
   UserMessageComponent,
-} from "@earendil-works/pi-coding-agent";
+} from "../ui/messages";
+import { ToolExecutionComponent } from "../ui/tool-execution";
 import chalk from "chalk";
 
 interface PiAssistantMessage {
@@ -114,7 +114,7 @@ export class ChatHistory extends Container {
     }
     if (this.liveComponent) return;
     this.liveMsg = emptyAssistantMessage(provider, model);
-    this.liveComponent = new AssistantMessageComponent(this.liveMsg as never);
+    this.liveComponent = new AssistantMessageComponent(this.liveMsg);
     this.assistantTurn.addChild(this.liveComponent);
   }
 
@@ -127,7 +127,7 @@ export class ChatHistory extends Container {
     } else {
       msg.content.push({ type: "text", text });
     }
-    this.liveComponent!.updateContent(this.liveMsg as never);
+    this.liveComponent!.updateContent(msg);
   }
 
   appendAssistantThinking(text: string, provider: string, model: string): void {
@@ -139,13 +139,13 @@ export class ChatHistory extends Container {
     } else {
       msg.content.push({ type: "thinking", thinking: text });
     }
-    this.liveComponent!.updateContent(this.liveMsg as never);
+    this.liveComponent!.updateContent(msg);
   }
 
   finishAssistant(stopReason: PiAssistantMessage["stopReason"] = "stop"): void {
     if (this.liveMsg) {
       this.liveMsg.stopReason = stopReason;
-      this.liveComponent?.updateContent(this.liveMsg as never);
+      this.liveComponent?.updateContent(this.liveMsg);
     }
     this.liveMsg = null;
     this.liveComponent = null;
@@ -154,22 +154,12 @@ export class ChatHistory extends Container {
   addToolCall(toolName: string, toolCallId: string, args: Record<string, unknown>): void {
     if (this.liveMsg) {
       this.liveMsg.content.push({ type: "toolCall", id: toolCallId, name: toolName, arguments: args });
-      this.liveComponent?.updateContent(this.liveMsg as never);
+      this.liveComponent?.updateContent(this.liveMsg);
     }
     this.liveMsg = null;
     this.liveComponent = null;
 
-    const comp = new ToolExecutionComponent(
-      toolName,
-      toolCallId,
-      args,
-      { showImages: false },
-      undefined,
-      this.tui,
-      this.cwd,
-    );
-    comp.markExecutionStarted();
-    comp.setArgsComplete();
+    const comp = new ToolExecutionComponent(toolName, args, this.tui, this.cwd);
     if (this.expanded) comp.setExpanded(true);
     (this.assistantTurn ?? this).addChild(comp);
     this.toolComponents.set(toolCallId, comp);
@@ -180,16 +170,17 @@ export class ChatHistory extends Container {
     const comp = this.toolComponents.get(toolCallId);
     if (!comp) return;
     const text = stringifyResult(output);
-    comp.updateResult({ content: [{ type: "text", text }], isError, details: undefined }, false);
+    comp.updateResult({ content: [{ type: "text", text }], isError }, false);
     this.toolComponents.delete(toolCallId);
   }
+
 
   addSystem(text: string): void {
     this.addChild(new Text(chalk.dim(text), 1, 0));
   }
 
   addCompactionSummary(summary: string, tokensBefore: number, timestamp = Date.now()): void {
-    const comp = new CompactionSummaryMessageComponent({ role: "compactionSummary", summary, tokensBefore, timestamp });
+    const comp = new CompactionSummaryMessageComponent({ summary, tokensBefore, timestamp });
     comp.setExpanded(this.expanded);
     this.addChild(new Spacer(1));
     this.addChild(comp);

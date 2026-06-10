@@ -1,4 +1,4 @@
-import type { Component } from "@earendil-works/pi-tui";
+import type { Component } from "@notshekhar/pi-tui";
 import chalk from "chalk";
 
 function fmtTokens(n: number): string {

@@ -1,4 +1,4 @@
-import { type SelectItem, type TUI } from "@earendil-works/pi-tui";
+import { type SelectItem, type TUI } from "@notshekhar/pi-tui";
 import chalk from "chalk";
 import {
   bustCatalogCache,

@@ -21,6 +21,9 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
   emitter.on("tool-call", (part: { toolName?: string; input?: unknown }) => {
     process.stderr.write(`\n[tool:${part.toolName}] ${JSON.stringify(part.input)}\n`);
   });
+  emitter.on("hook-message", (m: string) => {
+    process.stderr.write(`\n[hook] ${m}\n`);
+  });
   emitter.on("error", (err: unknown) => {
     process.stderr.write(`\n[error] ${String(err)}\n`);
   });

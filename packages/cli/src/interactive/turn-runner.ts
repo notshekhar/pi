@@ -64,6 +64,10 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
       showWorking("Generating");
       tui.requestRender();
     });
+    emitter.on("hook-message", (m: string) => {
+      history.addSystem(`[hook] ${m}`);
+      tui.requestRender();
+    });
     emitter.on("compact-start", () => {
       showWorking("Compacting");
       tui.requestRender();

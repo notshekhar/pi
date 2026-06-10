@@ -15,7 +15,7 @@ export { Editor, type EditorOptions, type EditorTheme } from "./components/edito
 export { Image, type ImageOptions, type ImageTheme } from "./components/image";
 export { Input } from "./components/input";
 export { Loader, type LoaderIndicatorOptions } from "./components/loader";
-export { type DefaultTextStyle, Markdown, type MarkdownTheme } from "./components/markdown";
+export { type DefaultTextStyle, Markdown, type MarkdownOptions, type MarkdownTheme } from "./components/markdown";
 export {
 	type SelectItem,
 	SelectList,
@@ -99,6 +99,7 @@ export {
 	type OverlayHandle,
 	type OverlayMargin,
 	type OverlayOptions,
+	type OverlayUnfocusOptions,
 	type SizeValue,
 	TUI,
 } from "./tui";

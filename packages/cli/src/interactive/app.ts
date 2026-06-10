@@ -30,6 +30,12 @@ import {
   parseModelId,
   loadWorkspaceContext,
   loadProjectSkills,
+  runHooks,
+  hasProjectTrustInputs,
+  getTrustDecision,
+  getTrustOptions,
+  setTrust,
+  trustForSession,
   type ThinkingLevel,
   type ProviderId,
   type Session,
@@ -251,7 +257,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   const cleanExit = (code = 0) => {
     tui.stop();
-    process.exit(code);
+    // SessionEnd hooks: give them a moment, then exit regardless.
+    void Promise.race([
+      runHooks("SessionEnd", undefined, { session_id: state.session?.id }, state.cwd),
+      new Promise((r) => setTimeout(r, 3_000)),
+    ]).finally(() => process.exit(code));
   };
 
   const deps: AppDeps = {
@@ -328,4 +338,40 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   tui.setFocus(editor);
   tui.start();
   tui.requestRender();
+
+  // Project trust → SessionStart hooks. First open of a folder that ships
+  // .pi/.claude resources prompts before any project hook/skill can run; the
+  // decision gates project resource loading (executable hooks, project skills).
+  void (async () => {
+    if (hasProjectTrustInputs(state.cwd) && getTrustDecision(state.cwd) === null) {
+      const opts = getTrustOptions(state.cwd);
+      history.addSystem(
+        chalk.yellow(`Trust this project folder?\n${state.cwd}`) +
+          chalk.dim("\nTrusting lets pi load this repo's .pi/.claude settings, hooks, and skills."),
+      );
+      tui.requestRender();
+      const items: SelectItem[] = opts.map((o) => ({ value: o.label, label: o.label, description: "" }));
+      const pick = await selectOnce(items, "Project trust");
+      const chosen = opts.find((o) => o.label === pick?.value);
+      if (chosen) {
+        if (chosen.remember) setTrust(chosen.savePath, chosen.trusted);
+        else if (chosen.trusted) trustForSession(state.cwd); // session-only: in-memory, not persisted
+        history.addSystem(chalk.dim(chosen.trusted ? "✓ project trusted" : "✗ project not trusted — project hooks/skills disabled"));
+      } else {
+        history.addSystem(chalk.dim("trust prompt dismissed — treating project as untrusted for now"));
+      }
+      tui.requestRender();
+    }
+
+    // SessionStart hooks (now that trust is resolved): messages render in chat;
+    // additionalContext rides the first user prompt.
+    const h = await runHooks("SessionStart", "startup", { session_id: state.session?.id }, state.cwd);
+    for (const m of h.messages) history.addSystem(`[hook] ${m}`);
+    if (h.additionalContext) {
+      state.pendingInjection = state.pendingInjection
+        ? `${state.pendingInjection}\n\n${h.additionalContext}`
+        : h.additionalContext;
+    }
+    if (h.messages.length || h.additionalContext) tui.requestRender();
+  })();
 }

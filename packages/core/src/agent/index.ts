@@ -12,6 +12,8 @@ import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
 import { CostTracker } from "./cost";
 import { compactedContextMessages, runCompact } from "./compact";
+import { runHooks } from "./hooks";
+import { isTrusted } from "./trust";
 import { buildProviderOptions, type ThinkingLevel } from "./thinking";
 import type { Session } from "../sessions";
 import type { UsageBlock } from "../types";
@@ -26,6 +28,17 @@ export {
 } from "./thinking";
 export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
 export { loadProjectSkills, type Skill } from "./skills";
+export { runHooks, loadHooksConfig, type HookEvent, type HooksConfig } from "./hooks";
+export {
+  hasProjectTrustInputs,
+  getTrustDecision,
+  isTrusted,
+  setTrust,
+  trustForSession,
+  getTrustOptions,
+  type TrustOption,
+  type TrustDecision,
+} from "./trust";
 
 export interface RunTurnOptions {
   session: Session;
@@ -37,6 +50,8 @@ export interface RunTurnOptions {
   emitter: EventEmitter;
   maxSteps?: number;
   thinkingLevel?: ThinkingLevel;
+  /** internal: recursion depth for Stop-hook continuations */
+  hookDepth?: number;
 }
 
 function estimateContextTokens(messages: ModelMessage[]): number {
@@ -91,6 +106,20 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   if (images.length > 0) {
     emitter.emit("attached-images", images.map((i) => i.path));
   }
+  // UserPromptSubmit hooks: may block the turn or inject context for the model
+  const promptHooks = await runHooks(
+    "UserPromptSubmit",
+    undefined,
+    { session_id: session.id, prompt: userInput },
+    cwd,
+  );
+  for (const m of promptHooks.messages) emitter.emit("hook-message", m);
+  if (promptHooks.block) {
+    emitter.emit("error", `prompt blocked by hook: ${promptHooks.reason}`);
+    emitter.emit("finish", { usage: undefined });
+    return;
+  }
+
   // Persist user message verbatim (paths intact for reference in transcripts)
   await session.append({ type: "message", ts: Date.now(), role: "user", content: userInput });
 
@@ -120,11 +149,12 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
   const workspaceContext =
     (settingsStore.get("workspaceContext") as boolean) !== false ? loadWorkspaceContext(cwd) : { text: "", files: [] };
-  const skillsEnabled = (settingsStore.get("skills") as boolean) !== false;
+  // Project skills inject instructions into the prompt — gate on trust too.
+  const skillsEnabled = (settingsStore.get("skills") as boolean) !== false && isTrusted(cwd);
   const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
 
   const system = buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text }) + (skills.promptBlock ?? "");
-  const tools = createTools({ cwd, abortSignal });
+  const tools = withToolHooks(createTools({ cwd, abortSignal }), { cwd, sessionId: session.id, emitter });
   const model = await getModel(modelId);
 
   // If we extracted image paths, override the last user message with a multipart
@@ -140,6 +170,19 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
       if (textWithoutPaths) parts.push({ type: "text", text: textWithoutPaths });
       for (const img of images) parts.push({ type: "image", image: img.data, mediaType: img.mediaType });
       messages[lastUserIdx] = { role: "user", content: parts as never };
+    }
+  }
+
+  // Hook-injected context rides only the model-bound copy, not the transcript.
+  if (promptHooks.additionalContext) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user" && typeof messages[i].content === "string") {
+        messages[i] = {
+          role: "user",
+          content: `${messages[i].content as string}\n\n<hook-context>\n${promptHooks.additionalContext}\n</hook-context>`,
+        };
+        break;
+      }
     }
   }
 
@@ -244,4 +287,71 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     content: assistantText,
     usage: lastUsage,
   });
+
+  // Stop hooks: a block sends the reason back as a follow-up turn so the
+  // agent keeps working (Claude Code parity, e.g. "tests must pass"). Depth
+  // capped to avoid infinite hook loops.
+  if (!abortSignal?.aborted) {
+    const depth = opts.hookDepth ?? 0;
+    const stopHooks = await runHooks("Stop", undefined, { session_id: session.id }, cwd);
+    for (const m of stopHooks.messages) emitter.emit("hook-message", m);
+    if (stopHooks.block && depth < 3) {
+      emitter.emit("hook-message", `stop hook requested continuation: ${stopHooks.reason}`);
+      await runTurn({ ...opts, userInput: `[stop hook] ${stopHooks.reason}`, hookDepth: depth + 1 });
+    }
+  }
+}
+
+type AnyTool = { execute?: (input: unknown, options: unknown) => Promise<unknown> };
+
+/**
+ * Wraps every tool's execute with PreToolUse / PostToolUse hooks.
+ * Pre: deny → the tool never runs; the reason is returned as the tool result
+ * so the model can react. updatedInput replaces the arguments.
+ * Post: block/additionalContext are attached to the result as hook_feedback.
+ */
+function withToolHooks<T extends object>(
+  tools: T,
+  ctx: { cwd: string; sessionId: string; emitter: EventEmitter },
+): T {
+  const wrapped: Record<string, AnyTool> = {};
+  for (const [name, t] of Object.entries(tools as Record<string, AnyTool>)) {
+    if (!t.execute) {
+      wrapped[name] = t;
+      continue;
+    }
+    wrapped[name] = {
+      ...t,
+      execute: async (input: unknown, options: unknown) => {
+        const pre = await runHooks(
+          "PreToolUse",
+          name,
+          { session_id: ctx.sessionId, tool_name: name, tool_input: input },
+          ctx.cwd,
+        );
+        for (const m of pre.messages) ctx.emitter.emit("hook-message", m);
+        if (pre.block) {
+          return { error: `blocked by PreToolUse hook: ${pre.reason}` };
+        }
+        const effectiveInput = pre.updatedInput !== undefined ? pre.updatedInput : input;
+        const output = await t.execute!(effectiveInput, options);
+        const post = await runHooks(
+          "PostToolUse",
+          name,
+          { session_id: ctx.sessionId, tool_name: name, tool_input: effectiveInput, tool_output: output },
+          ctx.cwd,
+        );
+        for (const m of post.messages) ctx.emitter.emit("hook-message", m);
+        const feedback = [post.block ? `BLOCKED: ${post.reason}` : null, post.additionalContext]
+          .filter(Boolean)
+          .join("\n");
+        if (feedback) {
+          if (output && typeof output === "object") return { ...(output as object), hook_feedback: feedback };
+          return { result: output, hook_feedback: feedback };
+        }
+        return output;
+      },
+    };
+  }
+  return wrapped as unknown as T;
 }

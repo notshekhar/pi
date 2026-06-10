@@ -1,11 +1,13 @@
 {
   "name": "@notshekhar/pi-tui",
   "version": "0.0.2",
-  "description": "TUI renderer for pi — differential rendering, editor, markdown, select lists. Port of @earendil-works/pi-tui (MIT, Mario Zechner / earendil-works).",
+  "description": "TUI renderer for pi \u2014 differential rendering, editor, markdown, select lists. Port of @earendil-works/pi-tui (MIT, Mario Zechner / earendil-works).",
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/notshekhar/pi#readme",
-  "bugs": { "url": "https://github.com/notshekhar/pi/issues" },
+  "bugs": {
+    "url": "https://github.com/notshekhar/pi/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/notshekhar/pi.git",
@@ -27,10 +29,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "get-east-asian-width": "^1.3.0",
+    "get-east-asian-width": "^1.6.0",
     "marked": "^15.0.12"
-  },
-  "optionalDependencies": {
-    "koffi": "^2.9.0"
   }
 }

@@ -22,6 +22,8 @@ export class ToolExecutionComponent extends Container {
     private expanded = false;
     private isPartial = true;
     private result?: ToolResultLike;
+    /** Live status shown in the title while partial (subagent: current tool). */
+    private statusText = "";
 
     constructor(
         private toolName: string,
@@ -51,6 +53,13 @@ export class ToolExecutionComponent extends Container {
     updateResult(result: ToolResultLike, isPartial = false): void {
         this.result = result;
         this.isPartial = isPartial;
+        if (!isPartial) this.statusText = "";
+        this.updateDisplay();
+        this.tui.requestRender();
+    }
+
+    updateStatus(status: string): void {
+        this.statusText = status;
         this.updateDisplay();
         this.tui.requestRender();
     }
@@ -61,12 +70,17 @@ export class ToolExecutionComponent extends Container {
     }
 
     private updateDisplay(): void {
+        // Subagents (task tool) keep the purple custom-message background as
+        // their identity — pending and done alike; errors still go red.
+        const isTask = this.toolName === "task";
         this.box.setBgFn(
-            this.isPartial
-                ? (text: string) => theme.bg("toolPendingBg", text)
-                : this.result?.isError
-                  ? (text: string) => theme.bg("toolErrorBg", text)
-                  : (text: string) => theme.bg("toolSuccessBg", text),
+            this.result?.isError && !this.isPartial
+                ? (text: string) => theme.bg("toolErrorBg", text)
+                : isTask
+                  ? (text: string) => theme.bg("customMessageBg", text)
+                  : this.isPartial
+                    ? (text: string) => theme.bg("toolPendingBg", text)
+                    : (text: string) => theme.bg("toolSuccessBg", text),
         );
         this.box.clear();
         this.box.addChild(new Text(this.titleLine(), 0, 0));
@@ -93,6 +107,15 @@ export class ToolExecutionComponent extends Container {
 
     /** `toolname summary` — bold name, muted single-line arg summary. */
     private titleLine(): string {
+        // Subagent header: `task <agent> · <state> · <prompt snippet>` where
+        // state is the live tool while running, then done/failed.
+        if (this.toolName === "task") {
+            const agent = typeof this.args.agent === "string" ? this.args.agent : "default";
+            const state = this.isPartial ? this.statusText || "running" : this.result?.isError ? "failed" : "done";
+            const snippet = typeof this.args.prompt === "string" ? this.args.prompt.split("\n")[0].slice(0, 50) : "";
+            const title = theme.fg("toolTitle", theme.bold(`task ${agent}`));
+            return `${title} ${theme.fg("muted", snippet ? `${state} · ${snippet}` : state)}`;
+        }
         const title = theme.fg("toolTitle", theme.bold(this.toolName));
         const summary = this.argsSummary();
         return summary ? `${title} ${theme.fg("muted", summary)}` : title;

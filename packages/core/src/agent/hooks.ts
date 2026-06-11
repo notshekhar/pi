@@ -94,9 +94,7 @@ export interface HookOutcome {
 
 const DEFAULT_TIMEOUT_S = 60;
 
-// SubagentStop is accepted from config for forward-compat but never fired —
-// pi has no subagents.
-const SUPPORTED_EVENTS: HookEvent[] = [
+export const HOOK_EVENTS: readonly HookEvent[] = [
     "SessionStart",
     "UserPromptSubmit",
     "PreToolUse",
@@ -108,6 +106,9 @@ const SUPPORTED_EVENTS: HookEvent[] = [
     "Stop",
     "SessionEnd",
 ];
+
+// SubagentStop accepted from config for forward-compat; fired on subagent completion.
+const SUPPORTED_EVENTS: readonly HookEvent[] = HOOK_EVENTS;
 
 // mtime-keyed JSON cache: runHooks fires twice per tool call, so config files
 // are re-checked with a cheap stat instead of a full read+parse every time.
@@ -149,6 +150,7 @@ const CLAUDE_TOOL_MAP: Record<string, string> = {
     Grep: "grep",
     Glob: "find",
     LS: "ls",
+    Task: "task",
 };
 
 function remapClaudeMatcher(matcher: string | undefined): string | undefined {
@@ -293,6 +295,90 @@ function loadHooksConfigUnsafe(cwd: string): HooksConfig {
         merged[ev] = layers.flatMap((l) => l[ev] ?? []);
     }
     return merged;
+}
+
+/** One hook command with provenance — powers /hooks management UI. */
+export interface HookSourceEntry {
+    event: HookEvent;
+    matcher?: string;
+    command: string;
+    async?: boolean;
+    /** Where it loads from: pi-user | pi-project | claude-user | claude-plugins | claude-project */
+    source: "pi-user" | "pi-project" | "claude-user" | "claude-plugins" | "claude-project";
+}
+
+/** Flatten every loaded hook with its source. Same readers/gates as loadHooksConfig. */
+export function listHooksWithSources(cwd: string): HookSourceEntry[] {
+    const entries: HookSourceEntry[] = [];
+    const collect = (cfg: HooksConfig, source: HookSourceEntry["source"]) => {
+        for (const ev of SUPPORTED_EVENTS) {
+            for (const group of cfg[ev] ?? []) {
+                for (const h of group.hooks ?? []) {
+                    if (!h || typeof h.command !== "string" || !h.command.trim()) continue;
+                    entries.push({ event: ev, matcher: group.matcher, command: h.command, async: h.async, source });
+                }
+            }
+        }
+    };
+    try {
+        const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+        const importClaude = (settingsStore.get("importClaudeHooks") as boolean | undefined) !== false;
+        if (importClaude) {
+            collect(readClaudeHooks([join(home, ".claude", "settings.json")]), "claude-user");
+            collect(readClaudePluginHooks(home), "claude-plugins");
+        }
+        collect((settingsStore.get("hooks") as HooksConfig | undefined) ?? {}, "pi-user");
+        if (isTrusted(cwd)) {
+            if (importClaude) {
+                collect(
+                    readClaudeHooks([
+                        join(cwd, ".claude", "settings.json"),
+                        join(cwd, ".claude", "settings.local.json"),
+                    ]),
+                    "claude-project",
+                );
+            }
+            collect(readHooksFromFile(join(cwd, ".pi", "settings.json")), "pi-project");
+        }
+    } catch {
+        // management view must never throw
+    }
+    return entries;
+}
+
+/** Register a hook in ~/.pi/settings.json — pi-owned, independent of any Claude install. */
+export function addPiUserHook(event: HookEvent, command: string, matcher?: string, isAsync?: boolean): void {
+    const hooks = ((settingsStore.get("hooks") as HooksConfig | undefined) ?? {}) as HooksConfig;
+    const cmd: HookCommand = { type: "command", command, ...(isAsync ? { async: true } : {}) };
+    const groups = [...(hooks[event] ?? [])];
+    // Reuse a group with the same matcher when one exists.
+    const idx = groups.findIndex((g) => (g.matcher ?? "") === (matcher ?? ""));
+    if (idx >= 0) groups[idx] = { ...groups[idx], hooks: [...groups[idx].hooks, cmd] };
+    else groups.push({ ...(matcher ? { matcher } : {}), hooks: [cmd] });
+    settingsStore.set("hooks", { ...hooks, [event]: groups });
+}
+
+/** Remove a pi-user hook by event + exact command (first match). */
+export function removePiUserHook(event: HookEvent, command: string): boolean {
+    const hooks = ((settingsStore.get("hooks") as HooksConfig | undefined) ?? {}) as HooksConfig;
+    const groups = hooks[event];
+    if (!groups) return false;
+    let removed = false;
+    const next = groups
+        .map((g) => {
+            if (removed) return g;
+            const i = (g.hooks ?? []).findIndex((h) => h.command === command);
+            if (i < 0) return g;
+            removed = true;
+            return { ...g, hooks: g.hooks.filter((_, j) => j !== i) };
+        })
+        .filter((g) => g.hooks.length > 0);
+    if (!removed) return false;
+    const out = { ...hooks };
+    if (next.length) out[event] = next;
+    else delete out[event];
+    settingsStore.set("hooks", out);
+    return true;
 }
 
 /** Claude Code matcher semantics: empty/"*" = all; word chars + `|` = exact list; else regex. */

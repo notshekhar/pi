@@ -190,6 +190,16 @@ export class ChatHistory extends Container {
         this.allToolComponents.push(comp);
     }
 
+    /** Live status line in the tool title (subagent: current tool name). */
+    setToolStatus(toolCallId: string, status: string): void {
+        this.toolComponents.get(toolCallId)?.updateStatus(status);
+    }
+
+    /** Live partial output (subagent streaming) — keeps the component pending. */
+    updateToolProgress(toolCallId: string, text: string): void {
+        this.toolComponents.get(toolCallId)?.updateResult({ content: [{ type: "text", text }], isError: false }, true);
+    }
+
     addToolResult(toolCallId: string, output: unknown, isError = false): void {
         const comp = this.toolComponents.get(toolCallId);
         if (!comp) return;

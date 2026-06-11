@@ -67,6 +67,24 @@ export function createTaskTool(ctx: SubagentCtx) {
     });
 }
 
+/**
+ * Resolve a subagent's effective tool names: the target agent's own tools,
+ * intersected with the caller's cap. `task` is always stripped (no nesting).
+ * Pure + exported so the security boundary is unit-testable.
+ *   - allFileTools: the file-tool names available (no "task")
+ *   - targetTools:  target agent's tools (undefined = all)
+ *   - cap:          caller's subagent-tools cap (undefined = no cap)
+ */
+export function resolveSubagentTools(
+    allFileTools: string[],
+    targetTools: string[] | undefined,
+    cap: string[] | undefined,
+): string[] {
+    const base = (targetTools?.length ? targetTools : allFileTools).filter((t) => allFileTools.includes(t));
+    const capped = cap?.length ? base.filter((t) => cap.includes(t)) : base;
+    return capped.filter((t) => t !== "task");
+}
+
 async function runSubagent(
     ctx: SubagentCtx,
     agentName: string | undefined,
@@ -76,13 +94,7 @@ async function runSubagent(
     const name = agentName && agentExists(agentName) ? agentName : DEFAULT_AGENT_NAME;
     try {
         const full = createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal });
-        // Effective tools = target agent's own tools ∩ caller's cap.
-        // "task" is stripped either way — subagents never nest.
-        const targetTools = getAgentTools(name);
-        let effective = (targetTools?.length ? targetTools : Object.keys(full)).filter((t) => t in full);
-        if (ctx.subagentToolCap?.length) {
-            effective = effective.filter((t) => ctx.subagentToolCap!.includes(t));
-        }
+        const effective = resolveSubagentTools(Object.keys(full), getAgentTools(name), ctx.subagentToolCap);
         const subTools = Object.fromEntries(Object.entries(full).filter(([n]) => effective.includes(n))) as typeof full;
         // Subagent tool calls run the same PreToolUse/PostToolUse hooks,
         // tagged with agent_id so watchers can tell them apart.

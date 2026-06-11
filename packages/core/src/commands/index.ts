@@ -30,6 +30,7 @@ export interface CommandContext {
     reload(): Promise<void>;
     showChangelog(): void;
     manageAgents(): Promise<void>;
+    manageHooks(): Promise<void>;
     /** With message: run that one message under this agent's prompt (one-shot). */
     useAgent(name: string, message?: string): Promise<void> | void;
     stub(name: string): void;
@@ -246,6 +247,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             description: "Create, select, or edit agents (custom system prompts)",
             handler: async (ctx) => {
                 await ctx.manageAgents();
+            },
+        },
+        {
+            name: "hooks",
+            description: "List, add, and remove lifecycle hooks (pi-owned and imported)",
+            handler: async (ctx) => {
+                await ctx.manageHooks();
             },
         },
         {

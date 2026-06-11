@@ -1,5 +1,6 @@
-import { streamText, stepCountIs, smoothStream } from "ai";
+import { streamText, stepCountIs, smoothStream, tool, ToolLoopAgent } from "ai";
 import type { ModelMessage } from "ai";
+import { z } from "zod";
 import { EventEmitter } from "node:events";
 import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
@@ -7,7 +8,7 @@ import { settingsStore } from "../auth/storage";
 import { getCustomProvider, isCustomProvider, parseCustomProviderId } from "../auth";
 import { createTools } from "../tools";
 import { buildSystemPrompt } from "./system-prompt";
-import { getAgentPrompt, getAgentTools } from "./agents";
+import { getAgentPrompt, getAgentTools, agentExists, listAgents, DEFAULT_AGENT_NAME } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
@@ -24,7 +25,19 @@ export { runCompact, CompactAbortedError } from "./compact";
 export { THINKING_LEVELS, THINKING_LEVEL_DESCRIPTIONS, buildProviderOptions, type ThinkingLevel } from "./thinking";
 export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
 export { loadProjectSkills, type Skill } from "./skills";
-export { runHooks, loadHooksConfig, hookBus, type HookEvent, type HooksConfig, type HookOutcome } from "./hooks";
+export {
+    runHooks,
+    loadHooksConfig,
+    hookBus,
+    listHooksWithSources,
+    addPiUserHook,
+    removePiUserHook,
+    HOOK_EVENTS,
+    type HookEvent,
+    type HooksConfig,
+    type HookOutcome,
+    type HookSourceEntry,
+} from "./hooks";
 export {
     DEFAULT_AGENT_NAME,
     PLAN_BASE_PROMPT,
@@ -95,10 +108,12 @@ function toModelMessages(session: Session): ModelMessage[] {
     const out: ModelMessage[] = [];
     for (const m of compactedContextMessages(session)) {
         if (m.role === "tool") continue;
-        out.push({
-            role: m.role as "user" | "assistant",
-            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-        });
+        const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+        // Anthropic rejects empty text blocks ("text content blocks must be
+        // non-empty") — aborted turns left empty assistant entries in older
+        // transcripts, so filter on read, not just on write.
+        if (content.trim() === "") continue;
+        out.push({ role: m.role as "user" | "assistant", content });
     }
     return out;
 }
@@ -201,14 +216,39 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             ? Object.fromEntries(Object.entries(fullToolSet).filter(([name]) => allowedTools.includes(name)))
             : fullToolSet
     ) as typeof fullToolSet;
+    // Subagents: only full-toolset agents get the task tool — a restricted
+    // agent (e.g. plan) must not escape its sandbox through a subagent.
+    // Subagents themselves never get one (no nesting).
+    const toolsForTurn: Record<string, unknown> = { ...toolSet };
+    if (!allowedTools?.length) {
+        toolsForTurn.task = createTaskTool({
+            modelId,
+            cwd,
+            tracker,
+            emitter,
+            abortSignal,
+            sessionId: session.id,
+            transcriptPath: session.path,
+        });
+    }
+    // System prompt is built AFTER the task tool decision so the model's tool
+    // list matches reality, plus explicit delegation guidance when present.
+    const subagentNote =
+        "task" in toolsForTurn
+            ? `\n\nDelegate self-contained or context-heavy work (broad searches, analysis, multi-file changes) to subagents with the task tool — each runs in its own context window and returns only a final report. When you use task, call it alone in that step; never alongside other tool calls. Available agents: ${listAgents()
+                  .map((a) => a.name)
+                  .join(", ")}.`
+            : "";
     const system =
         buildSystemPrompt({
             cwd,
             workspaceContext: workspaceContext.text,
             basePrompt: agentPrompt,
-            tools: Object.keys(toolSet),
-        }) + (skills.promptBlock ?? "");
-    const tools = withToolHooks(toolSet, {
+            tools: Object.keys(toolsForTurn),
+        }) +
+        subagentNote +
+        (skills.promptBlock ?? "");
+    const tools = withToolHooks(toolsForTurn as typeof fullToolSet, {
         cwd,
         sessionId: session.id,
         transcriptPath: session.path,
@@ -345,13 +385,17 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         }
     }
 
-    await session.append({
-        type: "message",
-        ts: Date.now(),
-        role: "assistant",
-        content: assistantText,
-        usage: lastUsage,
-    });
+    // Aborted/tool-only turns can end with no text — don't persist an empty
+    // assistant message (Anthropic rejects empty text blocks on later turns).
+    if (assistantText.trim() !== "" || lastUsage) {
+        await session.append({
+            type: "message",
+            ts: Date.now(),
+            role: "assistant",
+            content: assistantText,
+            usage: lastUsage,
+        });
+    }
 
     // Stop hooks: a block sends the reason back as a follow-up turn so the
     // agent keeps working (Claude Code parity, e.g. "tests must pass"). Depth
@@ -384,8 +428,11 @@ type AnyTool = { execute?: (input: unknown, options: unknown) => Promise<unknown
  */
 function withToolHooks<T extends object>(
     tools: T,
-    ctx: { cwd: string; sessionId: string; transcriptPath: string; emitter: EventEmitter },
+    ctx: { cwd: string; sessionId: string; transcriptPath: string; emitter: EventEmitter; agentId?: string },
 ): T {
+    // agent_id marks subagent tool calls in hook payloads (Claude Code parity —
+    // watchers like herdr use it to tell main-agent and subagent activity apart).
+    const agentFields = ctx.agentId ? { agent_id: ctx.agentId } : {};
     const wrapped: Record<string, AnyTool> = {};
     for (const [name, t] of Object.entries(tools as Record<string, AnyTool>)) {
         if (!t.execute) {
@@ -403,6 +450,7 @@ function withToolHooks<T extends object>(
                         transcript_path: ctx.transcriptPath,
                         tool_name: name,
                         tool_input: input,
+                        ...agentFields,
                     },
                     ctx.cwd,
                 );
@@ -429,7 +477,9 @@ function withToolHooks<T extends object>(
                 const effectiveInput = pre.updatedInput !== undefined ? pre.updatedInput : input;
                 // Hook rewrote the input (e.g. rtk): update the rendered tool call in
                 // place so the chat shows what actually executed — no separate line.
-                if (pre.updatedInput !== undefined) {
+                // Main agent only: subagent tool calls aren't rendered as own
+                // components, and their ids could collide with main ones.
+                if (pre.updatedInput !== undefined && !ctx.agentId) {
                     const toolCallId = (options as { toolCallId?: string } | undefined)?.toolCallId;
                     ctx.emitter.emit("tool-input-updated", { toolCallId, toolName: name, input: effectiveInput });
                 }
@@ -446,6 +496,7 @@ function withToolHooks<T extends object>(
                         // any pi hooks already written against it.
                         tool_response: output,
                         tool_output: output,
+                        ...agentFields,
                     },
                     ctx.cwd,
                 );
@@ -463,4 +514,137 @@ function withToolHooks<T extends object>(
         };
     }
     return wrapped as unknown as T;
+}
+
+// ---------------------------------------------------------------------------
+// Subagents — the task tool runs a nested agent loop (own context window,
+// own toolset from the chosen agent). Streaming surfaces through the parent
+// emitter (subagent-delta / subagent-tool / subagent-finish, keyed by the
+// task toolCallId) and usage aggregates into the parent's CostTracker.
+// ---------------------------------------------------------------------------
+
+const SUBAGENT_SYSTEM_SUFFIX = `
+
+You are a subagent launched by a main agent. Work autonomously — you cannot ask the user questions. When done, end with a complete final report; only that final text is returned to the main agent.`;
+
+interface SubagentCtx {
+    modelId: string;
+    cwd: string;
+    tracker: CostTracker;
+    emitter: EventEmitter;
+    abortSignal?: AbortSignal;
+    sessionId: string;
+    transcriptPath: string;
+}
+
+function createTaskTool(ctx: SubagentCtx) {
+    const agentNames = listAgents()
+        .map((a) => a.name)
+        .join(", ");
+    return tool({
+        description:
+            "Launch a subagent to handle a self-contained task and return its final report. " +
+            "Use for context-heavy or parallelizable work (broad searches, analysis, multi-file changes) " +
+            "to keep the main context small. The subagent runs autonomously with its own context window " +
+            "and cannot ask questions — include everything it needs in the prompt, and say what output you expect. " +
+            "Call task on its own: do not combine it with other tool calls in the same step — the subagent " +
+            "covers the exploration itself.",
+        inputSchema: z.object({
+            agent: z
+                .string()
+                .optional()
+                .describe(`Agent to run the task with (its prompt + tool restrictions apply). One of: ${agentNames}`),
+            prompt: z.string().describe("Complete task description for the subagent, including the expected output"),
+        }),
+        execute: (input, options) =>
+            runSubagent(ctx, input.agent, input.prompt, (options as { toolCallId?: string })?.toolCallId ?? "task"),
+    });
+}
+
+async function runSubagent(
+    ctx: SubagentCtx,
+    agentName: string | undefined,
+    prompt: string,
+    toolCallId: string,
+): Promise<string> {
+    const name = agentName && agentExists(agentName) ? agentName : DEFAULT_AGENT_NAME;
+    try {
+        const allowed = getAgentTools(name);
+        const full = createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal });
+        const subTools = (
+            allowed?.length ? Object.fromEntries(Object.entries(full).filter(([n]) => allowed.includes(n))) : full
+        ) as typeof full;
+        // Subagent tool calls run the same PreToolUse/PostToolUse hooks,
+        // tagged with agent_id so watchers can tell them apart.
+        const hooked = withToolHooks(subTools, {
+            cwd: ctx.cwd,
+            sessionId: ctx.sessionId,
+            transcriptPath: ctx.transcriptPath,
+            emitter: ctx.emitter,
+            agentId: toolCallId,
+        });
+        const maxSteps = (settingsStore.get("subagentMaxSteps") as number | undefined) || 50;
+        // AI SDK's native agent loop — same streamText core runTurn uses, with
+        // the loop/stop handling owned by the SDK.
+        const agent = new ToolLoopAgent({
+            model: await getModel(ctx.modelId),
+            instructions:
+                buildSystemPrompt({ cwd: ctx.cwd, basePrompt: getAgentPrompt(name), tools: Object.keys(subTools) }) +
+                SUBAGENT_SYSTEM_SUFFIX,
+            tools: hooked,
+            stopWhen: stepCountIs(maxSteps),
+        });
+        const result = await agent.stream({ prompt, abortSignal: ctx.abortSignal });
+
+        let text = "";
+        for await (const part of result.fullStream) {
+            if (ctx.abortSignal?.aborted) break;
+            switch (part.type) {
+                case "text-delta":
+                    text += part.text;
+                    ctx.emitter.emit("subagent-delta", { toolCallId, agent: name, text: part.text });
+                    break;
+                case "tool-call":
+                    ctx.emitter.emit("subagent-tool", {
+                        toolCallId,
+                        agent: name,
+                        toolName: (part as { toolName?: string }).toolName,
+                        input: (part as { input?: unknown }).input,
+                    });
+                    break;
+                case "finish": {
+                    const u = (part as { totalUsage?: UsageBlock }).totalUsage;
+                    if (u) {
+                        // Aggregates into the parent's session + lifetime cost.
+                        const breakdown = ctx.tracker.add(ctx.modelId, u, ctx.cwd);
+                        ctx.emitter.emit("subagent-finish", { toolCallId, agent: name, usage: u, breakdown });
+                    } else {
+                        ctx.emitter.emit("subagent-finish", { toolCallId, agent: name });
+                    }
+                    break;
+                }
+            }
+        }
+
+        // SubagentStop hooks — informational for watchers, block is meaningless.
+        const stop = await runHooks(
+            "SubagentStop",
+            undefined,
+            {
+                session_id: ctx.sessionId,
+                transcript_path: ctx.transcriptPath,
+                agent_id: toolCallId,
+                stop_hook_active: false,
+            },
+            ctx.cwd,
+        );
+        for (const m of stop.messages) ctx.emitter.emit("hook-message", m);
+        for (const s of stop.terminalSequences) ctx.emitter.emit("hook-terminal-sequence", s);
+
+        // Plain text result — it renders as-is in the tool box and is exactly
+        // what the parent model reads. No JSON wrapping.
+        return text.trim() || "(subagent produced no output)";
+    } catch (err) {
+        return `Subagent failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
 }

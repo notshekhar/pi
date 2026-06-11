@@ -111,8 +111,50 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             if (e.toolCallId) history.updateToolCallInput(e.toolCallId, (e.input ?? {}) as Record<string, unknown>);
             tui.requestRender();
         });
+        // Subagent streaming: live activity renders inside the task tool's box
+        // (keyed by the task toolCallId). On finish, the activity log stays on
+        // top of the final report so expanding shows the whole run.
+        const subagentBuf = new Map<string, string>();
+        const subagentArgSummary = (input: unknown): string => {
+            if (!input || typeof input !== "object") return "";
+            const a = input as Record<string, unknown>;
+            const v = a.command ?? a.path ?? a.file_path ?? a.pattern ?? a.prompt;
+            if (typeof v !== "string" || !v) return "";
+            const one = v.split("\n")[0];
+            return ` ${one.length > 70 ? `${one.slice(0, 67)}…` : one}`;
+        };
         emitter.on("tool-result", (part: { output?: unknown; toolCallId?: string }) => {
-            history.addToolResult(part.toolCallId ?? "", part.output);
+            const id = part.toolCallId ?? "";
+            const activity = subagentBuf.get(id);
+            subagentBuf.delete(id);
+            // Task tools: prepend the activity log to the final report.
+            const output =
+                activity && typeof part.output === "string" ? `${activity.trimEnd()}\n\n${part.output}` : part.output;
+            history.addToolResult(id, output);
+            showWorking("Generating");
+            tui.requestRender();
+        });
+        emitter.on("subagent-tool", (e: { toolCallId: string; agent: string; toolName?: string; input?: unknown }) => {
+            const prev = subagentBuf.get(e.toolCallId) ?? "";
+            const line = `> ${e.toolName ?? "tool"}${subagentArgSummary(e.input)}\n`;
+            const next = `${prev}${prev && !prev.endsWith("\n") ? "\n" : ""}${line}`.slice(-6000);
+            subagentBuf.set(e.toolCallId, next);
+            history.updateToolProgress(e.toolCallId, next);
+            history.setToolStatus(e.toolCallId, e.toolName ?? "running");
+            showWorking(`Subagent ${e.agent} · ${e.toolName}…`);
+            tui.requestRender();
+        });
+        emitter.on("subagent-delta", (e: { toolCallId: string; agent: string; text: string }) => {
+            const next = ((subagentBuf.get(e.toolCallId) ?? "") + e.text).slice(-6000);
+            subagentBuf.set(e.toolCallId, next);
+            history.updateToolProgress(e.toolCallId, next);
+            history.setToolStatus(e.toolCallId, "writing");
+            tui.requestRender();
+        });
+        emitter.on("subagent-finish", (e: { toolCallId: string }) => {
+            // Buffer intentionally kept — tool-result composes it into the
+            // final display, then clears it.
+            refreshFooter();
             showWorking("Generating");
             tui.requestRender();
         });

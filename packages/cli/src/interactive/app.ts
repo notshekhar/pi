@@ -220,6 +220,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         });
     }
 
+    // Force a catalog availability refresh on every startup — provider model
+    // lists drift (new releases, deprecations, gating) and the cached list is
+    // good for up to 1h otherwise. Fire-and-forget; mergedCache rebuilds when
+    // this lands so the /model picker reflects today's reality.
+    void getCatalog({ refresh: true }).catch(() => {});
+
     let workingLoader: Loader | null = null;
     function showWorking(message = "Generating…"): void {
         const fullMsg = `${message} ${chalk.dim("(Esc to interrupt)")}`;
@@ -420,6 +426,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // Project trust → SessionStart hooks. First open of a folder that ships
     // .pi/.claude resources prompts before any project hook/skill can run; the
     // decision gates project resource loading (executable hooks, project skills).
+    // Catalog warm-up: models change between releases — kick the
+    // stale-while-revalidate refresh now (background; serves cache instantly)
+    // so the model list and availability are fresh for this session.
+    void getCatalog().catch(() => {});
+
     state.startupHooksDone = (async () => {
         if (hasProjectTrustInputs(state.cwd) && getTrustDecision(state.cwd) === null) {
             const opts = getTrustOptions(state.cwd);

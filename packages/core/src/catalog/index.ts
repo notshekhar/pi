@@ -10,11 +10,66 @@ import type { ModelInfo, ProviderId } from "../types";
 
 const cacheStore = new Configstore(
     "pi-agent-catalog",
-    { availability: {}, ts: 0 },
+    { availability: {}, ts: 0, models: {}, modelsTs: 0 },
     { configPath: join(getPiDir(), "catalog.json") },
 );
 
 const TTL_MS = 60 * 60 * 1000; // 1h
+
+// Model definitions move (new releases, pricing, context bumps) while the
+// build-time GENERATED_MODELS snapshot stays frozen until the next pi release.
+// We re-fetch models.dev at runtime on the same stale-while-revalidate cycle
+// as availability, so a binary keeps learning about new models.
+const MODELS_SOURCE = "https://models.dev/api.json";
+const MODEL_PROVIDERS: ProviderId[] = ["xai", "anthropic", "openai", "google", "openrouter"];
+
+interface RawDevModel {
+    id?: string;
+    name?: string;
+    limit?: { context?: number; output?: number };
+    cost?: { input?: number; output?: number; cache_read?: number; cache_write?: number };
+    reasoning?: boolean;
+    modalities?: { input?: string[]; output?: string[] };
+}
+
+async function fetchModelDefs(): Promise<Record<string, ModelInfo> | null> {
+    try {
+        const res = await fetch(MODELS_SOURCE, { signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) return null;
+        const all = (await res.json()) as Record<string, { models?: Record<string, RawDevModel> }>;
+        const out: Record<string, ModelInfo> = {};
+        for (const provider of MODEL_PROVIDERS) {
+            for (const [rawId, m] of Object.entries(all[provider]?.models ?? {})) {
+                const id = `${provider}/${rawId}`;
+                out[id] = {
+                    id,
+                    provider,
+                    name: m.name ?? rawId,
+                    contextWindow: m.limit?.context ?? 0,
+                    maxOutput: m.limit?.output ?? 0,
+                    cost: {
+                        input: m.cost?.input ?? 0,
+                        output: m.cost?.output ?? 0,
+                        cacheRead: m.cost?.cache_read ?? 0,
+                        cacheWrite: m.cost?.cache_write ?? 0,
+                    },
+                    reasoning: m.reasoning ?? false,
+                    modalities: m.modalities?.input ?? ["text"],
+                    available: true,
+                };
+            }
+        }
+        // Sanity floor: a broken/partial payload must not wipe the catalog.
+        if (Object.keys(out).length < 20) return null;
+        return out;
+    } catch {
+        return null;
+    }
+}
+
+function storedModelDefs(): Record<string, ModelInfo> {
+    return (cacheStore.get("models") as Record<string, ModelInfo> | undefined) ?? {};
+}
 
 let mergedCache: Record<string, ModelInfo> | null = null;
 
@@ -109,7 +164,10 @@ async function refreshAvailability(): Promise<Record<string, string[]>> {
     if (refreshInFlight) return refreshInFlight;
     refreshInFlight = (async () => {
         const providers: ProviderId[] = ["xai", "anthropic", "openai", "openrouter"];
-        const results = await Promise.all(providers.map((p) => fetchAvailability(p)));
+        const [results, modelDefs] = await Promise.all([
+            Promise.all(providers.map((p) => fetchAvailability(p))),
+            fetchModelDefs(),
+        ]);
         const availability: Record<string, string[]> = {};
         for (let i = 0; i < providers.length; i++) {
             const set = results[i];
@@ -117,6 +175,10 @@ async function refreshAvailability(): Promise<Record<string, string[]>> {
         }
         cacheStore.set("availability", availability);
         cacheStore.set("ts", Date.now());
+        if (modelDefs) {
+            cacheStore.set("models", modelDefs);
+            cacheStore.set("modelsTs", Date.now());
+        }
         return availability;
     })();
     try {
@@ -151,7 +213,10 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
     for (const m of FALLBACK_MODELS) {
         out[m.id] = { ...m };
     }
-    for (const [id, m] of Object.entries(GENERATED_MODELS)) {
+    // Runtime-fetched defs override the build-time snapshot (newer models,
+    // pricing, context); the snapshot fills in when the fetch never succeeded.
+    const defs = { ...GENERATED_MODELS, ...storedModelDefs() };
+    for (const [id, m] of Object.entries(defs)) {
         if (out[id]) continue;
         const provAvail = availability[m.provider];
         const available = provAvail ? provAvail.includes(id) : true;

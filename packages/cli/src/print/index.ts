@@ -24,6 +24,14 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     emitter.on("tool-input-updated", (e: { toolName?: string; input?: unknown }) => {
         process.stderr.write(`[tool:${e.toolName} rewritten] ${JSON.stringify(e.input)}\n`);
     });
+    emitter.on("subagent-tool", (e: { agent: string; toolName?: string; input?: unknown }) => {
+        process.stderr.write(`[subagent:${e.agent}] ${e.toolName} ${JSON.stringify(e.input)}\n`);
+    });
+    emitter.on("subagent-finish", (e: { agent: string; usage?: { totalTokens?: number } }) => {
+        process.stderr.write(
+            `[subagent:${e.agent}] done${e.usage?.totalTokens ? ` (${e.usage.totalTokens} tokens)` : ""}\n`,
+        );
+    });
     emitter.on("hook-message", (m: string) => {
         process.stderr.write(`\n[hook] ${m}\n`);
     });

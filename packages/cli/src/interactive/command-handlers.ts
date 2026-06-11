@@ -41,6 +41,7 @@ import {
     DEFAULT_BASE_PROMPT,
     TOOL_NAMES,
     setActiveProvider,
+    setProjectModel,
     settingsStore,
     THINKING_LEVEL_DESCRIPTIONS,
     THINKING_LEVELS,
@@ -98,6 +99,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
             }
             state.modelId = resolved;
             settingsStore.set("defaultModel", resolved);
+            setProjectModel(state.cwd, resolved);
             footer.setModel(resolved);
             refreshFooter();
             history.addSystem(`model → ${resolved}`);
@@ -144,6 +146,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
             if (first) {
                 state.modelId = first.id;
                 settingsStore.set("defaultModel", state.modelId);
+                setProjectModel(state.cwd, state.modelId);
                 footer.setModel(state.modelId);
             }
             history.addSystem(`provider → ${target}${first ? `, model → ${first.id}` : ""}`);
@@ -298,6 +301,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                 if (state.session.info.model) {
                     state.modelId = state.session.info.model;
                     settingsStore.set("defaultModel", state.modelId);
+                    setProjectModel(state.cwd, state.modelId);
                     footer.setModel(state.modelId);
                 }
                 footer.setSession(state.session.id);
@@ -438,6 +442,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
             if (!pick) return;
             state.modelId = pick.value;
             settingsStore.set("defaultModel", state.modelId);
+            setProjectModel(state.cwd, state.modelId);
             footer.setModel(state.modelId);
             history.addSystem(`model → ${state.modelId}`);
             tui.requestRender();

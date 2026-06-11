@@ -35,6 +35,7 @@ import {
     hookBus,
     agentExists,
     DEFAULT_AGENT_NAME,
+    getProjectModel,
     hasProjectTrustInputs,
     getTrustDecision,
     getTrustOptions,
@@ -88,8 +89,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         openrouter: "openrouter/anthropic/claude-sonnet-4-6",
         "github-copilot": "github-copilot/gpt-5",
     };
+    // Model precedence: CLI flag > this folder's last pick > global default.
     let initialModelId =
         opts.modelId ??
+        getProjectModel(opts.cwd) ??
         (settingsStore.get("defaultModel") as string) ??
         PROVIDER_DEFAULT_MODEL[initialProvider] ??
         `${initialProvider}/grok-build-0.1`;
@@ -97,6 +100,13 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const manager = new SessionManager();
     const initialSession: Session | null = opts.sessionId ? await manager.open(opts.sessionId) : null;
     if (initialSession?.info.model) initialModelId = initialSession.info.model;
+    // Provider follows the restored model (project/session picks carry it).
+    let effectiveProvider = initialProvider;
+    try {
+        effectiveProvider = parseModelId(initialModelId).provider as ProviderId;
+    } catch {
+        // unparseable id — keep the active provider
+    }
 
     const tracker = new CostTracker();
     const commands = new CommandRegistry();
@@ -117,7 +127,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const state: AppState = {
         cwd: opts.cwd,
         modelId: initialModelId,
-        provider: initialProvider,
+        provider: effectiveProvider,
         thinkingLevel: initialThinking,
         agent: agentExists(savedAgent) ? savedAgent : DEFAULT_AGENT_NAME,
         oneShotAgent: null,

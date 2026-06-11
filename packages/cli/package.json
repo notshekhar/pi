@@ -1,6 +1,6 @@
 {
     "name": "@notshekhar/pi",
-    "version": "0.3.18",
+    "version": "0.3.20",
     "description": "pi — terminal coding agent. Multi-provider, fast, native TUI.",
     "license": "MIT",
     "type": "module",

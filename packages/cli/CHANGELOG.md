@@ -1,6 +1,17 @@
 # Changelog
 
-## [0.3.18] - 2026-06-11
+## [0.3.20] - 2026-06-11
+
+### Added
+
+- Per-project model memory: the last model/provider picked in a folder is restored next time pi starts there (CLI flag and resumed sessions still win; global default remains the fallback). Applies to `pi run` too.
+- Live cost, usage, and context: the footer updates after every step (each API round-trip), including subagent steps — and aborted turns keep the cost of completed steps
+
+### Changed
+
+- Subagents run on the AI SDK's native `ToolLoopAgent` (same pattern as the official subagents guide); the task tool returns a plain-text report instead of JSON, expanding the task box shows the full activity log (tool calls with arg summaries) above the report, subagent input rewrites no longer leak into the main chat, and the model is instructed to call `task` alone in its step
+
+## [0.3.19] - 2026-06-11
 
 ### Added
 

@@ -361,19 +361,22 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
                 emitter.emit("tool-result", part);
                 break;
             case "finish-step": {
+                // Cost accrues per step (one API round-trip each), not at turn
+                // end — the footer updates live, and an aborted turn keeps the
+                // cost of the steps that already ran. Step usages sum to the
+                // turn total, so nothing is added again on finish.
                 const u = (part as { usage?: UsageBlock }).usage;
-                if (u) lastStepUsage = u;
+                if (u) {
+                    lastStepUsage = u;
+                    const breakdown = tracker.add(modelId, u, cwd);
+                    emitter.emit("step-usage", { usage: u, breakdown });
+                }
                 break;
             }
             case "finish": {
                 const u = (part as { totalUsage?: UsageBlock }).totalUsage;
                 lastUsage = u;
-                if (u) {
-                    const breakdown = tracker.add(modelId, u, cwd);
-                    emitter.emit("finish", { usage: u, lastStepUsage, breakdown });
-                } else {
-                    emitter.emit("finish", { usage: undefined, lastStepUsage });
-                }
+                emitter.emit("finish", { usage: u, lastStepUsage });
                 break;
             }
             case "error": {
@@ -612,15 +615,20 @@ async function runSubagent(
                         input: (part as { input?: unknown }).input,
                     });
                     break;
+                case "finish-step": {
+                    // Per-step cost accrual into the parent's tracker — the
+                    // footer ticks while the subagent works, and aborts keep
+                    // the spend of completed steps.
+                    const u = (part as { usage?: UsageBlock }).usage;
+                    if (u) {
+                        ctx.tracker.add(ctx.modelId, u, ctx.cwd);
+                        ctx.emitter.emit("subagent-step-usage", { toolCallId, agent: name, usage: u });
+                    }
+                    break;
+                }
                 case "finish": {
                     const u = (part as { totalUsage?: UsageBlock }).totalUsage;
-                    if (u) {
-                        // Aggregates into the parent's session + lifetime cost.
-                        const breakdown = ctx.tracker.add(ctx.modelId, u, ctx.cwd);
-                        ctx.emitter.emit("subagent-finish", { toolCallId, agent: name, usage: u, breakdown });
-                    } else {
-                        ctx.emitter.emit("subagent-finish", { toolCallId, agent: name });
-                    }
+                    ctx.emitter.emit("subagent-finish", { toolCallId, agent: name, usage: u });
                     break;
                 }
             }

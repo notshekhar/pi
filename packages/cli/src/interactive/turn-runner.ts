@@ -158,6 +158,15 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             showWorking("Generating");
             tui.requestRender();
         });
+        // Live cost: footer updates after every step (main and subagent), not
+        // just at turn end. Step usage also carries the current context size.
+        emitter.on("step-usage", (e: { usage?: UsageBlock }) => {
+            refreshFooter(e.usage);
+        });
+        emitter.on("subagent-step-usage", () => {
+            // Cost only — a subagent's context is not the main context.
+            refreshFooter();
+        });
         emitter.on("hook-message", (m: string) => {
             history.addHook(m);
             tui.requestRender();

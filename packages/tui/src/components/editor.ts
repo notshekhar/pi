@@ -519,7 +519,24 @@ export class Editor implements Component, Focusable {
     // autocomplete (e.g. slash-command menu) is visible.
     const emitCursorMarker = this.focused;
 
+    // Slash-command highlight: when the buffer starts with "/", tint the
+    // command token (first word) cyan as the user types. Token length is in
+    // plain chars; tinting is applied piecewise around the cursor so ANSI
+    // never lands inside cursorPos-based slicing.
+    const slashLen = /^\/\S+/.exec(this.state.lines[0] ?? "")?.[0].length ?? 0;
+
+    let visibleIdx = 0;
     for (const layoutLine of visibleLines) {
+      const isFirstTextLine = this.scrollOffset + visibleIdx === 0;
+      visibleIdx++;
+      const tintSlash = (s: string, offset: number): string => {
+        if (!s || slashLen <= 0 || !isFirstTextLine) return s;
+        const end = slashLen - offset;
+        if (end <= 0) return s;
+        if (end >= s.length) return `\x1b[36m${s}\x1b[39m`;
+        return `\x1b[36m${s.slice(0, end)}\x1b[39m${s.slice(end)}`;
+      };
+
       let displayText = layoutLine.text;
       let lineVisibleWidth = visibleWidth(layoutLine.text);
       let cursorInPadding = false;
@@ -539,18 +556,21 @@ export class Editor implements Component, Focusable {
           const firstGrapheme = afterGraphemes[0]?.segment || "";
           const restAfter = after.slice(firstGrapheme.length);
           const cursor = `\x1b[7m${firstGrapheme}\x1b[0m`;
-          displayText = before + marker + cursor + restAfter;
+          displayText =
+            tintSlash(before, 0) + marker + cursor + tintSlash(restAfter, layoutLine.cursorPos + firstGrapheme.length);
           // lineVisibleWidth stays the same - we're replacing, not adding
         } else {
           // Cursor is at the end - add highlighted space
           const cursor = "\x1b[7m \x1b[0m";
-          displayText = before + marker + cursor;
+          displayText = tintSlash(before, 0) + marker + cursor;
           lineVisibleWidth = lineVisibleWidth + 1;
           // If cursor overflows content width into the padding, flag it
           if (lineVisibleWidth > contentWidth && paddingX > 0) {
             cursorInPadding = true;
           }
         }
+      } else {
+        displayText = tintSlash(displayText, 0);
       }
 
       // Calculate padding based on actual visible width

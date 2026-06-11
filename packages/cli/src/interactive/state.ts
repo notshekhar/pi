@@ -10,6 +10,10 @@ export interface AppState {
   modelId: string;
   provider: ProviderId;
   thinkingLevel: ThinkingLevel;
+  /** Active agent name ("default" = built-in system prompt). */
+  agent: string;
+  /** One-shot agent for the next turn only (/<agent> <message>); cleared at turn start. */
+  oneShotAgent: string | null;
   session: Session | null;
   latestContextTokens: number;
   busy: boolean;

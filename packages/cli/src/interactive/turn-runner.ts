@@ -40,6 +40,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
     // Slash commands always run inline (no queueing). Handler errors land in
     // chat — otherwise they die as unhandled rejections nobody sees.
     if (text.startsWith("/")) {
+      history.addCommand(text);
       try {
         const handled = await commands.run(text, ctx);
         if (!handled) {
@@ -79,6 +80,10 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
       : text;
     state.pendingInjection = null;
 
+    // One-shot agent (/<agent> <message>) applies to exactly this turn.
+    const turnAgent = state.oneShotAgent ?? state.agent;
+    state.oneShotAgent = null;
+
     const activeSession = await ensureSession();
     state.busy = true;
     history.addUser(finalInput);
@@ -100,6 +105,10 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
       const id = part.toolCallId ?? `${part.toolName}-${Date.now()}`;
       history.addToolCall(part.toolName ?? "tool", id, (part.input ?? {}) as Record<string, unknown>);
       showWorking(`Running ${part.toolName}…`);
+      tui.requestRender();
+    });
+    emitter.on("tool-input-updated", (e: { toolCallId?: string; input?: unknown }) => {
+      if (e.toolCallId) history.updateToolCallInput(e.toolCallId, (e.input ?? {}) as Record<string, unknown>);
       tui.requestRender();
     });
     emitter.on("tool-result", (part: { output?: unknown; toolCallId?: string }) => {
@@ -150,6 +159,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         tracker,
         emitter,
         thinkingLevel: state.thinkingLevel,
+        agent: turnAgent,
       });
     } catch (err) {
       history.addError(formatError(err));

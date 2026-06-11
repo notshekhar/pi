@@ -49,9 +49,13 @@ export class CostFooter implements Component {
   private ctxUsed = 0;
   private ctxMax = 0;
   private thinking = "off";
+  private agent = "default";
 
   setModel(id: string) {
     this.modelId = id;
+  }
+  setAgent(name: string) {
+    this.agent = name;
   }
   setSession(id: string) {
     this.sessionId = id;
@@ -83,30 +87,39 @@ export class CostFooter implements Component {
       this.thinking && this.thinking !== "off"
         ? `${this.modelId || "no-model"} • ${this.thinking}`
         : this.modelId || "no-model";
-    const parts = [chalk.cyan(modelLabel), chalk.dim(`session ${sid}`), chalk.green(this.cost), ctxStr];
-    const sep = chalk.dim(" · ");
-    const sepLen = ansiLen(sep);
-    const lines: string[] = [];
-    let cur = "";
-    let curLen = 0;
-    for (const p of parts) {
-      const pLen = ansiLen(p);
-      if (cur === "") {
-        cur = p;
-        curLen = pLen;
-        continue;
-      }
-      if (curLen + sepLen + pLen <= width) {
-        cur += sep + p;
-        curLen += sepLen + pLen;
-      } else {
-        lines.push(cur);
-        cur = p;
-        curLen = pLen;
-      }
-    }
-    if (cur) lines.push(cur);
+    // Two rows: agent/model identity on top, usage below.
+    const agentStr =
+      this.agent && this.agent !== "default" ? chalk.hex("#e09956")(`agent ${this.agent}`) : chalk.dim("agent default");
+    const identity = [agentStr, chalk.cyan(modelLabel)];
+    const usage = [chalk.dim(`session ${sid}`), chalk.green(this.cost), ctxStr];
+    const lines = [...wrapParts(identity, width), ...wrapParts(usage, width)];
     // Hard-clip any single part that still exceeds width (rare).
     return lines.map((l) => (ansiLen(l) > width ? ansiSlice(l, width) : l));
   }
+}
+
+function wrapParts(parts: string[], width: number): string[] {
+  const sep = chalk.dim(" · ");
+  const sepLen = ansiLen(sep);
+  const lines: string[] = [];
+  let cur = "";
+  let curLen = 0;
+  for (const p of parts) {
+    const pLen = ansiLen(p);
+    if (cur === "") {
+      cur = p;
+      curLen = pLen;
+      continue;
+    }
+    if (curLen + sepLen + pLen <= width) {
+      cur += sep + p;
+      curLen += sepLen + pLen;
+    } else {
+      lines.push(cur);
+      cur = p;
+      curLen = pLen;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }

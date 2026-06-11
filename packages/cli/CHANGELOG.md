@@ -1,11 +1,26 @@
 # Changelog
 
+## [0.3.16] - 2026-06-11
+
+### Added
+
+- Custom agents: `/agents` creates, selects, edits, and deletes named system prompts (stored in `~/.pi/agents/<name>.md`); each registers as a `/<name>` command, and the built-in default prompt can be overridden and reset
+- One-shot agent runs: `/<agent> <message>` runs that single message under the agent's prompt without changing the session's selected agent
+- Slash commands highlight cyan in the input as you type, and executed commands echo highlighted into the chat
+- Footer split into two rows: active agent + model on top, session/cost/context below
+
+### Changed
+
+- PreToolUse `updatedInput` rewrites (e.g. rtk's bash command compression) update the rendered tool call in place — the chat shows the command that actually executed, instead of a separate hook line
+- Hook hardening: dispatcher never throws (corrupt config degrades to a warning), timeouts clamped, hook output capture capped at 1MB, chat-facing hook messages clipped, block decisions are strictly first-wins, Windows uses cmd.exe
+
 ## [0.3.15] - 2026-06-11
 
 ### Added
 
 - Agent-state watcher support (herdr, Warp, …): `Notification`, `PermissionRequest`, `PreCompact` hook events, `terminalSequence` hook output for TUI-safe OSC notifications, `async` fire-and-forget hooks, parallel hook execution per event, and hook `statusMessage` shown in the loader while running
 - `claudeHooksFilter` setting — allowlist which imported Claude Code hooks load (e.g. `["caveman", "herdr", "warp"]`); unset imports everything
+- Errors always surface in chat: agent stream errors, slash-command failures, and uncaught exceptions render as red messages instead of disappearing
 
 ### Fixed
 

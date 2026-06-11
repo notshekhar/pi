@@ -21,8 +21,18 @@ import {
   listCustomProviders,
   parseModelId,
   registerBuiltins,
+  registerAgentCommand,
   runCompact,
   runHooks,
+  agentExists,
+  listAgents,
+  isValidAgentName,
+  saveAgent,
+  deleteAgent,
+  getAgentPrompt,
+  hasDefaultOverride,
+  DEFAULT_AGENT_NAME,
+  DEFAULT_BASE_PROMPT,
   setActiveProvider,
   settingsStore,
   THINKING_LEVEL_DESCRIPTIONS,
@@ -53,6 +63,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
     promptOnce,
     resolveModelId,
     cleanExit,
+    refreshCommands,
   } = deps;
 
   const loginDeps = { tui, history, selectOnce, promptOnce };
@@ -417,6 +428,111 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
       history.addSystem(`tokens       in:${s.inputTokens} out:${s.outputTokens} cache:${s.cachedInputTokens}`);
       history.addSystem(`cost (sess)  $${s.usd.toFixed(4)}`);
       tui.requestRender();
+    },
+    useAgent(name, message) {
+      if (!agentExists(name)) {
+        history.addSystem(chalk.red(`unknown agent: ${name} — /agents to create one`));
+        tui.requestRender();
+        return;
+      }
+      // /<agent> <message> = one-shot: that message runs under this agent's
+      // prompt; the session's selected agent is untouched. Switching the
+      // session agent happens only via /agents → use.
+      if (message?.trim()) {
+        state.oneShotAgent = name;
+        history.addSystem(chalk.dim(`agent for this message: ${name}`));
+        tui.requestRender();
+        if (editor.onSubmit) void editor.onSubmit(message);
+        return;
+      }
+      history.addSystem(`usage: /${name} <message> — one message with this agent. Session switch: /agents`);
+      tui.requestRender();
+    },
+    async manageAgents() {
+      // Loop so Esc in submenus returns to the agent list, like /settings.
+      while (true) {
+        const agents = listAgents();
+        const items: SelectItem[] = [
+          { value: " new", label: "+ new agent", description: "create an agent with its own system prompt" },
+          ...agents.map((a) => ({
+            value: a.name,
+            label: a.name + (a.name === state.agent ? "  (active)" : "") + (a.builtin ? "  [built-in]" : ""),
+            description: a.prompt.split("\n")[0].slice(0, 80),
+          })),
+        ];
+        const pick = await selectOnce(items, "Agents (Esc to close)");
+        if (!pick) return;
+
+        if (pick.value === " new") {
+          const name = (await promptOnce("agent name (e.g. reviewer)")).trim();
+          if (!name) continue;
+          if (!isValidAgentName(name)) {
+            history.addSystem(chalk.red(`invalid name: ${name} (alphanumeric, dashes, ≤32 chars)`));
+            tui.requestRender();
+            continue;
+          }
+          if (agentExists(name) || commands.has(name)) {
+            history.addSystem(chalk.red(`"${name}" already exists (agent or command)`));
+            tui.requestRender();
+            continue;
+          }
+          const prompt = await promptOnce(`system prompt for "${name}"`, DEFAULT_BASE_PROMPT);
+          if (!prompt.trim()) continue;
+          saveAgent(name, prompt);
+          registerAgentCommand(commands, name);
+          refreshCommands();
+          history.addSystem(
+            `agent "${name}" created — /${name} <message> for one message, /agents → use for the session`,
+          );
+          tui.requestRender();
+          continue;
+        }
+
+        const name = pick.value;
+        const isDefault = name === DEFAULT_AGENT_NAME;
+        const actions: SelectItem[] = [
+          { value: "use", label: "use", description: `switch active agent to "${name}"` },
+          { value: "edit", label: "edit prompt", description: "edit this agent's system prompt" },
+        ];
+        if (!isDefault) {
+          actions.push({ value: "delete", label: "delete", description: "remove agent and its /command" });
+        } else if (hasDefaultOverride()) {
+          actions.push({ value: "delete", label: "reset to built-in", description: "remove the prompt override" });
+        }
+        const action = await selectOnce(actions, `Agent: ${name}`);
+        if (!action) continue;
+
+        if (action.value === "use") {
+          state.agent = name;
+          settingsStore.set("agent", name);
+          footer.setAgent(name);
+          history.addSystem(`agent → ${name}`);
+          tui.requestRender();
+          return;
+        }
+        if (action.value === "edit") {
+          const current = getAgentPrompt(name) ?? DEFAULT_BASE_PROMPT;
+          const edited = await promptOnce(`system prompt for "${name}"`, current);
+          if (!edited.trim() || edited.trim() === current.trim()) continue;
+          saveAgent(name, edited);
+          history.addSystem(`agent "${name}" prompt updated`);
+          tui.requestRender();
+          continue;
+        }
+        if (action.value === "delete") {
+          deleteAgent(name);
+          if (state.agent === name && !isDefault) {
+            state.agent = DEFAULT_AGENT_NAME;
+            settingsStore.set("agent", DEFAULT_AGENT_NAME);
+            footer.setAgent(DEFAULT_AGENT_NAME);
+          }
+          if (!isDefault) commands.unregister(name);
+          refreshCommands();
+          history.addSystem(isDefault ? "default prompt reset to built-in" : `agent "${name}" deleted`);
+          tui.requestRender();
+          continue;
+        }
+      }
     },
     showChangelog() {
       const entries = loadChangelogEntries();

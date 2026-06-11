@@ -33,6 +33,8 @@ import {
   runHooks,
   loadHooksConfig,
   hookBus,
+  agentExists,
+  DEFAULT_AGENT_NAME,
   hasProjectTrustInputs,
   getTrustDecision,
   getTrustOptions,
@@ -111,11 +113,14 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const initialThinking: ThinkingLevel = (settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off";
   footer.setThinking(initialThinking);
 
+  const savedAgent = (settingsStore.get("agent") as string | undefined) ?? DEFAULT_AGENT_NAME;
   const state: AppState = {
     cwd: opts.cwd,
     modelId: initialModelId,
     provider: initialProvider,
     thinkingLevel: initialThinking,
+    agent: agentExists(savedAgent) ? savedAgent : DEFAULT_AGENT_NAME,
+    oneShotAgent: null,
     session: initialSession,
     latestContextTokens: 0,
     busy: false,
@@ -124,6 +129,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     lastCtrlCAt: 0,
     startupHooksDone: null,
   };
+  footer.setAgent(state.agent);
 
   function ctxTokensFromUsage(u: UsageBlock): number {
     if (typeof u.totalTokens === "number" && u.totalTokens > 0) return u.totalTokens;
@@ -145,11 +151,14 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   const editor = new Editor(tui, editorTheme, { paddingX: 1 });
 
-  const slashItems: TuiSlashCommand[] = commands.list().map((c) => ({
-    name: c.name,
-    description: c.description,
-  }));
-  editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashItems, state.cwd));
+  const refreshCommands = () => {
+    const slashItems: TuiSlashCommand[] = commands.list().map((c) => ({
+      name: c.name,
+      description: c.description,
+    }));
+    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashItems, state.cwd));
+  };
+  refreshCommands();
 
   // pi pattern: editor lives in its own container so we can swap it out for selectors
   const editorContainer = new Container();
@@ -251,7 +260,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
   const selectorHost = { tui, showSelector };
   const selectOnce = (items: SelectItem[], title?: string) => selectOnceShared(selectorHost, items, title);
-  const promptOnce = (label?: string) => promptOnceShared(selectorHost, editorTheme, label);
+  const promptOnce = (label?: string, initial?: string) => promptOnceShared(selectorHost, editorTheme, label, initial);
 
   async function ensureSession(): Promise<Session> {
     if (state.session) return state.session;
@@ -312,9 +321,13 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     resolveModelId,
     ensureSession,
     cleanExit,
+    refreshCommands,
   };
 
-  history.addSystem(`pi · ${state.modelId} · session ${state.session?.id ?? "unsaved"}`);
+  history.addSystem(
+    `pi · ${state.modelId} · session ${state.session?.id ?? "unsaved"}` +
+      (state.agent !== DEFAULT_AGENT_NAME ? ` · agent ${state.agent}` : ""),
+  );
   history.addSystem(`Type /help for commands. Ctrl+C twice to quit.`);
 
   if ((settingsStore.get("workspaceContext") as boolean) !== false) {

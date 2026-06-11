@@ -21,6 +21,9 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
   emitter.on("tool-call", (part: { toolName?: string; input?: unknown }) => {
     process.stderr.write(`\n[tool:${part.toolName}] ${JSON.stringify(part.input)}\n`);
   });
+  emitter.on("tool-input-updated", (e: { toolName?: string; input?: unknown }) => {
+    process.stderr.write(`[tool:${e.toolName} rewritten] ${JSON.stringify(e.input)}\n`);
+  });
   emitter.on("hook-message", (m: string) => {
     process.stderr.write(`\n[hook] ${m}\n`);
   });
@@ -54,6 +57,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     abortSignal: abort.signal,
     tracker,
     emitter,
+    agent: (settingsStore.get("agent") as string | undefined) ?? undefined,
   });
 
   // SessionEnd hooks: give them a moment, then finish regardless.

@@ -13,6 +13,7 @@ import {
 } from "./utils/edit-diff";
 import { withFileMutationQueue } from "./utils/file-mutation-queue";
 import { resolveToCwd } from "./utils/path-utils";
+import { checkReadBeforeModify, recordModified } from "./utils/read-registry";
 
 export interface EditToolContext {
     cwd: string;
@@ -71,6 +72,10 @@ export function createEditTool(ctx: EditToolContext) {
 
             return withFileMutationQueue(absolutePath, async () => {
                 if (signal?.aborted) throw new Error("Operation aborted");
+                // Read-before-edit: never modify a file the agent hasn't seen
+                // (or has only seen a stale version of) this session.
+                const readError = checkReadBeforeModify(absolutePath, path);
+                if (readError) throw new Error(readError);
                 try {
                     await fsAccess(absolutePath, constants.R_OK | constants.W_OK);
                 } catch (err) {

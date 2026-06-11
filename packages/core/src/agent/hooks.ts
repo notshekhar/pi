@@ -27,7 +27,7 @@ import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { settingsStore } from "../auth/storage";
+import { getSetting, setSetting } from "../settings";
 import { isTrusted } from "./trust";
 
 export type HookEvent =
@@ -176,7 +176,7 @@ function remapClaudeMatcher(matcher: string | undefined): string | undefined {
  * dragging every Claude hook into pi.
  */
 function claudeImportFilter(): string[] | null {
-    const v = settingsStore.get("claudeHooksFilter") as unknown;
+    const v = getSetting("claudeHooksFilter") as unknown;
     if (!Array.isArray(v) || v.length === 0) return null;
     return v.map((s) => String(s).toLowerCase());
 }
@@ -260,10 +260,22 @@ function readClaudePluginHooks(home: string): HooksConfig {
     return merged;
 }
 
+// Merged-config cache: runHooks fires several times per tool call and the
+// merge re-reads settings (configstore parses the file on every get), scans
+// plugin dirs, and re-applies filters. A short TTL keeps config edits
+// near-live while collapsing the per-event cost to a map lookup.
+const MERGED_TTL_MS = 1000;
+let mergedConfigCache: { cwd: string; ts: number; cfg: HooksConfig } | null = null;
+
 export function loadHooksConfig(cwd: string): HooksConfig {
+    if (mergedConfigCache && mergedConfigCache.cwd === cwd && Date.now() - mergedConfigCache.ts < MERGED_TTL_MS) {
+        return mergedConfigCache.cfg;
+    }
     // A broken config file must never take the agent down.
     try {
-        return loadHooksConfigUnsafe(cwd);
+        const cfg = loadHooksConfigUnsafe(cwd);
+        mergedConfigCache = { cwd, ts: Date.now(), cfg };
+        return cfg;
     } catch {
         return {};
     }
@@ -271,9 +283,9 @@ export function loadHooksConfig(cwd: string): HooksConfig {
 
 function loadHooksConfigUnsafe(cwd: string): HooksConfig {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-    const importClaude = (settingsStore.get("importClaudeHooks") as boolean | undefined) !== false;
+    const importClaude = getSetting("importClaudeHooks") !== false;
     // User-global hooks (the user's own machine config) always load.
-    const userPi = (settingsStore.get("hooks") as HooksConfig | undefined) ?? {};
+    const userPi = getSetting("hooks") ?? {};
     const userClaude = importClaude ? readClaudeHooks([join(home, ".claude", "settings.json")]) : {};
     const userClaudePlugins = importClaude ? readClaudePluginHooks(home) : {};
 
@@ -322,12 +334,12 @@ export function listHooksWithSources(cwd: string): HookSourceEntry[] {
     };
     try {
         const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-        const importClaude = (settingsStore.get("importClaudeHooks") as boolean | undefined) !== false;
+        const importClaude = getSetting("importClaudeHooks") !== false;
         if (importClaude) {
             collect(readClaudeHooks([join(home, ".claude", "settings.json")]), "claude-user");
             collect(readClaudePluginHooks(home), "claude-plugins");
         }
-        collect((settingsStore.get("hooks") as HooksConfig | undefined) ?? {}, "pi-user");
+        collect(getSetting("hooks") ?? {}, "pi-user");
         if (isTrusted(cwd)) {
             if (importClaude) {
                 collect(
@@ -348,19 +360,19 @@ export function listHooksWithSources(cwd: string): HookSourceEntry[] {
 
 /** Register a hook in ~/.pi/settings.json — pi-owned, independent of any Claude install. */
 export function addPiUserHook(event: HookEvent, command: string, matcher?: string, isAsync?: boolean): void {
-    const hooks = ((settingsStore.get("hooks") as HooksConfig | undefined) ?? {}) as HooksConfig;
+    const hooks = (getSetting("hooks") ?? {}) as HooksConfig;
     const cmd: HookCommand = { type: "command", command, ...(isAsync ? { async: true } : {}) };
     const groups = [...(hooks[event] ?? [])];
     // Reuse a group with the same matcher when one exists.
     const idx = groups.findIndex((g) => (g.matcher ?? "") === (matcher ?? ""));
     if (idx >= 0) groups[idx] = { ...groups[idx], hooks: [...groups[idx].hooks, cmd] };
     else groups.push({ ...(matcher ? { matcher } : {}), hooks: [cmd] });
-    settingsStore.set("hooks", { ...hooks, [event]: groups });
+    setSetting("hooks", { ...hooks, [event]: groups });
 }
 
 /** Remove a pi-user hook by event + exact command (first match). */
 export function removePiUserHook(event: HookEvent, command: string): boolean {
-    const hooks = ((settingsStore.get("hooks") as HooksConfig | undefined) ?? {}) as HooksConfig;
+    const hooks = (getSetting("hooks") ?? {}) as HooksConfig;
     const groups = hooks[event];
     if (!groups) return false;
     let removed = false;
@@ -377,7 +389,7 @@ export function removePiUserHook(event: HookEvent, command: string): boolean {
     const out = { ...hooks };
     if (next.length) out[event] = next;
     else delete out[event];
-    settingsStore.set("hooks", out);
+    setSetting("hooks", out);
     return true;
 }
 

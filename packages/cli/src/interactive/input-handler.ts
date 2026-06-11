@@ -3,7 +3,7 @@ import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc, isTab } from "./keys";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
-import { listAgents, settingsStore } from "@notshekhar/pi-core";
+import { agentExists, listAgents, settingsStore } from "@notshekhar/pi-core";
 
 export type InputListener = (data: string) => { consume: boolean } | undefined;
 
@@ -11,14 +11,17 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
     const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, footer } = deps;
 
     return (data) => {
-        // Tab on an empty prompt cycles built-in agents (default ⇄ plan).
-        // Guarded on editor focus + empty text so autocomplete and selectors
-        // keep their Tab behavior.
+        // Tab on an empty prompt cycles agents: the active custom agent (if
+        // one was selected via /agents) plus all built-ins. Guarded on editor
+        // focus + empty text so autocomplete and selectors keep their Tab.
         if (isTab(data) && (editor as unknown as { focused?: boolean }).focused && editor.getText().trim() === "") {
-            const builtins = listAgents()
-                .filter((a) => a.builtin)
-                .map((a) => a.name);
-            const next = builtins[(builtins.indexOf(state.agent) + 1) % builtins.length];
+            const cycle = [
+                ...(state.cycleCustomAgent && agentExists(state.cycleCustomAgent) ? [state.cycleCustomAgent] : []),
+                ...listAgents()
+                    .filter((a) => a.builtin)
+                    .map((a) => a.name),
+            ];
+            const next = cycle[(cycle.indexOf(state.agent) + 1) % cycle.length];
             state.agent = next;
             settingsStore.set("agent", next);
             footer.setAgent(next);

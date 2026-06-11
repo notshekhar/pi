@@ -29,6 +29,10 @@ function estimateTokens(text: string): number {
     return Math.ceil(text.length / 4);
 }
 
+export function latestCompactEntry(session: Session) {
+    return latestCompact(session);
+}
+
 function latestCompact(session: Session) {
     let latest: { summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number } | undefined;
     for (const entry of session.entries()) {

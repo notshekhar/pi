@@ -15,3 +15,4 @@ export * from "./tools";
 export * from "./agent";
 export * from "./commands";
 export * from "./rpc";
+export * from "./settings";

@@ -1,6 +1,20 @@
 # Changelog
 
-## [0.3.20] - 2026-06-11
+## [0.3.24] - 2026-06-11
+
+### Added
+
+- Subagent tool caps: every agent now has a second tool config — what the subagents it spawns may use (`subagent-tools:` frontmatter, asked in `/agents` create/edit when task is selected). The cap intersects with the target agent's own tools, so delegation can never widen access. `task` is now selectable per-agent, and the built-in plan agent can delegate: it spawns read-only subagents even when targeting an unrestricted agent.
+- Tab cycles through the active custom agent plus all built-ins (was default ⇆ plan only)
+
+### Changed
+
+- Sharper built-in prompts: default agent (verify-before-done working style, scope discipline), plan agent (investigation method + delegation, hard read-only rules), and subagent run rules (self-contained reports, no scope creep, honest partials)
+
+- Performance: cost tracking writes one file per step instead of three (configstore rewrites the whole file per set), hook config merging is cached between events, subagent streaming coalesces repaints on a 50ms tick, and the auto-compact estimate no longer re-stringifies the whole history every turn
+- Internals: agent core split into focused modules (subagent, tool-hooks, model-messages, events), turn events and settings access are fully typed (typos fail the build), and a `bun test` suite now covers hooks matching, agent files, cost seeding, compaction context, and changelog parsing (runs in CI)
+
+## [0.3.23] - 2026-06-11
 
 ### Added
 

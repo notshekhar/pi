@@ -14,6 +14,8 @@ export interface AppState {
     agent: string;
     /** One-shot agent for the next turn only (/<agent> <message>); cleared at turn start. */
     oneShotAgent: string | null;
+    /** Last custom agent selected via /agents — stays in the Tab cycle alongside built-ins. */
+    cycleCustomAgent: string | null;
     session: Session | null;
     latestContextTokens: number;
     busy: boolean;

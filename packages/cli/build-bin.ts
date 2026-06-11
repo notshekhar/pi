@@ -14,29 +14,29 @@ const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8
 const changelog = readFileSync(join(import.meta.dir, "CHANGELOG.md"), "utf8");
 
 const VALID_TARGETS = new Set([
-  "bun-darwin-arm64",
-  "bun-darwin-x64",
-  "bun-linux-x64",
-  "bun-linux-arm64",
-  "bun-windows-x64",
+    "bun-darwin-arm64",
+    "bun-darwin-x64",
+    "bun-linux-x64",
+    "bun-linux-arm64",
+    "bun-windows-x64",
 ]);
 
 function currentTarget(): string {
-  const platform = process.platform;
-  const arch = process.arch;
-  const os =
-    platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : platform === "win32" ? "windows" : null;
-  if (!os) throw new Error(`Unsupported platform: ${platform}`);
-  const a = arch === "arm64" ? "arm64" : arch === "x64" ? "x64" : null;
-  if (!a) throw new Error(`Unsupported arch: ${arch}`);
-  return `bun-${os}-${a}`;
+    const platform = process.platform;
+    const arch = process.arch;
+    const os =
+        platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : platform === "win32" ? "windows" : null;
+    if (!os) throw new Error(`Unsupported platform: ${platform}`);
+    const a = arch === "arm64" ? "arm64" : arch === "x64" ? "x64" : null;
+    if (!a) throw new Error(`Unsupported arch: ${arch}`);
+    return `bun-${os}-${a}`;
 }
 
 const argTarget = process.argv[2];
 const target = argTarget ?? currentTarget();
 if (!VALID_TARGETS.has(target)) {
-  console.error(`Invalid target: ${target}. Valid: ${[...VALID_TARGETS].join(", ")}`);
-  process.exit(1);
+    console.error(`Invalid target: ${target}. Valid: ${[...VALID_TARGETS].join(", ")}`);
+    process.exit(1);
 }
 
 const shortTarget = target.replace("bun-", "");

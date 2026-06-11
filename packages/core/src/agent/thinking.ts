@@ -5,44 +5,44 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 export const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
 export const THINKING_LEVEL_DESCRIPTIONS: Record<ThinkingLevel, string> = {
-  off: "No reasoning",
-  minimal: "Very brief reasoning (~1k tokens)",
-  low: "Light reasoning (~2k tokens)",
-  medium: "Moderate reasoning (~8k tokens)",
-  high: "Deep reasoning (~16k tokens)",
-  xhigh: "Maximum reasoning (~32k tokens)",
+    off: "No reasoning",
+    minimal: "Very brief reasoning (~1k tokens)",
+    low: "Light reasoning (~2k tokens)",
+    medium: "Moderate reasoning (~8k tokens)",
+    high: "Deep reasoning (~16k tokens)",
+    xhigh: "Maximum reasoning (~32k tokens)",
 };
 
 const BUDGETS: Record<Exclude<ThinkingLevel, "off">, number> = {
-  minimal: 1024,
-  low: 2048,
-  medium: 8192,
-  high: 16384,
-  xhigh: 32768,
+    minimal: 1024,
+    low: 2048,
+    medium: 8192,
+    high: 16384,
+    xhigh: 32768,
 };
 
 const OPENAI_EFFORT: Record<Exclude<ThinkingLevel, "off">, "minimal" | "low" | "medium" | "high"> = {
-  minimal: "minimal",
-  low: "low",
-  medium: "medium",
-  high: "high",
-  xhigh: "high",
+    minimal: "minimal",
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: "high",
 };
 
 const XAI_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "high"> = {
-  minimal: "low",
-  low: "low",
-  medium: "high",
-  high: "high",
-  xhigh: "high",
+    minimal: "low",
+    low: "low",
+    medium: "high",
+    high: "high",
+    xhigh: "high",
 };
 
 const OPENROUTER_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "medium" | "high"> = {
-  minimal: "low",
-  low: "low",
-  medium: "medium",
-  high: "high",
-  xhigh: "high",
+    minimal: "low",
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: "high",
 };
 
 /**
@@ -63,59 +63,59 @@ const OPENROUTER_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "medium" 
  * parameter reasoningEffort.").
  */
 function xaiSupportsEffort(modelShortId: string): boolean {
-  return /mini/i.test(modelShortId);
+    return /mini/i.test(modelShortId);
 }
 
 export function buildProviderOptions(
-  provider: ProviderId | string,
-  level: ThinkingLevel,
-  modelShortId = "",
+    provider: ProviderId | string,
+    level: ThinkingLevel,
+    modelShortId = "",
 ): Record<string, Record<string, unknown>> | undefined {
-  // Claude 4.7+ (and Fable) removed budget_tokens — sending it returns a 400.
-  // Claude 4.6 deprecates it. Adaptive thinking replaces fixed budgets there.
-  const anthropicAdaptiveOnly = /opus-4-[7-9]|fable/i.test(modelShortId);
-  const anthropicAdaptive = anthropicAdaptiveOnly || /(opus|sonnet)-4-6/i.test(modelShortId);
+    // Claude 4.7+ (and Fable) removed budget_tokens — sending it returns a 400.
+    // Claude 4.6 deprecates it. Adaptive thinking replaces fixed budgets there.
+    const anthropicAdaptiveOnly = /opus-4-[7-9]|fable/i.test(modelShortId);
+    const anthropicAdaptive = anthropicAdaptiveOnly || /(opus|sonnet)-4-6/i.test(modelShortId);
 
-  if (level === "off") {
-    switch (provider) {
-      case "anthropic":
-        // Fable 5 rejects an explicit {type:"disabled"} — omit the param instead.
-        return anthropicAdaptiveOnly ? undefined : { anthropic: { thinking: { type: "disabled" } } };
-      case "google":
-        return { google: { thinkingConfig: { thinkingBudget: 0 } } };
-      case "ollama":
-        return { ollama: { think: false } };
-      default:
-        return undefined;
+    if (level === "off") {
+        switch (provider) {
+            case "anthropic":
+                // Fable 5 rejects an explicit {type:"disabled"} — omit the param instead.
+                return anthropicAdaptiveOnly ? undefined : { anthropic: { thinking: { type: "disabled" } } };
+            case "google":
+                return { google: { thinkingConfig: { thinkingBudget: 0 } } };
+            case "ollama":
+                return { ollama: { think: false } };
+            default:
+                return undefined;
+        }
     }
-  }
 
-  const lv = level as Exclude<ThinkingLevel, "off">;
-  const budget = BUDGETS[lv];
+    const lv = level as Exclude<ThinkingLevel, "off">;
+    const budget = BUDGETS[lv];
 
-  switch (provider) {
-    case "anthropic":
-      return anthropicAdaptive
-        ? { anthropic: { thinking: { type: "adaptive" }, sendReasoning: true } }
-        : {
-            anthropic: {
-              thinking: { type: "enabled", budgetTokens: budget },
-              sendReasoning: true,
-            },
-          };
-    case "openai":
-    case "github-copilot":
-      return { openai: { reasoningEffort: OPENAI_EFFORT[lv], reasoningSummary: "auto" } };
-    case "google":
-      return { google: { thinkingConfig: { thinkingBudget: budget, includeThoughts: true } } };
-    case "xai":
-      return xaiSupportsEffort(modelShortId) ? { xai: { reasoningEffort: XAI_EFFORT[lv] } } : undefined;
-    case "openrouter":
-      return { openrouter: { reasoning: { effort: OPENROUTER_EFFORT[lv] } } };
-    case "ollama":
-      // Ollama thinking is a boolean toggle (DeepSeek-R1, Qwen3, etc.); no budget.
-      return { ollama: { think: true } };
-    default:
-      return undefined;
-  }
+    switch (provider) {
+        case "anthropic":
+            return anthropicAdaptive
+                ? { anthropic: { thinking: { type: "adaptive" }, sendReasoning: true } }
+                : {
+                      anthropic: {
+                          thinking: { type: "enabled", budgetTokens: budget },
+                          sendReasoning: true,
+                      },
+                  };
+        case "openai":
+        case "github-copilot":
+            return { openai: { reasoningEffort: OPENAI_EFFORT[lv], reasoningSummary: "auto" } };
+        case "google":
+            return { google: { thinkingConfig: { thinkingBudget: budget, includeThoughts: true } } };
+        case "xai":
+            return xaiSupportsEffort(modelShortId) ? { xai: { reasoningEffort: XAI_EFFORT[lv] } } : undefined;
+        case "openrouter":
+            return { openrouter: { reasoning: { effort: OPENROUTER_EFFORT[lv] } } };
+        case "ollama":
+            // Ollama thinking is a boolean toggle (DeepSeek-R1, Qwen3, etc.); no budget.
+            return { ollama: { think: true } };
+        default:
+            return undefined;
+    }
 }

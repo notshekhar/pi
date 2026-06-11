@@ -1,4 +1,5 @@
-import { Container, Spacer, Text, type TUI } from "@notshekhar/pi-tui";
+import { Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/pi-tui";
+import { getMarkdownTheme } from "../ui/theme";
 import {
   AssistantMessageComponent,
   CompactionSummaryMessageComponent,
@@ -8,6 +9,8 @@ import {
 } from "../ui/messages";
 import { ToolExecutionComponent } from "../ui/tool-execution";
 import chalk from "chalk";
+
+const HOOK_ORANGE = chalk.hex("#e09956");
 
 interface PiAssistantMessage {
   role: "assistant";
@@ -94,6 +97,20 @@ export class ChatHistory extends Container {
 
   addUser(text: string): void {
     this.addChild(new Spacer(1));
+    // SessionStart hook context is model-facing — collapse it to a dim notice
+    // instead of rendering it as part of what the user typed. Applies to live
+    // turns and to transcript replay on resume alike.
+    const hookCtx = text.match(/^<session-start-hook-context>\n([\s\S]*?)\n<\/session-start-hook-context>\n*/);
+    if (hookCtx) {
+      const lines = hookCtx[1].split("\n").length;
+      this.addChild(new Text(HOOK_ORANGE(`session-start hook context attached (${lines} lines)`), 1, 0));
+      text = text.slice(hookCtx[0].length);
+      if (!text) {
+        this.assistantTurn = null;
+        return;
+      }
+      this.addChild(new Spacer(1));
+    }
     const skill = parseSkillBlock(text);
     if (skill) {
       const comp = new SkillInvocationMessageComponent(skill);
@@ -179,6 +196,17 @@ export class ChatHistory extends Container {
 
   addSystem(text: string): void {
     this.addChild(new Text(chalk.dim(text), 1, 0));
+  }
+
+  /** Hook-related lines get their own orange accent, like tools get grey/green. */
+  addHook(text: string): void {
+    this.addChild(new Text(HOOK_ORANGE(`⚙ ${text}`), 1, 0));
+  }
+
+  /** Themed markdown block (changelog, release notes). */
+  addMarkdown(md: string): void {
+    this.addChild(new Spacer(1));
+    this.addChild(new Markdown(md, 1, 0, getMarkdownTheme()));
   }
 
   addCompactionSummary(summary: string, tokensBefore: number, timestamp = Date.now()): void {

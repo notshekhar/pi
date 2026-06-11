@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   CombinedAutocompleteProvider,
   type SelectItem,
@@ -30,6 +31,8 @@ import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { readClipboardImageToFile } from "./clipboard-image";
 import { startLogin, startLogout } from "./login-flow";
+import { initTheme } from "./ui/theme";
+import { getChangelogPath, parseChangelog } from "../changelog";
 
 export function createCommandContext(state: AppState, deps: AppDeps): CommandContext {
   const {
@@ -210,8 +213,34 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
     },
     showCost() {
       const s = tracker.sessionBreakdown();
-      const l = tracker.lifetimeBreakdown();
-      history.addSystem(`session: $${s.usd.toFixed(4)}  lifetime: $${l.usd.toFixed(4)}`);
+      const st = tracker.stats(state.cwd);
+      const fmtUsd = (v: number) => `$${v.toFixed(4)}`;
+      const fmtTok = (n: number) =>
+        n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
+      const row = (label: string, usd: number, extra = "") =>
+        history.addSystem(
+          `  ${chalk.dim(label.padEnd(14))}${chalk.cyan(fmtUsd(usd).padStart(10))}${extra ? `   ${chalk.dim(extra)}` : ""}`,
+        );
+
+      history.addSystem(chalk.bold("cost"));
+      row(
+        "session",
+        s.usd,
+        `in:${fmtTok(s.inputTokens)} out:${fmtTok(s.outputTokens)} cache:${fmtTok(s.cachedInputTokens)}`,
+      );
+      row("directory", st.cwdUsd, state.cwd.replace(process.env.HOME ?? "", "~"));
+      row("today", st.todayUsd);
+      row("last 7 days", st.last7Usd);
+      row("this month", st.monthUsd);
+      row("lifetime", st.lifetimeUsd);
+      const providers = Object.entries(st.byProvider)
+        .filter(([, v]) => v > 0)
+        .sort((a, b) => b[1] - a[1]);
+      for (const [p, v] of providers) row(`  ${p}`, v);
+      // Daily/cwd buckets are new — older lifetime spend predates them.
+      if (st.lifetimeUsd > 0 && st.monthUsd === 0 && st.cwdUsd === 0) {
+        history.addSystem(chalk.dim("  (time/directory tracking starts now — lifetime includes earlier spend)"));
+      }
       tui.requestRender();
     },
     async showSessions() {
@@ -309,6 +338,31 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         ];
         const pick = await selectOnce(items, "Settings (Esc to close)");
         if (!pick) return;
+        // Theme gets a picker (built-ins + ~/.pi/agent/themes/*.json) and
+        // applies live — the global theme proxy makes themed components
+        // re-resolve colors on the next render.
+        if (pick.value === "theme") {
+          const customDir = join(process.env.HOME ?? "", ".pi", "agent", "themes");
+          const custom = existsSync(customDir)
+            ? readdirSync(customDir)
+                .filter((f) => f.endsWith(".json"))
+                .map((f) => f.replace(/\.json$/, ""))
+            : [];
+          const cur = (settingsStore.get("theme") as string) ?? "dark";
+          const themeItems: SelectItem[] = ["dark", "light", ...custom].map((n) => ({
+            value: n,
+            label: n,
+            description: n === cur ? "(current)" : "",
+          }));
+          const tPick = await selectOnce(themeItems, "Theme");
+          if (!tPick) continue;
+          settingsStore.set("theme", tPick.value);
+          initTheme(tPick.value);
+          tui.invalidate();
+          history.addSystem(`theme → ${tPick.value}`);
+          tui.requestRender(true);
+          continue;
+        }
         history.addSystem(`enter new value for ${pick.value}: (Esc to go back)`);
         tui.requestRender();
         const v = await promptOnce("");
@@ -354,6 +408,16 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
       history.addSystem(`cwd          ${state.cwd}`);
       history.addSystem(`tokens       in:${s.inputTokens} out:${s.outputTokens} cache:${s.cachedInputTokens}`);
       history.addSystem(`cost (sess)  $${s.usd.toFixed(4)}`);
+      tui.requestRender();
+    },
+    showChangelog() {
+      const entries = parseChangelog(getChangelogPath());
+      if (entries.length === 0) {
+        history.addSystem("no changelog entries found");
+        tui.requestRender();
+        return;
+      }
+      history.addMarkdown(entries.map((e) => e.content).join("\n\n"));
       tui.requestRender();
     },
     showHotkeys() {

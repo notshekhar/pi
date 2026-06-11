@@ -12,10 +12,9 @@
     "noEmit": true,
     "allowImportingTsExtensions": false,
     "types": ["bun", "node"],
-    "baseUrl": ".",
     "paths": {
-      "@notshekhar/pi-core": ["packages/core/src/index.ts"],
-      "@notshekhar/pi-tui": ["packages/tui/src/index.ts"]
+      "@notshekhar/pi-core": ["./packages/core/src/index.ts"],
+      "@notshekhar/pi-tui": ["./packages/tui/src/index.ts"]
     }
   }
 }

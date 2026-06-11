@@ -52,6 +52,37 @@ export function compactedContextMessages(
     return [{ role: "user", content: summary }, ...messages.slice(compact.cutAt)];
 }
 
+export type ContextEntry =
+    | { kind: "message"; role: "user" | "assistant" | "tool"; content: unknown }
+    | { kind: "subagent"; agent: string; result: string };
+
+/**
+ * Like compactedContextMessages, but keeps subagent entries interleaved in
+ * chronological order so resumed sessions retain subagent reports in the
+ * model context. The compact cutAt counts only message entries — subagent
+ * entries ride along with the messages that survive the cut.
+ */
+export function compactedContextEntries(session: Session): ContextEntry[] {
+    const compact = latestCompact(session);
+    const out: ContextEntry[] = [];
+    let messageIndex = 0;
+    for (const e of session.entries()) {
+        if (e.type === "message") {
+            const idx = messageIndex++;
+            if (compact && idx < compact.cutAt) continue;
+            out.push({ kind: "message", role: e.role, content: e.content });
+        } else if (e.type === "subagent") {
+            if (compact && messageIndex < compact.cutAt) continue;
+            out.push({ kind: "subagent", agent: e.agent, result: e.result });
+        }
+    }
+    if (compact) {
+        const summary = `${COMPACTION_SUMMARY_PREFIX}${compact.summary}${COMPACTION_SUMMARY_SUFFIX}`;
+        out.unshift({ kind: "message", role: "user", content: summary });
+    }
+    return out;
+}
+
 export class CompactAbortedError extends Error {
     constructor() {
         super("compact aborted");

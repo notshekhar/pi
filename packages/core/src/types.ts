@@ -99,6 +99,7 @@ export interface SessionInfoData {
 export type Entry =
     | ({ type: "session-info"; ts: number } & SessionInfoData)
     | { type: "message"; role: "user" | "assistant" | "tool"; content: unknown; ts: number; usage?: UsageBlock }
+    | { type: "subagent"; ts: number; agent: string; prompt: string; result: string; usage?: UsageBlock }
     | { type: "model-change"; from: string; to: string; ts: number }
     | { type: "compact"; summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number }
     | { type: "branch-summary"; summary: string; ts: number }

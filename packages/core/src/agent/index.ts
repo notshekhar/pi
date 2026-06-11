@@ -13,7 +13,7 @@ import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
 import { CostTracker } from "./cost";
-import { compactedContextMessages, runCompact } from "./compact";
+import { compactedContextEntries, runCompact } from "./compact";
 import { runHooks, type HookOutcome } from "./hooks";
 import { isTrusted } from "./trust";
 import { buildProviderOptions, type ThinkingLevel } from "./thinking";
@@ -106,7 +106,13 @@ function withAnthropicCaching(system: string, messages: ModelMessage[]): ModelMe
 
 function toModelMessages(session: Session): ModelMessage[] {
     const out: ModelMessage[] = [];
-    for (const m of compactedContextMessages(session)) {
+    for (const m of compactedContextEntries(session)) {
+        // Subagent reports stay in the model context across resumes — the
+        // main turn's text usually references them without repeating them.
+        if (m.kind === "subagent") {
+            out.push({ role: "assistant", content: `[subagent ${m.agent} report]\n${m.result}` });
+            continue;
+        }
         if (m.role === "tool") continue;
         const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
         // Anthropic rejects empty text blocks ("text content blocks must be
@@ -227,6 +233,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             tracker,
             emitter,
             abortSignal,
+            session,
             sessionId: session.id,
             transcriptPath: session.path,
         });
@@ -235,7 +242,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // list matches reality, plus explicit delegation guidance when present.
     const subagentNote =
         "task" in toolsForTurn
-            ? `\n\nDelegate self-contained or context-heavy work (broad searches, analysis, multi-file changes) to subagents with the task tool — each runs in its own context window and returns only a final report. When you use task, call it alone in that step; never alongside other tool calls. Available agents: ${listAgents()
+            ? `\n\nSubagents (task tool): delegate work that would flood your context — broad codebase exploration, analyzing many files, research across directories, or an independent multi-file change. Each subagent runs in its own context window and returns only a final report.
+Use task when: the job is self-contained, needs many file reads/searches, or you want parallel investigation of separate areas.
+Do NOT use task when: the job is one or two tool calls, needs back-and-forth with the user, or depends on context only you have (unless you include it in the prompt).
+Write complete prompts: the subagent knows nothing about this conversation — include paths, goals, constraints, and the exact output you expect. Call task alone in its step, never alongside other tool calls. Available agents: ${listAgents()
                   .map((a) => a.name)
                   .join(", ")}.`
             : "";
@@ -536,6 +546,7 @@ interface SubagentCtx {
     tracker: CostTracker;
     emitter: EventEmitter;
     abortSignal?: AbortSignal;
+    session: Session;
     sessionId: string;
     transcriptPath: string;
 }
@@ -600,6 +611,7 @@ async function runSubagent(
         const result = await agent.stream({ prompt, abortSignal: ctx.abortSignal });
 
         let text = "";
+        let totalUsage: UsageBlock | undefined;
         for await (const part of result.fullStream) {
             if (ctx.abortSignal?.aborted) break;
             switch (part.type) {
@@ -627,8 +639,8 @@ async function runSubagent(
                     break;
                 }
                 case "finish": {
-                    const u = (part as { totalUsage?: UsageBlock }).totalUsage;
-                    ctx.emitter.emit("subagent-finish", { toolCallId, agent: name, usage: u });
+                    totalUsage = (part as { totalUsage?: UsageBlock }).totalUsage;
+                    ctx.emitter.emit("subagent-finish", { toolCallId, agent: name, usage: totalUsage });
                     break;
                 }
             }
@@ -649,9 +661,21 @@ async function runSubagent(
         for (const m of stop.messages) ctx.emitter.emit("hook-message", m);
         for (const s of stop.terminalSequences) ctx.emitter.emit("hook-terminal-sequence", s);
 
+        // Persist the run so resumed sessions keep the task box, its report,
+        // and its cost (the main turn's usage doesn't include subagent steps).
+        const report = text.trim() || "(subagent produced no output)";
+        await ctx.session.append({
+            type: "subagent",
+            ts: Date.now(),
+            agent: name,
+            prompt,
+            result: report,
+            usage: totalUsage,
+        });
+
         // Plain text result — it renders as-is in the tool box and is exactly
         // what the parent model reads. No JSON wrapping.
-        return text.trim() || "(subagent produced no output)";
+        return report;
     } catch (err) {
         return `Subagent failed: ${err instanceof Error ? err.message : String(err)}`;
     }

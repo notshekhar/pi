@@ -357,7 +357,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         `pi · ${state.modelId} · session ${state.session?.id ?? "unsaved"}` +
             (state.agent !== DEFAULT_AGENT_NAME ? ` · agent ${state.agent}` : ""),
     );
-    history.addSystem(`Type /help for commands. Tab cycles agents. Ctrl+C twice to quit.`);
+    history.addSystem(`Type /help for commands. Shift+Tab cycles agents. Ctrl+C twice to quit.`);
 
     if ((settingsStore.get("workspaceContext") as boolean) !== false) {
         const ws = loadWorkspaceContext(state.cwd);

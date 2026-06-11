@@ -1,7 +1,7 @@
 import type { CommandContext } from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
-import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc, isTab } from "./keys";
+import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc, isShiftTab, isTab } from "./keys";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
 import { agentExists, listAgents, settingsStore } from "@notshekhar/pi-core";
 
@@ -11,10 +11,12 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
     const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, footer } = deps;
 
     return (data) => {
-        // Tab on an empty prompt cycles agents: the active custom agent (if
-        // one was selected via /agents) plus all built-ins. Guarded on editor
-        // focus + empty text so autocomplete and selectors keep their Tab.
-        if (isTab(data) && (editor as unknown as { focused?: boolean }).focused && editor.getText().trim() === "") {
+        // Agent cycling: Shift+Tab always; plain Tab only on an empty prompt
+        // (with text, Tab belongs to autocomplete). Cycle = active custom
+        // agent (if selected via /agents) plus all built-ins.
+        const wantsAgentCycle =
+            isShiftTab(data) || (isTab(data) && editor.getText().trim() === "");
+        if (wantsAgentCycle && (editor as unknown as { focused?: boolean }).focused) {
             const cycle = [
                 ...(state.cycleCustomAgent && agentExists(state.cycleCustomAgent) ? [state.cycleCustomAgent] : []),
                 ...listAgents()

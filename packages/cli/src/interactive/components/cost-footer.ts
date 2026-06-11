@@ -91,7 +91,7 @@ export class CostFooter implements Component {
         const agentStr =
             (this.agent && this.agent !== "default"
                 ? chalk.hex("#e09956")(`agent ${this.agent}`)
-                : chalk.dim("agent default")) + chalk.dim(" (tab ⇆)");
+                : chalk.dim("agent default")) + chalk.dim(" (shift+tab)");
         const identity = [agentStr, chalk.cyan(modelLabel)];
         const usage = [chalk.dim(`session ${sid}`), chalk.green(this.cost), ctxStr];
         const lines = [...wrapParts(identity, width), ...wrapParts(usage, width)];

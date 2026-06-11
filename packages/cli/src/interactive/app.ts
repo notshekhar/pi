@@ -484,7 +484,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         // Active hooks summary (after trust is resolved so project hooks count).
         // Display command shortened to its script basename — full plugin paths
         // are too long for the startup banner.
-        const shortCmd = (cmd: string): string => {
+        const shortCmd = (cmd: unknown): string => {
+            // Malformed config entries can lack `command` — banner must not throw.
+            if (typeof cmd !== "string" || !cmd) return "(invalid hook entry)";
             const script = cmd.match(/[^\s"']+\.(?:sh|js|ts|py|cmd|mjs|cjs)\b/)?.[0];
             if (script) return script.split("/").pop()!;
             return cmd.length > 48 ? `${cmd.slice(0, 45)}…` : cmd;

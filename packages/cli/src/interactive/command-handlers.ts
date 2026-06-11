@@ -306,13 +306,14 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                     footer.setModel(state.modelId);
                 }
                 footer.setSession(state.session.id);
-                // Restore cost/usage/ctx from the resumed transcript.
+                // Restore cost/usage/ctx from the resumed transcript
+                // (assistant turns + subagent runs).
                 const usages = state.session
                     .entries()
                     .filter(
                         (e) =>
-                            e.type === "message" &&
-                            (e as { role?: string }).role === "assistant" &&
+                            ((e.type === "message" && (e as { role?: string }).role === "assistant") ||
+                                e.type === "subagent") &&
                             (e as { usage?: unknown }).usage,
                     )
                     .map((e) => (e as { usage: UsageBlock }).usage);
@@ -356,6 +357,12 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                             history.appendAssistantDelta(content, parseModelId(state.modelId).provider, state.modelId);
                             history.finishAssistant();
                         }
+                    } else if (e.type === "subagent") {
+                        if (latestCompact && messageIndex < latestCompact.cutAt) continue;
+                        // Replay the task box exactly like a live run's final state.
+                        const id = `replay-task-${e.ts}`;
+                        history.addToolCall("task", id, { agent: e.agent, prompt: e.prompt });
+                        history.addToolResult(id, e.result);
                     } else if (e.type === "compact" && !latestCompact) {
                         history.addCompactionSummary(e.summary, e.tokensBefore, e.ts);
                     }

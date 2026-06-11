@@ -117,8 +117,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
             .entries()
             .filter(
                 (e) =>
-                    e.type === "message" &&
-                    (e as { role?: string }).role === "assistant" &&
+                    ((e.type === "message" && (e as { role?: string }).role === "assistant") ||
+                        e.type === "subagent") &&
                     (e as { usage?: UsageBlock }).usage,
             )
             .map((e) => (e as { usage: UsageBlock }).usage);

@@ -28,6 +28,15 @@ export function adaptPiEntry(raw: unknown): Entry | null {
                 content: obj.content,
                 usage: obj.usage as UsageBlock | undefined,
             };
+        case "subagent":
+            return {
+                type: "subagent",
+                ts,
+                agent: String(obj.agent ?? "default"),
+                prompt: String(obj.prompt ?? ""),
+                result: String(obj.result ?? ""),
+                usage: obj.usage as UsageBlock | undefined,
+            };
         case "model-change":
             return { type: "model-change", ts, from: String(obj.from ?? ""), to: String(obj.to ?? "") };
         case "compact":

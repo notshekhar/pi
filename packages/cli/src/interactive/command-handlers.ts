@@ -31,6 +31,7 @@ import {
     HOOK_EVENTS,
     type HookEvent,
     agentExists,
+    clearReadRegistry,
     listAgents,
     isValidAgentName,
     saveAgent,
@@ -159,6 +160,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
             state.session = null;
             footer.setSession("unsaved");
             tracker.reset();
+            clearReadRegistry();
             state.latestContextTokens = 0;
             refreshFooter();
             queuedMessages.length = 0;

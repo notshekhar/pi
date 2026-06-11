@@ -1,16 +1,22 @@
 /**
- * Read-before-modify enforcement (Claude Code behavior, enforced in the
- * tools themselves instead of relying on the prompt):
+ * Read-before-edit enforcement (Claude Code behavior, enforced in the edit
+ * tool itself instead of relying on the prompt):
  * - edit on a file never read this session → error telling the model to read first
  * - edit on a file changed on disk since it was read → error forcing a re-read
- * - write only guards files that already exist (new files pass freely)
+ * - write guards only existing files (overwrite needs a prior read); new
+ *   files/paths pass freely.
  *
- * Process-lifetime registry keyed by absolute path; reads from subagents
- * count too — they share the process.
+ * In-memory and session-scoped: nothing persists to disk, and the registry
+ * clears on /new. Subagent reads count — they share the session.
  */
 import { statSync } from "node:fs";
 
 const readAt = new Map<string, number>(); // absolute path → mtimeMs when read
+
+/** New session = clean slate; reads never carry across sessions. */
+export function clearReadRegistry(): void {
+    readAt.clear();
+}
 
 export function recordRead(absolutePath: string): void {
     try {

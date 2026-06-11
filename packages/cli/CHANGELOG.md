@@ -6,6 +6,7 @@
 
 - Subagent tool caps: every agent now has a second tool config — what the subagents it spawns may use (`subagent-tools:` frontmatter, asked in `/agents` create/edit when task is selected). The cap intersects with the target agent's own tools, so delegation can never widen access. `task` is now selectable per-agent, and the built-in plan agent can delegate: it spawns read-only subagents even when targeting an unrestricted agent.
 - Tab cycles through the active custom agent plus all built-ins (was default ⇆ plan only)
+- Read-before-modify enforcement in the tools: `edit` rejects files not read this session and stale edits after on-disk changes; `write` guards overwrites of existing unread files while new files/paths pass freely. Session-scoped — nothing persists, `/new` clears the slate.
 
 ### Changed
 

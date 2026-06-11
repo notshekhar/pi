@@ -48,6 +48,7 @@ import { selectOnce as selectOnceShared, promptOnce as promptOnceShared } from "
 import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
 import { checkForUpdate } from "../commands";
+import { getChangelogPath, getNewEntries, parseChangelog } from "../changelog";
 import { createTurnRunner } from "./turn-runner";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
@@ -66,7 +67,7 @@ const editorTheme: EditorTheme = {
 };
 
 export async function runInteractive(opts: InteractiveOptions): Promise<void> {
-  initTheme();
+  initTheme((settingsStore.get("theme") as string | undefined) ?? "dark");
 
   const APP_KEYBINDINGS = {
     "app.tools.expand": { defaultKeys: "ctrl+e", description: "Toggle tool output" },
@@ -177,6 +178,22 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   root.addChild(editorContainer);
   root.addChild(footer);
   tui.addChild(root);
+
+  // What's-new: show changelog entries the user hasn't seen yet (pi-mono
+  // parity: fresh installs just record the version; resumed sessions skip).
+  if (opts.version && !opts.sessionId) {
+    const lastSeen = settingsStore.get("lastChangelogVersion") as string | undefined;
+    if (!lastSeen) {
+      settingsStore.set("lastChangelogVersion", opts.version);
+    } else if (lastSeen !== opts.version) {
+      const fresh = getNewEntries(parseChangelog(getChangelogPath()), lastSeen);
+      if (fresh.length > 0) {
+        history.addSystem(chalk.dim(`Updated to v${opts.version} — what's new:`));
+        history.addMarkdown(fresh.map((e) => e.content).join("\n\n"));
+      }
+      settingsStore.set("lastChangelogVersion", opts.version);
+    }
+  }
 
   // Silent background update check; suggest upgrade if a newer release exists.
   // Fire-and-forget so startup never blocks on the network.
@@ -345,6 +362,17 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const restoreConsole = () => Object.assign(console, origConsole);
   process.once("exit", restoreConsole);
 
+  // Last-resort error surfacing: anything that escapes a handler renders in
+  // chat instead of tearing the TUI via stderr or killing the process.
+  // Display only — errors are never written to the session transcript.
+  const surfaceError = (prefix: string) => (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    history.addError(`${prefix}: ${msg}`);
+    tui.requestRender();
+  };
+  process.on("uncaughtException", surfaceError("uncaught"));
+  process.on("unhandledRejection", surfaceError("unhandled"));
+
   tui.setFocus(editor);
   tui.start();
   tui.requestRender();
@@ -390,10 +418,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         (n, [, groups]) => n + groups!.reduce((m, g) => m + (g.hooks?.length ?? 0), 0),
         0,
       );
-      history.addSystem(chalk.dim(`hooks (${total}):`));
+      history.addHook(`hooks (${total}):`);
       for (const [ev, groups] of hookEvents) {
         const cmds = groups!.flatMap((g) => g.hooks ?? []).map((h) => shortCmd(h.command));
-        history.addSystem(chalk.dim(`  • ${ev}: ${cmds.join(", ")}`));
+        history.addSystem(chalk.dim(`    • ${ev}: ${cmds.join(", ")}`));
       }
       tui.requestRender();
     }
@@ -406,7 +434,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       { session_id: state.session?.id, transcript_path: state.session?.path, source: "startup" },
       state.cwd,
     );
-    for (const m of h.messages) history.addSystem(`[hook] ${m}`);
+    for (const m of h.messages) history.addHook(m);
     if (h.additionalContext) {
       state.pendingInjection = state.pendingInjection
         ? `${state.pendingInjection}\n\n${h.additionalContext}`

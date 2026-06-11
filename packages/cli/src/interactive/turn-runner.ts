@@ -7,6 +7,17 @@ function pickContextUsage(event: { usage?: UsageBlock; lastStepUsage?: UsageBloc
   return event.lastStepUsage ?? event.usage;
 }
 
+/** Errors render in chat, never persist to the session — make them readable. */
+export function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandContext) {
   const {
     tui,
@@ -26,13 +37,18 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
     const text = raw.trim();
     if (!text) return;
 
-    // Slash commands always run inline (no queueing)
+    // Slash commands always run inline (no queueing). Handler errors land in
+    // chat — otherwise they die as unhandled rejections nobody sees.
     if (text.startsWith("/")) {
-      const handled = await commands.run(text, ctx);
-      if (!handled) {
-        history.addSystem(`unknown command: ${text}`);
-        tui.requestRender();
+      try {
+        const handled = await commands.run(text, ctx);
+        if (!handled) {
+          history.addSystem(`unknown command: ${text}`);
+        }
+      } catch (err) {
+        history.addError(formatError(err));
       }
+      tui.requestRender();
       return;
     }
 
@@ -47,11 +63,20 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
     // First turn may race SessionStart hooks — wait so their injected
     // context (pendingInjection) isn't silently dropped.
     if (state.startupHooksDone) {
-      await state.startupHooksDone;
+      try {
+        await state.startupHooksDone;
+      } catch (err) {
+        history.addError(`startup hooks: ${formatError(err)}`);
+      }
       state.startupHooksDone = null;
     }
 
-    const finalInput = state.pendingInjection ? `${state.pendingInjection}\n\n${text}` : text;
+    // SessionStart hook context must persist in the transcript (the model
+    // needs it in history on every later turn), but the tag lets the TUI
+    // collapse it instead of rendering it as if the user typed it.
+    const finalInput = state.pendingInjection
+      ? `<session-start-hook-context>\n${state.pendingInjection}\n</session-start-hook-context>\n\n${text}`
+      : text;
     state.pendingInjection = null;
 
     const activeSession = await ensureSession();
@@ -83,7 +108,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
       tui.requestRender();
     });
     emitter.on("hook-message", (m: string) => {
-      history.addSystem(`[hook] ${m}`);
+      history.addHook(m);
       tui.requestRender();
     });
     emitter.on("compact-start", () => {
@@ -106,7 +131,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
       tui.requestRender();
     });
     emitter.on("error", (err: unknown) => {
-      history.addError(String(err));
+      history.addError(formatError(err));
       tui.requestRender();
     });
 
@@ -122,7 +147,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         thinkingLevel: state.thinkingLevel,
       });
     } catch (err) {
-      history.addError((err as Error).message);
+      history.addError(formatError(err));
     } finally {
       state.busy = false;
       history.finishAssistant();

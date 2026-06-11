@@ -3,10 +3,24 @@ import { getModelSync } from "../catalog";
 import type { CostBreakdown, ProviderId, UsageBlock } from "../types";
 import { parseModelId } from "../providers";
 
+export interface CostStats {
+  lifetimeUsd: number;
+  byProvider: Record<string, number>;
+  todayUsd: number;
+  last7Usd: number;
+  monthUsd: number;
+  cwdUsd: number;
+}
+
+/** Local-timezone YYYY-MM-DD — buckets should roll over at the user's midnight. */
+function dayKey(d = new Date()): string {
+  return d.toLocaleDateString("sv");
+}
+
 export class CostTracker {
   private session: CostBreakdown = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, usd: 0 };
 
-  add(modelId: string, usage: UsageBlock): CostBreakdown {
+  add(modelId: string, usage: UsageBlock, cwd?: string): CostBreakdown {
     const { provider } = parseModelId(modelId);
     const inTok = usage.inputTokens ?? 0;
     const outTok = usage.outputTokens ?? 0;
@@ -40,7 +54,47 @@ export class CostTracker {
     lifetime.byProvider[provider] = (lifetime.byProvider[provider] ?? 0) + usd;
     costStore.set("lifetime", lifetime);
 
+    // Daily + per-directory buckets power /cost's "today / 7d / month / here"
+    // views. Only accrues from now on — pre-existing lifetime spend has no
+    // time/cwd attribution to recover.
+    if (usd > 0) {
+      const daily = (costStore.get("daily") as Record<string, number> | undefined) ?? {};
+      daily[dayKey()] = (daily[dayKey()] ?? 0) + usd;
+      costStore.set("daily", daily);
+      if (cwd) {
+        const byCwd = (costStore.get("byCwd") as Record<string, number> | undefined) ?? {};
+        byCwd[cwd] = (byCwd[cwd] ?? 0) + usd;
+        costStore.set("byCwd", byCwd);
+      }
+    }
+
     return { ...this.session };
+  }
+
+  stats(cwd?: string): CostStats {
+    const lifetime = costStore.get("lifetime") as { usd: number; byProvider: Record<string, number> };
+    const daily = (costStore.get("daily") as Record<string, number> | undefined) ?? {};
+    const byCwd = (costStore.get("byCwd") as Record<string, number> | undefined) ?? {};
+
+    const today = dayKey();
+    const last7Keys = new Set(Array.from({ length: 7 }, (_, i) => dayKey(new Date(Date.now() - i * 86_400_000))));
+    const monthPrefix = today.slice(0, 7);
+
+    let last7Usd = 0;
+    let monthUsd = 0;
+    for (const [day, usd] of Object.entries(daily)) {
+      if (last7Keys.has(day)) last7Usd += usd;
+      if (day.startsWith(monthPrefix)) monthUsd += usd;
+    }
+
+    return {
+      lifetimeUsd: lifetime.usd ?? 0,
+      byProvider: lifetime.byProvider ?? {},
+      todayUsd: daily[today] ?? 0,
+      last7Usd,
+      monthUsd,
+      cwdUsd: cwd ? (byCwd[cwd] ?? 0) : 0,
+    };
   }
 
   sessionBreakdown(): CostBreakdown {

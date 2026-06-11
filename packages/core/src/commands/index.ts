@@ -27,6 +27,7 @@ export interface CommandContext {
   exportSession(target?: string): Promise<void>;
   importSession(path: string): Promise<void>;
   reload(): Promise<void>;
+  showChangelog(): void;
   stub(name: string): void;
   clearScreen(): void;
 }
@@ -161,7 +162,11 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         ctx.setSessionName(args);
       },
     },
-    { name: "cost", description: "Show session + lifetime cost", handler: (ctx) => ctx.showCost() },
+    {
+      name: "cost",
+      description: "Show cost breakdown (session, directory, today, 7d, month, lifetime)",
+      handler: (ctx) => ctx.showCost(),
+    },
     {
       name: "attach",
       description: "Attach an image (paste from clipboard, or /attach <path>)",
@@ -227,7 +232,7 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         await ctx.reload();
       },
     },
-    { name: "changelog", description: "Show changelog entries", handler: (ctx) => ctx.stub("changelog") },
+    { name: "changelog", description: "Show changelog entries", handler: (ctx) => ctx.showChangelog() },
     { name: "fork", description: "Create a new fork from a previous user message", handler: (ctx) => ctx.stub("fork") },
     {
       name: "clone",

@@ -276,7 +276,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         const u = (part as { totalUsage?: UsageBlock }).totalUsage;
         lastUsage = u;
         if (u) {
-          const breakdown = tracker.add(modelId, u);
+          const breakdown = tracker.add(modelId, u, cwd);
           emitter.emit("finish", { usage: u, lastStepUsage, breakdown });
         } else {
           emitter.emit("finish", { usage: undefined, lastStepUsage });

@@ -98,6 +98,7 @@ export function createEditTool(ctx: EditToolContext) {
                 if (signal?.aborted) throw new Error("Operation aborted");
                 const finalContent = bom + restoreLineEndings(newContent, originalEnding);
                 await fsWriteFile(absolutePath, finalContent);
+                recordModified(absolutePath);
 
                 const diffResult = generateDiffString(baseContent, newContent);
                 return `Successfully replaced ${edits.length} block(s) in ${path}.\n\n${diffResult.diff}`;

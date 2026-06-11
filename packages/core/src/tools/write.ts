@@ -1,9 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { resolveToCwd } from "./utils/path-utils";
 import { withFileMutationQueue } from "./utils/file-mutation-queue";
+import { checkReadBeforeModify, recordModified } from "./utils/read-registry";
 
 export interface WriteToolContext {
     cwd: string;
@@ -25,9 +27,16 @@ export function createWriteTool(ctx: WriteToolContext) {
             const dir = dirname(absolutePath);
             return withFileMutationQueue(absolutePath, async () => {
                 if (signal?.aborted) throw new Error("Operation aborted");
+                // Overwriting an existing file requires having read it this
+                // session; new files/paths pass freely.
+                if (existsSync(absolutePath)) {
+                    const readError = checkReadBeforeModify(absolutePath, path);
+                    if (readError) throw new Error(`${readError} (write would overwrite the existing file)`);
+                }
                 await mkdir(dir, { recursive: true });
                 if (signal?.aborted) throw new Error("Operation aborted");
                 await writeFile(absolutePath, content);
+                recordModified(absolutePath);
                 return `Successfully wrote ${content.length} bytes to ${path}`;
             });
         },

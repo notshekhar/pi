@@ -1,5 +1,13 @@
 import { EventEmitter } from "node:events";
-import { CostTracker, SessionManager, runTurn, runHooks, getActiveProvider, settingsStore } from "@notshekhar/pi-core";
+import {
+    CostTracker,
+    SessionManager,
+    runTurn,
+    runHooks,
+    getActiveProvider,
+    getProjectModel,
+    settingsStore,
+} from "@notshekhar/pi-core";
 import type { ProviderId } from "@notshekhar/pi-core";
 
 export interface PrintOptions {
@@ -10,7 +18,11 @@ export interface PrintOptions {
 
 export async function runPrint(opts: PrintOptions): Promise<void> {
     const provider = (getActiveProvider() ?? "xai") as ProviderId;
-    const modelId = opts.modelId ?? (settingsStore.get("defaultModel") as string) ?? `${provider}/grok-build-0.1`;
+    const modelId =
+        opts.modelId ??
+        getProjectModel(opts.cwd) ??
+        (settingsStore.get("defaultModel") as string) ??
+        `${provider}/grok-build-0.1`;
     const manager = new SessionManager();
     const session = await manager.create({ cwd: opts.cwd, provider, model: modelId });
     const tracker = new CostTracker();

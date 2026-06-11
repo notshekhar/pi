@@ -32,3 +32,19 @@ export const costStore = new Configstore(
 export function getPiDir(): string {
     return PI_DIR;
 }
+
+/**
+ * Per-project model memory: the last model picked while working in a folder
+ * is restored next time pi starts there. Global defaultModel stays the
+ * fallback for folders never seen before.
+ */
+export function getProjectModel(cwd: string): string | undefined {
+    const m = settingsStore.get("projectModels") as Record<string, string> | undefined;
+    const id = m?.[cwd];
+    return typeof id === "string" && id ? id : undefined;
+}
+
+export function setProjectModel(cwd: string, modelId: string): void {
+    const m = (settingsStore.get("projectModels") as Record<string, string> | undefined) ?? {};
+    settingsStore.set("projectModels", { ...m, [cwd]: modelId });
+}

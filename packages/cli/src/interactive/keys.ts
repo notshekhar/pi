@@ -13,3 +13,4 @@ export const isCtrlV = (d: string) => d === "\x16" || matchesKey(d, "ctrl+v");
 // Kitty-protocol Ctrl+I so autocomplete (Tab) keeps working.
 export const isCtrlI = (d: string) => matchesKey(d, "ctrl+i");
 export const isEsc = (d: string) => d === ESC || matchesKey(d, "escape");
+export const isTab = (d: string) => d === "\t" || matchesKey(d, "tab");

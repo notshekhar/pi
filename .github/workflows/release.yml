@@ -2,148 +2,148 @@ name: release
 run-name: release ${{ inputs.tag || github.ref_name }} (by @${{ github.actor }})
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Version tag (e.g. v0.1.5)."
-        required: true
+    push:
+        tags:
+            - "v*.*.*"
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: "Version tag (e.g. v0.1.5)."
+                required: true
 
 permissions:
-  contents: write
+    contents: write
 
 jobs:
-  # ─── Job 1: resolve tag ───────────────────────────────────────────────────
-  prepare:
-    name: prepare
-    runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.tag.outputs.tag }}
-      ver: ${{ steps.tag.outputs.ver }}
-    steps:
-      - name: Resolve tag
-        id: tag
-        run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            tag="${{ github.event.inputs.tag }}"
-          else
-            tag="${GITHUB_REF##*/}"
-          fi
-          case "$tag" in v*) ;; *) tag="v$tag" ;; esac
-          v="${tag#v}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "ver=$v"   >> "$GITHUB_OUTPUT"
+    # ─── Job 1: resolve tag ───────────────────────────────────────────────────
+    prepare:
+        name: prepare
+        runs-on: ubuntu-latest
+        outputs:
+            tag: ${{ steps.tag.outputs.tag }}
+            ver: ${{ steps.tag.outputs.ver }}
+        steps:
+            - name: Resolve tag
+              id: tag
+              run: |
+                  if [ -n "${{ github.event.inputs.tag }}" ]; then
+                    tag="${{ github.event.inputs.tag }}"
+                  else
+                    tag="${GITHUB_REF##*/}"
+                  fi
+                  case "$tag" in v*) ;; *) tag="v$tag" ;; esac
+                  v="${tag#v}"
+                  echo "tag=$tag" >> "$GITHUB_OUTPUT"
+                  echo "ver=$v"   >> "$GITHUB_OUTPUT"
 
-  # ─── Job 2: per-platform binary build (matrix) ───────────────────────────
-  # Cross-compile not possible — pi pulls native NAPI modules
-  # (@mariozechner/clipboard, koffi) that ship platform-specific .node files.
-  # Each target builds on a runner matching its OS+arch.
-  build-binary:
-    name: binary (${{ matrix.target }})
-    needs: prepare
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: darwin-arm64
-            runner: macos-14
-          - target: linux-x64
-            runner: ubuntu-latest
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
-          - target: windows-x64
-            runner: windows-latest
-          # darwin-x64 dropped v1: macos-13 free runner queue is unreliable
-          # (10–30 min) and macOS 13 is being sunset. Re-add via
-          # macos-13-large (paid) when Intel users complain.
-    runs-on: ${{ matrix.runner }}
-    # Force bash on Windows runners too (default is pwsh). Git Bash ships
-    # with windows-latest and provides sha256sum, tar, bun shell helpers.
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+    # ─── Job 2: per-platform binary build (matrix) ───────────────────────────
+    # Cross-compile not possible — pi pulls native NAPI modules
+    # (@mariozechner/clipboard, koffi) that ship platform-specific .node files.
+    # Each target builds on a runner matching its OS+arch.
+    build-binary:
+        name: binary (${{ matrix.target }})
+        needs: prepare
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - target: darwin-arm64
+                      runner: macos-14
+                    - target: linux-x64
+                      runner: ubuntu-latest
+                    - target: linux-arm64
+                      runner: ubuntu-24.04-arm
+                    - target: windows-x64
+                      runner: windows-latest
+                    # darwin-x64 dropped v1: macos-13 free runner queue is unreliable
+                    # (10–30 min) and macOS 13 is being sunset. Re-add via
+                    # macos-13-large (paid) when Intel users complain.
+        runs-on: ${{ matrix.runner }}
+        # Force bash on Windows runners too (default is pwsh). Git Bash ships
+        # with windows-latest and provides sha256sum, tar, bun shell helpers.
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - uses: actions/checkout@v4
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: latest
 
-      - name: Sync package versions
-        run: |
-          v="${{ needs.prepare.outputs.ver }}"
-          bun -e "
-            const fs = require('fs');
-            for (const p of ['packages/core/package.json','packages/tui/package.json','packages/cli/package.json']) {
-              const j = JSON.parse(fs.readFileSync(p,'utf8'));
-              j.version = '$v';
-              fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
-            }
-          "
+            - name: Sync package versions
+              run: |
+                  v="${{ needs.prepare.outputs.ver }}"
+                  bun -e "
+                    const fs = require('fs');
+                    for (const p of ['packages/core/package.json','packages/tui/package.json','packages/cli/package.json']) {
+                      const j = JSON.parse(fs.readFileSync(p,'utf8'));
+                      j.version = '$v';
+                      fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+                    }
+                  "
 
-      - run: bun install --frozen-lockfile
-      - run: bun run gen:catalog
-      - run: bun packages/core/build.ts
-      - run: bun packages/tui/build.ts
-      - run: bun packages/cli/build-bin.ts bun-${{ matrix.target }}
+            - run: bun install --frozen-lockfile
+            - run: bun run gen:catalog
+            - run: bun packages/core/build.ts
+            - run: bun packages/tui/build.ts
+            - run: bun packages/cli/build-bin.ts bun-${{ matrix.target }}
 
-      - name: Smoke test binary
-        run: |
-          # bun --compile appends .exe on windows targets
-          bin="./packages/cli/dist/bin/${{ matrix.target }}/pi"
-          [ -x "${bin}.exe" ] && bin="${bin}.exe"
-          "$bin" --version
+            - name: Smoke test binary
+              run: |
+                  # bun --compile appends .exe on windows targets
+                  bin="./packages/cli/dist/bin/${{ matrix.target }}/pi"
+                  [ -x "${bin}.exe" ] && bin="${bin}.exe"
+                  "$bin" --version
 
-      - name: Compute sha256
-        working-directory: packages/cli/dist/bin
-        run: |
-          if command -v sha256sum >/dev/null; then
-            sha256sum "pi-${{ matrix.target }}.tar.gz" > "pi-${{ matrix.target }}.tar.gz.sha256"
-          else
-            shasum -a 256 "pi-${{ matrix.target }}.tar.gz" > "pi-${{ matrix.target }}.tar.gz.sha256"
-          fi
-          ls -lh
+            - name: Compute sha256
+              working-directory: packages/cli/dist/bin
+              run: |
+                  if command -v sha256sum >/dev/null; then
+                    sha256sum "pi-${{ matrix.target }}.tar.gz" > "pi-${{ matrix.target }}.tar.gz.sha256"
+                  else
+                    shasum -a 256 "pi-${{ matrix.target }}.tar.gz" > "pi-${{ matrix.target }}.tar.gz.sha256"
+                  fi
+                  ls -lh
 
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bin-${{ matrix.target }}
-          path: |
-            packages/cli/dist/bin/pi-${{ matrix.target }}.tar.gz
-            packages/cli/dist/bin/pi-${{ matrix.target }}.tar.gz.sha256
-          retention-days: 14
+            - name: Upload binary artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: bin-${{ matrix.target }}
+                  path: |
+                      packages/cli/dist/bin/pi-${{ matrix.target }}.tar.gz
+                      packages/cli/dist/bin/pi-${{ matrix.target }}.tar.gz.sha256
+                  retention-days: 14
 
-  # ─── Job 3: GitHub Release ────────────────────────────────────────────────
-  release:
-    name: github-release
-    needs: [prepare, build-binary]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all binary artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: bin-*
-          path: release
-          merge-multiple: true
+    # ─── Job 3: GitHub Release ────────────────────────────────────────────────
+    release:
+        name: github-release
+        needs: [prepare, build-binary]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Download all binary artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: bin-*
+                  path: release
+                  merge-multiple: true
 
-      - name: Aggregate SHA256SUMS
-        working-directory: release
-        run: |
-          ls -lh
-          : > SHA256SUMS
-          for f in pi-*.tar.gz; do
-            sha256sum "$f" >> SHA256SUMS
-          done
-          cat SHA256SUMS
+            - name: Aggregate SHA256SUMS
+              working-directory: release
+              run: |
+                  ls -lh
+                  : > SHA256SUMS
+                  for f in pi-*.tar.gz; do
+                    sha256sum "$f" >> SHA256SUMS
+                  done
+                  cat SHA256SUMS
 
-      - name: Create / update GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.prepare.outputs.tag }}
-          name: ${{ needs.prepare.outputs.tag }}
-          generate_release_notes: true
-          files: |
-            release/pi-*.tar.gz
-            release/pi-*.tar.gz.sha256
-            release/SHA256SUMS
+            - name: Create / update GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: ${{ needs.prepare.outputs.tag }}
+                  name: ${{ needs.prepare.outputs.tag }}
+                  generate_release_notes: true
+                  files: |
+                      release/pi-*.tar.gz
+                      release/pi-*.tar.gz.sha256
+                      release/SHA256SUMS

@@ -1,13 +1,13 @@
 export * from "./types";
 export * from "./auth";
 export {
-  getModel as getLanguageModel,
-  parseModelId,
-  listOllamaModels,
-  showOllamaModel,
-  ollamaBaseURL,
-  fetchCustomProviderModels,
-  type DiscoveredModel,
+    getModel as getLanguageModel,
+    parseModelId,
+    listOllamaModels,
+    showOllamaModel,
+    ollamaBaseURL,
+    fetchCustomProviderModels,
+    type DiscoveredModel,
 } from "./providers";
 export * from "./catalog";
 export * from "./sessions";

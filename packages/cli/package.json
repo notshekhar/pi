@@ -1,47 +1,47 @@
 {
-  "name": "@notshekhar/pi",
-  "version": "0.3.17",
-  "description": "pi — terminal coding agent. Multi-provider, fast, native TUI.",
-  "license": "MIT",
-  "type": "module",
-  "homepage": "https://github.com/notshekhar/pi#readme",
-  "bugs": {
-    "url": "https://github.com/notshekhar/pi/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/notshekhar/pi.git",
-    "directory": "packages/cli"
-  },
-  "keywords": [
-    "ai",
-    "agent",
-    "cli",
-    "tui",
-    "coding",
-    "claude",
-    "gpt",
-    "grok",
-    "gemini",
-    "openrouter",
-    "pi"
-  ],
-  "bin": {
-    "pi": "./dist/cli.js",
-    "agent": "./dist/cli.js"
-  },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "bun build.ts",
-    "clean": "rm -rf dist"
-  },
-  "dependencies": {
-    "@notshekhar/pi-tui": "*",
-    "@notshekhar/pi-core": "*",
-    "chalk": "^5.5.0",
-    "highlight.js": "^11.11.1"
-  },
-  "devDependencies": {}
+    "name": "@notshekhar/pi",
+    "version": "0.3.18",
+    "description": "pi — terminal coding agent. Multi-provider, fast, native TUI.",
+    "license": "MIT",
+    "type": "module",
+    "homepage": "https://github.com/notshekhar/pi#readme",
+    "bugs": {
+        "url": "https://github.com/notshekhar/pi/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/notshekhar/pi.git",
+        "directory": "packages/cli"
+    },
+    "keywords": [
+        "ai",
+        "agent",
+        "cli",
+        "tui",
+        "coding",
+        "claude",
+        "gpt",
+        "grok",
+        "gemini",
+        "openrouter",
+        "pi"
+    ],
+    "bin": {
+        "pi": "./dist/cli.js",
+        "agent": "./dist/cli.js"
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "bun build.ts",
+        "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "@notshekhar/pi-tui": "*",
+        "@notshekhar/pi-core": "*",
+        "chalk": "^5.5.0",
+        "highlight.js": "^11.11.1"
+    },
+    "devDependencies": {}
 }

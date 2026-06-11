@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.18] - 2026-06-11
+
+### Added
+
+- Tab on an empty prompt toggles between built-in agents (default ⇆ plan); hinted in the footer (`agent default (tab ⇆)`), startup banner, and `/hotkeys`. Autocomplete keeps Tab while typing.
+
 ## [0.3.17] - 2026-06-11
 
 ### Added

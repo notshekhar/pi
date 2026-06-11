@@ -14,3 +14,4 @@ export const isCtrlV = (d: string) => d === "\x16" || matchesKey(d, "ctrl+v");
 export const isCtrlI = (d: string) => matchesKey(d, "ctrl+i");
 export const isEsc = (d: string) => d === ESC || matchesKey(d, "escape");
 export const isTab = (d: string) => d === "\t" || matchesKey(d, "tab");
+export const isShiftTab = (d: string) => d === "\x1b[Z" || matchesKey(d, "shift+tab");

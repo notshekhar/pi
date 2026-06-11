@@ -763,7 +763,8 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
             const lines = [
                 "Enter           submit",
                 "Shift+Enter     newline",
-                "Tab             autocomplete · toggle agent (empty prompt)",
+                "Tab             autocomplete · cycle agent (empty prompt)",
+                "Shift+Tab       cycle agent (always)",
                 "Up / Down       history",
                 "Esc             abort current turn",
                 "Ctrl+C          abort, twice to quit",

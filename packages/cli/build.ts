@@ -3,6 +3,9 @@ import { readFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 
 const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as { version: string };
+// Embedded so release binaries (single-file bun --compile, no CHANGELOG.md
+// on disk) can still serve /changelog and the what's-new banner.
+const changelog = readFileSync(join(import.meta.dir, "CHANGELOG.md"), "utf8");
 
 const result = await Bun.build({
   entrypoints: [join(import.meta.dir, "src/cli.ts")],
@@ -14,7 +17,7 @@ const result = await Bun.build({
   minify: { whitespace: true, identifiers: false, syntax: true },
   external: ["@notshekhar/pi-core", "@notshekhar/pi-tui", "chalk", "highlight.js"],
   banner: "#!/usr/bin/env node",
-  define: { __PI_VERSION__: JSON.stringify(pkg.version) },
+  define: { __PI_VERSION__: JSON.stringify(pkg.version), __PI_CHANGELOG__: JSON.stringify(changelog) },
 });
 
 if (!result.success) {

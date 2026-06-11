@@ -24,6 +24,9 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
   emitter.on("hook-message", (m: string) => {
     process.stderr.write(`\n[hook] ${m}\n`);
   });
+  emitter.on("hook-terminal-sequence", (s: string) => {
+    process.stdout.write(s);
+  });
   emitter.on("error", (err: unknown) => {
     process.stderr.write(`\n[error] ${String(err)}\n`);
   });
@@ -40,6 +43,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     opts.cwd,
   );
   for (const m of startHooks.messages) process.stderr.write(`\n[hook] ${m}\n`);
+  for (const s of startHooks.terminalSequences) process.stdout.write(s);
   const userInput = startHooks.additionalContext ? `${startHooks.additionalContext}\n\n${opts.prompt}` : opts.prompt;
 
   await runTurn({

@@ -32,6 +32,7 @@ import {
   loadProjectSkills,
   runHooks,
   loadHooksConfig,
+  hookBus,
   hasProjectTrustInputs,
   getTrustDecision,
   getTrustOptions,
@@ -48,7 +49,7 @@ import { selectOnce as selectOnceShared, promptOnce as promptOnceShared } from "
 import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
 import { checkForUpdate } from "../commands";
-import { getChangelogPath, getNewEntries, parseChangelog } from "../changelog";
+import { getNewEntries, loadChangelogEntries } from "../changelog";
 import { createTurnRunner } from "./turn-runner";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
@@ -186,7 +187,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     if (!lastSeen) {
       settingsStore.set("lastChangelogVersion", opts.version);
     } else if (lastSeen !== opts.version) {
-      const fresh = getNewEntries(parseChangelog(getChangelogPath()), lastSeen);
+      const fresh = getNewEntries(loadChangelogEntries(), lastSeen);
       if (fresh.length > 0) {
         history.addSystem(chalk.dim(`Updated to v${opts.version} — what's new:`));
         history.addMarkdown(fresh.map((e) => e.content).join("\n\n"));
@@ -373,6 +374,24 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   process.on("uncaughtException", surfaceError("uncaught"));
   process.on("unhandledRejection", surfaceError("unhandled"));
 
+  // Plugin hooks ship statusMessage ("Loading caveman mode…") — transient
+  // "while running" text, so it rides the loader, never the chat (a chat line
+  // per prompt would spam every turn). Loader restores when the hook ends.
+  let hookStatusDepth = 0;
+  hookBus.on("start", (e: { statusMessage?: string }) => {
+    if (!e.statusMessage) return;
+    hookStatusDepth++;
+    showWorking(e.statusMessage);
+  });
+  hookBus.on("end", (e: { statusMessage?: string }) => {
+    if (!e.statusMessage) return;
+    hookStatusDepth = Math.max(0, hookStatusDepth - 1);
+    if (hookStatusDepth === 0) {
+      if (state.busy) showWorking("Generating");
+      else hideWorking();
+    }
+  });
+
   tui.setFocus(editor);
   tui.start();
   tui.requestRender();
@@ -435,6 +454,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       state.cwd,
     );
     for (const m of h.messages) history.addHook(m);
+    for (const s of h.terminalSequences) process.stdout.write(s);
     if (h.additionalContext) {
       state.pendingInjection = state.pendingInjection
         ? `${state.pendingInjection}\n\n${h.additionalContext}`

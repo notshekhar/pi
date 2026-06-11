@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.15] - 2026-06-11
+
+### Added
+
+- Agent-state watcher support (herdr, Warp, …): `Notification`, `PermissionRequest`, `PreCompact` hook events, `terminalSequence` hook output for TUI-safe OSC notifications, `async` fire-and-forget hooks, parallel hook execution per event, and hook `statusMessage` shown in the loader while running
+- `claudeHooksFilter` setting — allowlist which imported Claude Code hooks load (e.g. `["caveman", "herdr", "warp"]`); unset imports everything
+
+### Fixed
+
+- `/changelog` and the what's-new banner work in release binaries — changelog content is embedded at build time (standalone binaries ship no CHANGELOG.md on disk)
+- Hook `statusMessage` no longer prints a chat line on every prompt; it rides the loader while the hook runs
+
 ## [0.3.14] - 2026-06-11
 
 ### Added

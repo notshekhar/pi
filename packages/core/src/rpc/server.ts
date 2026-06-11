@@ -80,7 +80,7 @@ export class RpcServer {
     switch (req.method) {
       case "session.create": {
         const cwd = String(params.cwd ?? process.cwd());
-        const provider = (params.provider as ProviderId) ?? (getActiveProvider() ?? "xai");
+        const provider = (params.provider as ProviderId) ?? getActiveProvider() ?? "xai";
         const model = String(params.model ?? "");
         const session = await this.manager.create({ cwd, provider, model });
         const emitter = new EventEmitter();

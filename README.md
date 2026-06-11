@@ -47,23 +47,23 @@ Prebuilt binaries — no Node required. Targets: `darwin-x64`, `darwin-arm64`, `
 
 ## Providers
 
-| Provider       | Auth                            | Notes                                |
-|----------------|---------------------------------|--------------------------------------|
-| xAI (Grok)     | OAuth (SuperGrok) or API key    | Default: `xai/grok-4`                |
-| Anthropic      | API key                         | Claude 4.x — Opus / Sonnet / Haiku   |
-| OpenAI         | API key                         | GPT-5, GPT-5.5, o3-mini              |
-| Google         | API key                         | Gemini 3.1 Pro / Flash / Flash-Lite  |
-| OpenRouter     | API key                         | 100+ models routed through OR        |
-| GitHub Copilot | OAuth (device flow)             | Subscription-billed                  |
+| Provider       | Auth                         | Notes                               |
+| -------------- | ---------------------------- | ----------------------------------- |
+| xAI (Grok)     | OAuth (SuperGrok) or API key | Default: `xai/grok-4`               |
+| Anthropic      | API key                      | Claude 4.x — Opus / Sonnet / Haiku  |
+| OpenAI         | API key                      | GPT-5, GPT-5.5, o3-mini             |
+| Google         | API key                      | Gemini 3.1 Pro / Flash / Flash-Lite |
+| OpenRouter     | API key                      | 100+ models routed through OR       |
+| GitHub Copilot | OAuth (device flow)          | Subscription-billed                 |
 
 ### External agent SDKs
 
 The full upstream toolchain, rendered in pi's TUI.
 
-| SDK              | Auth                                 | Notes                                          |
-|------------------|--------------------------------------|------------------------------------------------|
-| Claude Agent SDK | API key or Claude Pro/Max OAuth      | Anthropic's coding-agent runtime               |
-| Cursor Agent SDK | API key                              | Composer 2.5 + Composer 2 + subagents          |
+| SDK              | Auth                            | Notes                                 |
+| ---------------- | ------------------------------- | ------------------------------------- |
+| Claude Agent SDK | API key or Claude Pro/Max OAuth | Anthropic's coding-agent runtime      |
+| Cursor Agent SDK | API key                         | Composer 2.5 + Composer 2 + subagents |
 
 ---
 

@@ -25,7 +25,13 @@ export interface BashToolContext {
 function execBash(
   command: string,
   cwd: string,
-  opts: { onData: (d: Buffer) => void; signal?: AbortSignal; timeout?: number; env?: NodeJS.ProcessEnv; shellPath?: string },
+  opts: {
+    onData: (d: Buffer) => void;
+    signal?: AbortSignal;
+    timeout?: number;
+    env?: NodeJS.ProcessEnv;
+    shellPath?: string;
+  },
 ): Promise<{ exitCode: number | null }> {
   return new Promise((resolve, reject) => {
     const { shell, args } = getShellConfig(opts.shellPath);
@@ -87,11 +93,7 @@ export function createBashTool(ctx: BashToolContext) {
       "Execute a bash command. Returns merged stdout/stderr. Output truncated to 50KB / 2000 lines (tail kept). Process tree killed on abort/timeout. Timeout is in seconds (optional, no default).",
     inputSchema: z.object({
       command: z.string().describe("Bash command to execute"),
-      timeout: z
-        .number()
-        .positive()
-        .optional()
-        .describe("Timeout in seconds (optional, no default timeout)"),
+      timeout: z.number().positive().optional().describe("Timeout in seconds (optional, no default timeout)"),
     }),
     execute: async ({ command, timeout }, options) => {
       const signal = options?.abortSignal ?? ctx.abortSignal;

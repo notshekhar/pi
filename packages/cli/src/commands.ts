@@ -38,7 +38,11 @@ function detectInstallMethod(): InstallMethod {
 }
 
 function semverGt(a: string, b: string): boolean {
-  const norm = (v: string) => v.replace(/^v/, "").split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const norm = (v: string) =>
+    v
+      .replace(/^v/, "")
+      .split(".")
+      .map((n) => Number.parseInt(n, 10) || 0);
   const [a1, a2, a3] = norm(a);
   const [b1, b2, b3] = norm(b);
   if (a1 !== b1) return a1 > b1;
@@ -115,8 +119,7 @@ export async function runUpgrade(version: string, opts: { force?: boolean } = {}
   let args: string[];
   if (isWin) {
     shell = "powershell";
-    args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-      `irm ${UPGRADE_URL_PS1} | iex`];
+    args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `irm ${UPGRADE_URL_PS1} | iex`];
   } else {
     shell = "bash";
     args = ["-c", `curl -fsSL ${UPGRADE_URL} | bash`];

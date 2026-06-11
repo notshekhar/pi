@@ -2951,7 +2951,7 @@
     "id": "openrouter/deepseek/deepseek-chat-v3-0324",
     "provider": "openrouter",
     "name": "DeepSeek V3 0324",
-    "contextWindow": 163840,
+    "contextWindow": 32768,
     "maxOutput": 16384,
     "cost": {
       "input": 0.2,
@@ -4947,25 +4947,6 @@
       "input": 0.68,
       "output": 3.41,
       "cacheRead": 0.34,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image"
-    ],
-    "available": true
-  },
-  "openrouter/moonshotai/kimi-k2.6:free": {
-    "id": "openrouter/moonshotai/kimi-k2.6:free",
-    "provider": "openrouter",
-    "name": "Kimi K2.6 (free)",
-    "contextWindow": 262144,
-    "maxOutput": 262144,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,

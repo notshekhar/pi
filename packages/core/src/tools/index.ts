@@ -26,4 +26,12 @@ export function createTools(ctx: ToolContext) {
 }
 
 export type ToolSet = ReturnType<typeof createTools>;
-export { createBashTool, createEditTool, createFindTool, createGrepTool, createLsTool, createReadTool, createWriteTool };
+export {
+  createBashTool,
+  createEditTool,
+  createFindTool,
+  createGrepTool,
+  createLsTool,
+  createReadTool,
+  createWriteTool,
+};

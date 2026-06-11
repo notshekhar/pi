@@ -32,9 +32,24 @@ import { readClipboardImageToFile } from "./clipboard-image";
 import { startLogin, startLogout } from "./login-flow";
 
 export function createCommandContext(state: AppState, deps: AppDeps): CommandContext {
-  const { tui, history, footer, tracker, editor, commands, manager, queuedMessages,
-    refreshFooter, renderPending, showWorking, hideWorking, selectOnce, promptOnce,
-    resolveModelId, cleanExit } = deps;
+  const {
+    tui,
+    history,
+    footer,
+    tracker,
+    editor,
+    commands,
+    manager,
+    queuedMessages,
+    refreshFooter,
+    renderPending,
+    showWorking,
+    hideWorking,
+    selectOnce,
+    promptOnce,
+    resolveModelId,
+    cleanExit,
+  } = deps;
 
   const loginDeps = { tui, history, selectOnce, promptOnce };
 
@@ -225,7 +240,9 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         history.reset();
         if (state.session.path !== selectedPath) {
           history.addSystem(`resumed fork ${state.session.id}`);
-          history.addSystem(chalk.dim("selected legacy session was forked; new messages and compactions save to this session"));
+          history.addSystem(
+            chalk.dim("selected legacy session was forked; new messages and compactions save to this session"),
+          );
         } else {
           history.addSystem(`resumed session ${state.session.id}`);
         }
@@ -238,7 +255,8 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
             break;
           }
         }
-        if (latestCompact) history.addCompactionSummary(latestCompact.summary, latestCompact.tokensBefore, latestCompact.ts);
+        if (latestCompact)
+          history.addCompactionSummary(latestCompact.summary, latestCompact.tokensBefore, latestCompact.ts);
         let messageIndex = 0;
         for (const e of entries) {
           if (e.type === "message") {
@@ -282,7 +300,10 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         const items: SelectItem[] = [
           { value: "theme", label: `theme: ${settingsStore.get("theme") ?? "dark"}` },
           { value: "maxSteps", label: `maxSteps: ${(settingsStore.get("maxSteps") as number) || "unlimited"}` },
-          { value: "autoCompactThreshold", label: `autoCompactThreshold: ${settingsStore.get("autoCompactThreshold") ?? 0.8}` },
+          {
+            value: "autoCompactThreshold",
+            label: `autoCompactThreshold: ${settingsStore.get("autoCompactThreshold") ?? 0.8}`,
+          },
           { value: "piCompatMode", label: `piCompatMode: ${settingsStore.get("piCompatMode") ?? "direct"}` },
           { value: "workspaceContext", label: `workspaceContext: ${settingsStore.get("workspaceContext") ?? true}` },
         ];
@@ -357,7 +378,9 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         return;
       }
       const entries = state.session.entries();
-      const last = [...entries].reverse().find((e) => e.type === "message" && (e as { role?: string }).role === "assistant");
+      const last = [...entries]
+        .reverse()
+        .find((e) => e.type === "message" && (e as { role?: string }).role === "assistant");
       if (!last) {
         history.addSystem("no assistant message to copy");
         tui.requestRender();
@@ -378,7 +401,9 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
       const cat = await getCatalog();
       const info = cat[state.modelId];
       if (info && Array.isArray(info.modalities) && !info.modalities.includes("image")) {
-        history.addSystem(chalk.yellow(`${state.modelId} does not accept images. Pick a vision model via /model first.`));
+        history.addSystem(
+          chalk.yellow(`${state.modelId} does not accept images. Pick a vision model via /model first.`),
+        );
         tui.requestRender();
         return;
       }

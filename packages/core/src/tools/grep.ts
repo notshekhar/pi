@@ -6,13 +6,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { resolveToCwd } from "./utils/path-utils";
 import { ensureTool } from "./utils/tools-manager";
-import {
-  DEFAULT_MAX_BYTES,
-  formatSize,
-  GREP_MAX_LINE_LENGTH,
-  truncateHead,
-  truncateLine,
-} from "./utils/truncate";
+import { DEFAULT_MAX_BYTES, formatSize, GREP_MAX_LINE_LENGTH, truncateHead, truncateLine } from "./utils/truncate";
 
 const DEFAULT_LIMIT = 100;
 
@@ -30,7 +24,13 @@ export function createGrepTool(ctx: GrepToolContext) {
       glob: z.string().optional().describe("Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'"),
       ignoreCase: z.boolean().optional().describe("Case-insensitive search (default: false)"),
       literal: z.boolean().optional().describe("Treat pattern as literal string instead of regex (default: false)"),
-      context: z.number().int().min(0).max(20).optional().describe("Number of lines to show before and after each match (default: 0)"),
+      context: z
+        .number()
+        .int()
+        .min(0)
+        .max(20)
+        .optional()
+        .describe("Number of lines to show before and after each match (default: 0)"),
       limit: z.number().int().positive().optional().describe("Maximum number of matches to return (default: 100)"),
     }),
     execute: async ({ pattern, path: searchDir, glob, ignoreCase, literal, context, limit }, options) => {
@@ -129,7 +129,10 @@ export function createGrepTool(ctx: GrepToolContext) {
 
         rl.on("line", (line) => {
           if (!line.trim() || matchCount >= effectiveLimit) return;
-          let event: { type?: string; data?: { path?: { text?: string }; line_number?: number; lines?: { text?: string } } };
+          let event: {
+            type?: string;
+            data?: { path?: { text?: string }; line_number?: number; lines?: { text?: string } };
+          };
           try {
             event = JSON.parse(line);
           } catch {
@@ -182,9 +185,13 @@ export function createGrepTool(ctx: GrepToolContext) {
           const truncation = truncateHead(raw, { maxLines: Number.MAX_SAFE_INTEGER });
           let out = truncation.content;
           const notices: string[] = [];
-          if (matchLimitReached) notices.push(`${effectiveLimit} matches limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`);
+          if (matchLimitReached)
+            notices.push(
+              `${effectiveLimit} matches limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`,
+            );
           if (truncation.truncated) notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
-          if (linesTruncated) notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines`);
+          if (linesTruncated)
+            notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines`);
           if (notices.length > 0) out += `\n\n[${notices.join(". ")}]`;
           resolve(out);
         });

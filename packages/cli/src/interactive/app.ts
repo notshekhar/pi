@@ -31,6 +31,7 @@ import {
   loadWorkspaceContext,
   loadProjectSkills,
   runHooks,
+  loadHooksConfig,
   hasProjectTrustInputs,
   getTrustDecision,
   getTrustOptions,
@@ -105,8 +106,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   footer.setModel(initialModelId);
   footer.setSession(initialSession?.id ?? "unsaved");
   footer.setCost(tracker.format());
-  const initialThinking: ThinkingLevel =
-    (settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off";
+  const initialThinking: ThinkingLevel = (settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off";
   footer.setThinking(initialThinking);
 
   const state: AppState = {
@@ -120,6 +120,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     abort: new AbortController(),
     pendingInjection: null,
     lastCtrlCAt: 0,
+    startupHooksDone: null,
   };
 
   function ctxTokensFromUsage(u: UsageBlock): number {
@@ -195,7 +196,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       workingLoader.setMessage(fullMsg);
       return;
     }
-    workingLoader = new Loader(tui, (s) => chalk.cyan(s), (s) => chalk.dim(s), fullMsg);
+    workingLoader = new Loader(
+      tui,
+      (s) => chalk.cyan(s),
+      (s) => chalk.dim(s),
+      fullMsg,
+    );
     statusContainer.clear();
     statusContainer.addChild(workingLoader);
     workingLoader.start();
@@ -226,8 +232,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   }
 
   const selectorHost = { tui, showSelector };
-  const selectOnce = (items: SelectItem[], title?: string) =>
-    selectOnceShared(selectorHost, items, title);
+  const selectOnce = (items: SelectItem[], title?: string) => selectOnceShared(selectorHost, items, title);
   const promptOnce = (label?: string) => promptOnceShared(selectorHost, editorTheme, label);
 
   async function ensureSession(): Promise<Session> {
@@ -259,7 +264,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     tui.stop();
     // SessionEnd hooks: give them a moment, then exit regardless.
     void Promise.race([
-      runHooks("SessionEnd", undefined, { session_id: state.session?.id }, state.cwd),
+      runHooks(
+        "SessionEnd",
+        undefined,
+        { session_id: state.session?.id, transcript_path: state.session?.path, reason: "exit" },
+        state.cwd,
+      ),
       new Promise((r) => setTimeout(r, 3_000)),
     ]).finally(() => process.exit(code));
   };
@@ -342,7 +352,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   // Project trust → SessionStart hooks. First open of a folder that ships
   // .pi/.claude resources prompts before any project hook/skill can run; the
   // decision gates project resource loading (executable hooks, project skills).
-  void (async () => {
+  state.startupHooksDone = (async () => {
     if (hasProjectTrustInputs(state.cwd) && getTrustDecision(state.cwd) === null) {
       const opts = getTrustOptions(state.cwd);
       history.addSystem(
@@ -356,16 +366,46 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
       if (chosen) {
         if (chosen.remember) setTrust(chosen.savePath, chosen.trusted);
         else if (chosen.trusted) trustForSession(state.cwd); // session-only: in-memory, not persisted
-        history.addSystem(chalk.dim(chosen.trusted ? "✓ project trusted" : "✗ project not trusted — project hooks/skills disabled"));
+        history.addSystem(
+          chalk.dim(chosen.trusted ? "✓ project trusted" : "✗ project not trusted — project hooks/skills disabled"),
+        );
       } else {
         history.addSystem(chalk.dim("trust prompt dismissed — treating project as untrusted for now"));
       }
       tui.requestRender();
     }
 
+    // Active hooks summary (after trust is resolved so project hooks count).
+    // Display command shortened to its script basename — full plugin paths
+    // are too long for the startup banner.
+    const shortCmd = (cmd: string): string => {
+      const script = cmd.match(/[^\s"']+\.(?:sh|js|ts|py|cmd|mjs|cjs)\b/)?.[0];
+      if (script) return script.split("/").pop()!;
+      return cmd.length > 48 ? `${cmd.slice(0, 45)}…` : cmd;
+    };
+    const hooksCfg = loadHooksConfig(state.cwd);
+    const hookEvents = Object.entries(hooksCfg).filter(([, groups]) => groups?.length);
+    if (hookEvents.length > 0) {
+      const total = hookEvents.reduce(
+        (n, [, groups]) => n + groups!.reduce((m, g) => m + (g.hooks?.length ?? 0), 0),
+        0,
+      );
+      history.addSystem(chalk.dim(`hooks (${total}):`));
+      for (const [ev, groups] of hookEvents) {
+        const cmds = groups!.flatMap((g) => g.hooks ?? []).map((h) => shortCmd(h.command));
+        history.addSystem(chalk.dim(`  • ${ev}: ${cmds.join(", ")}`));
+      }
+      tui.requestRender();
+    }
+
     // SessionStart hooks (now that trust is resolved): messages render in chat;
     // additionalContext rides the first user prompt.
-    const h = await runHooks("SessionStart", "startup", { session_id: state.session?.id }, state.cwd);
+    const h = await runHooks(
+      "SessionStart",
+      "startup",
+      { session_id: state.session?.id, transcript_path: state.session?.path, source: "startup" },
+      state.cwd,
+    );
     for (const m of h.messages) history.addSystem(`[hook] ${m}`);
     if (h.additionalContext) {
       state.pendingInjection = state.pendingInjection

@@ -67,84 +67,180 @@ export class CommandRegistry {
 export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: string } = {}): Promise<void> {
   const cwd = opts.cwd ?? process.cwd();
   const cmds: SlashCommand[] = [
-    { name: "help", description: "Show available commands", handler: (ctx) => {
-      const lines = reg.list().map((c) => `/${c.name} — ${c.description}`);
-      ctx.emit("help", lines.join("\n"));
-    } },
-    { name: "login", description: "Configure provider authentication", handler: async (ctx, args) => {
-      await ctx.startLogin(args || undefined);
-    } },
-    { name: "logout", description: "Remove provider authentication (opens picker)", handler: async (ctx, args) => {
-      await ctx.startLogout(args || undefined);
-    } },
-    { name: "model", description: "Select model (opens picker, or /model provider/id)", handler: async (ctx, args) => {
-      if (args) await ctx.setModel(args);
-      else await ctx.openModelPicker();
-    } },
-    { name: "provider", description: "Switch active provider (opens picker, or /provider <id>)", handler: async (ctx, args) => {
-      await ctx.setProvider(args || undefined);
-    } },
-    { name: "new", description: "Start a new session", handler: async (ctx) => {
-      await ctx.newSession();
-    } },
-    { name: "clear", description: "Clear screen scrollback", handler: (ctx) => {
-      ctx.clearScreen();
-    } },
-    { name: "compact", description: "Manually compact the session context", handler: async (ctx) => {
-      await ctx.manualCompact();
-    } },
-    { name: "thinking", description: "Set reasoning/thinking level (off|minimal|low|medium|high|xhigh)", handler: async (ctx, args) => {
-      await ctx.setThinking(args || undefined);
-    } },
-    { name: "resume", description: "Resume a different session", handler: async (ctx) => {
-      await ctx.showSessions();
-    } },
-    { name: "sessions", description: "Alias for /resume", handler: async (ctx) => {
-      await ctx.showSessions();
-    } },
-    { name: "session", description: "Show session info and stats", handler: (ctx) => {
-      ctx.showSessionInfo();
-    } },
-    { name: "name", description: "Set session display name", handler: (ctx, args) => {
-      if (!args) return ctx.emit("error", "usage: /name <name>");
-      ctx.setSessionName(args);
-    } },
+    {
+      name: "help",
+      description: "Show available commands",
+      handler: (ctx) => {
+        const lines = reg.list().map((c) => `/${c.name} — ${c.description}`);
+        ctx.emit("help", lines.join("\n"));
+      },
+    },
+    {
+      name: "login",
+      description: "Configure provider authentication",
+      handler: async (ctx, args) => {
+        await ctx.startLogin(args || undefined);
+      },
+    },
+    {
+      name: "logout",
+      description: "Remove provider authentication (opens picker)",
+      handler: async (ctx, args) => {
+        await ctx.startLogout(args || undefined);
+      },
+    },
+    {
+      name: "model",
+      description: "Select model (opens picker, or /model provider/id)",
+      handler: async (ctx, args) => {
+        if (args) await ctx.setModel(args);
+        else await ctx.openModelPicker();
+      },
+    },
+    {
+      name: "provider",
+      description: "Switch active provider (opens picker, or /provider <id>)",
+      handler: async (ctx, args) => {
+        await ctx.setProvider(args || undefined);
+      },
+    },
+    {
+      name: "new",
+      description: "Start a new session",
+      handler: async (ctx) => {
+        await ctx.newSession();
+      },
+    },
+    {
+      name: "clear",
+      description: "Clear screen scrollback",
+      handler: (ctx) => {
+        ctx.clearScreen();
+      },
+    },
+    {
+      name: "compact",
+      description: "Manually compact the session context",
+      handler: async (ctx) => {
+        await ctx.manualCompact();
+      },
+    },
+    {
+      name: "thinking",
+      description: "Set reasoning/thinking level (off|minimal|low|medium|high|xhigh)",
+      handler: async (ctx, args) => {
+        await ctx.setThinking(args || undefined);
+      },
+    },
+    {
+      name: "resume",
+      description: "Resume a different session",
+      handler: async (ctx) => {
+        await ctx.showSessions();
+      },
+    },
+    {
+      name: "sessions",
+      description: "Alias for /resume",
+      handler: async (ctx) => {
+        await ctx.showSessions();
+      },
+    },
+    {
+      name: "session",
+      description: "Show session info and stats",
+      handler: (ctx) => {
+        ctx.showSessionInfo();
+      },
+    },
+    {
+      name: "name",
+      description: "Set session display name",
+      handler: (ctx, args) => {
+        if (!args) return ctx.emit("error", "usage: /name <name>");
+        ctx.setSessionName(args);
+      },
+    },
     { name: "cost", description: "Show session + lifetime cost", handler: (ctx) => ctx.showCost() },
-    { name: "attach", description: "Attach an image (paste from clipboard, or /attach <path>)", handler: async (ctx, args) => {
-      await ctx.attachImage(args || undefined);
-    } },
-    { name: "paste", description: "Alias for /attach (paste image from clipboard)", handler: async (ctx) => {
-      await ctx.attachImage();
-    } },
-    { name: "cwd", description: "Change working directory", handler: (ctx, args) => {
-      if (!args) return ctx.emit("error", "usage: /cwd <path>");
-      ctx.setCwd(args);
-    } },
-    { name: "copy", description: "Copy last assistant message to clipboard", handler: async (ctx) => {
-      await ctx.copyLastAssistant();
-    } },
-    { name: "export", description: "Export session (path optional, .jsonl/.html)", handler: async (ctx, args) => {
-      await ctx.exportSession(args || undefined);
-    } },
-    { name: "import", description: "Import a session from a JSONL file", handler: async (ctx, args) => {
-      if (!args) return ctx.emit("error", "usage: /import <path>");
-      await ctx.importSession(args);
-    } },
-    { name: "settings", description: "Open settings menu", handler: async (ctx) => {
-      await ctx.openSettings();
-    } },
-    { name: "hotkeys", description: "Show all keyboard shortcuts", handler: (ctx) => {
-      ctx.showHotkeys();
-    } },
-    { name: "reload", description: "Reload prompts, keybindings, settings", handler: async (ctx) => {
-      await ctx.reload();
-    } },
+    {
+      name: "attach",
+      description: "Attach an image (paste from clipboard, or /attach <path>)",
+      handler: async (ctx, args) => {
+        await ctx.attachImage(args || undefined);
+      },
+    },
+    {
+      name: "paste",
+      description: "Alias for /attach (paste image from clipboard)",
+      handler: async (ctx) => {
+        await ctx.attachImage();
+      },
+    },
+    {
+      name: "cwd",
+      description: "Change working directory",
+      handler: (ctx, args) => {
+        if (!args) return ctx.emit("error", "usage: /cwd <path>");
+        ctx.setCwd(args);
+      },
+    },
+    {
+      name: "copy",
+      description: "Copy last assistant message to clipboard",
+      handler: async (ctx) => {
+        await ctx.copyLastAssistant();
+      },
+    },
+    {
+      name: "export",
+      description: "Export session (path optional, .jsonl/.html)",
+      handler: async (ctx, args) => {
+        await ctx.exportSession(args || undefined);
+      },
+    },
+    {
+      name: "import",
+      description: "Import a session from a JSONL file",
+      handler: async (ctx, args) => {
+        if (!args) return ctx.emit("error", "usage: /import <path>");
+        await ctx.importSession(args);
+      },
+    },
+    {
+      name: "settings",
+      description: "Open settings menu",
+      handler: async (ctx) => {
+        await ctx.openSettings();
+      },
+    },
+    {
+      name: "hotkeys",
+      description: "Show all keyboard shortcuts",
+      handler: (ctx) => {
+        ctx.showHotkeys();
+      },
+    },
+    {
+      name: "reload",
+      description: "Reload prompts, keybindings, settings",
+      handler: async (ctx) => {
+        await ctx.reload();
+      },
+    },
     { name: "changelog", description: "Show changelog entries", handler: (ctx) => ctx.stub("changelog") },
     { name: "fork", description: "Create a new fork from a previous user message", handler: (ctx) => ctx.stub("fork") },
-    { name: "clone", description: "Duplicate the current session at current position", handler: (ctx) => ctx.stub("clone") },
+    {
+      name: "clone",
+      description: "Duplicate the current session at current position",
+      handler: (ctx) => ctx.stub("clone"),
+    },
     { name: "tree", description: "Navigate session tree (switch branches)", handler: (ctx) => ctx.stub("tree") },
     { name: "share", description: "Share session as a secret GitHub gist", handler: (ctx) => ctx.stub("share") },
-    { name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling", handler: (ctx) => ctx.stub("scoped-models") },
+    {
+      name: "scoped-models",
+      description: "Enable/disable models for Ctrl+P cycling",
+      handler: (ctx) => ctx.stub("scoped-models"),
+    },
     { name: "quit", description: "Quit pi-agent", handler: (ctx) => ctx.exit() },
     { name: "exit", description: "Alias for /quit", handler: (ctx) => ctx.exit() },
   ];

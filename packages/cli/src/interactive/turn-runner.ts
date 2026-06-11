@@ -8,8 +8,19 @@ function pickContextUsage(event: { usage?: UsageBlock; lastStepUsage?: UsageBloc
 }
 
 export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandContext) {
-  const { tui, history, editor, commands, queuedMessages, refreshFooter, renderPending,
-    showWorking, hideWorking, ensureSession, tracker } = deps;
+  const {
+    tui,
+    history,
+    editor,
+    commands,
+    queuedMessages,
+    refreshFooter,
+    renderPending,
+    showWorking,
+    hideWorking,
+    ensureSession,
+    tracker,
+  } = deps;
 
   const onSubmit = async (raw: string) => {
     const text = raw.trim();
@@ -31,6 +42,13 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
       renderPending();
       tui.requestRender();
       return;
+    }
+
+    // First turn may race SessionStart hooks — wait so their injected
+    // context (pendingInjection) isn't silently dropped.
+    if (state.startupHooksDone) {
+      await state.startupHooksDone;
+      state.startupHooksDone = null;
     }
 
     const finalInput = state.pendingInjection ? `${state.pendingInjection}\n\n${text}` : text;
@@ -72,13 +90,16 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
       showWorking("Compacting");
       tui.requestRender();
     });
-    emitter.on("compact-end", (r: { summary: string; tokensBefore: number; tokensAfter?: number; aborted?: boolean }) => {
-      if (r.aborted) history.addSystem("compact aborted");
-      else if (r.summary) history.addCompactionSummary(r.summary, r.tokensBefore);
-      if (typeof r.tokensAfter === "number") state.latestContextTokens = r.tokensAfter;
-      refreshFooter();
-      tui.requestRender();
-    });
+    emitter.on(
+      "compact-end",
+      (r: { summary: string; tokensBefore: number; tokensAfter?: number; aborted?: boolean }) => {
+        if (r.aborted) history.addSystem("compact aborted");
+        else if (r.summary) history.addCompactionSummary(r.summary, r.tokensBefore);
+        if (typeof r.tokensAfter === "number") state.latestContextTokens = r.tokensAfter;
+        refreshFooter();
+        tui.requestRender();
+      },
+    );
     emitter.on("finish", (event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }) => {
       history.finishAssistant();
       refreshFooter(pickContextUsage(event));

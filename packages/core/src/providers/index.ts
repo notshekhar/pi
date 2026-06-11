@@ -13,9 +13,7 @@ import type { CustomProviderConfig, ProviderId } from "../types";
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
 
-function withPreconnect(
-  fn: (input: FetchInput, init?: FetchInit) => Promise<Response>,
-): typeof fetch {
+function withPreconnect(fn: (input: FetchInput, init?: FetchInit) => Promise<Response>): typeof fetch {
   const wrapped = fn as typeof fetch & { preconnect: typeof fetch.preconnect };
   wrapped.preconnect = fetch.preconnect.bind(fetch);
   return wrapped;

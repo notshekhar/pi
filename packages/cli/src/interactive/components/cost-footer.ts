@@ -79,15 +79,11 @@ export class CostFooter implements Component {
       ctxStr = chalk.dim(`ctx ${fmtTokens(this.ctxUsed)}`);
     }
     const sid = this.sessionId ? this.sessionId.slice(0, 8) : "unsaved";
-    const modelLabel = this.thinking && this.thinking !== "off"
-      ? `${this.modelId || "no-model"} • ${this.thinking}`
-      : (this.modelId || "no-model");
-    const parts = [
-      chalk.cyan(modelLabel),
-      chalk.dim(`session ${sid}`),
-      chalk.green(this.cost),
-      ctxStr,
-    ];
+    const modelLabel =
+      this.thinking && this.thinking !== "off"
+        ? `${this.modelId || "no-model"} • ${this.thinking}`
+        : this.modelId || "no-model";
+    const parts = [chalk.cyan(modelLabel), chalk.dim(`session ${sid}`), chalk.green(this.cost), ctxStr];
     const sep = chalk.dim(" · ");
     const sepLen = ansiLen(sep);
     const lines: string[] = [];

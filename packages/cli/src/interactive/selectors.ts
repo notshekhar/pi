@@ -1,22 +1,10 @@
-import {
-  Container,
-  Editor,
-  type EditorTheme,
-  SelectList,
-  type SelectItem,
-  Text,
-  TUI,
-} from "@notshekhar/pi-tui";
+import { Container, Editor, type EditorTheme, SelectList, type SelectItem, Text, TUI } from "@notshekhar/pi-tui";
 import { DynamicBorder } from "./ui/messages";
 import { getSelectListTheme } from "./ui/theme";
 import chalk from "chalk";
 import { isEsc } from "./keys";
 
-export function buildSelectorWrapper(
-  items: SelectItem[],
-  title: string | undefined,
-  list: SelectList,
-): Container {
+export function buildSelectorWrapper(items: SelectItem[], title: string | undefined, list: SelectList): Container {
   const wrapper = new Container();
   if (title) wrapper.addChild(new Text(chalk.bold.cyan(` ${title}`), 0, 0));
   wrapper.addChild(new DynamicBorder());
@@ -31,11 +19,7 @@ export interface SelectorHost {
   showSelector: (component: Container, focusable: Container | SelectList) => () => void;
 }
 
-export function selectOnce(
-  host: SelectorHost,
-  items: SelectItem[],
-  title?: string,
-): Promise<SelectItem | null> {
+export function selectOnce(host: SelectorHost, items: SelectItem[], title?: string): Promise<SelectItem | null> {
   return new Promise((resolve) => {
     if (!items.length) {
       resolve(null);
@@ -57,11 +41,7 @@ export function selectOnce(
   });
 }
 
-export function promptOnce(
-  host: SelectorHost,
-  editorTheme: EditorTheme,
-  label?: string,
-): Promise<string> {
+export function promptOnce(host: SelectorHost, editorTheme: EditorTheme, label?: string): Promise<string> {
   return new Promise((resolve) => {
     const tempEditor = new Editor(host.tui, editorTheme, { paddingX: 1 });
     const wrapper = new Container();
@@ -94,9 +74,11 @@ export function promptOnce(
       return undefined;
     };
     let removeEscListener: (() => void) | undefined;
-    const addInput = (host.tui as unknown as {
-      addInputListener?: (cb: (d: string) => { consume: boolean } | undefined) => () => void;
-    }).addInputListener;
+    const addInput = (
+      host.tui as unknown as {
+        addInputListener?: (cb: (d: string) => { consume: boolean } | undefined) => () => void;
+      }
+    ).addInputListener;
     if (typeof addInput === "function") {
       removeEscListener = addInput.call(host.tui, escListener);
     }

@@ -63,10 +63,7 @@ export function getXaiCreds(): XaiOAuthCredentials | undefined {
   return undefined;
 }
 
-export async function getAccessToken(
-  provider: "xai",
-  opts: { forceRefresh?: boolean } = {},
-): Promise<string> {
+export async function getAccessToken(provider: "xai", opts: { forceRefresh?: boolean } = {}): Promise<string> {
   const creds = getXaiCreds();
   if (!creds) throw new XaiOAuthError("No xAI OAuth credentials.", XaiErrorCode.AUTH_MISSING, true);
   const expired = Date.now() >= creds.expires;

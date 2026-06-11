@@ -1,10 +1,4 @@
-import type {
-  Container,
-  Editor,
-  SelectItem,
-  SelectList,
-  TUI,
-} from "@notshekhar/pi-tui";
+import type { Container, Editor, SelectItem, SelectList, TUI } from "@notshekhar/pi-tui";
 import type { CommandRegistry, CostTracker, Session, SessionManager, UsageBlock } from "@notshekhar/pi-core";
 import type { ChatHistory } from "./components/chat-history";
 import type { CostFooter } from "./components/cost-footer";

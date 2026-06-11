@@ -86,9 +86,7 @@ export interface TrustOption {
 export function getTrustOptions(cwd: string): TrustOption[] {
   const path = canonical(cwd);
   const parent = dirname(path);
-  const opts: TrustOption[] = [
-    { label: "Trust this folder", trusted: true, remember: true, savePath: path },
-  ];
+  const opts: TrustOption[] = [{ label: "Trust this folder", trusted: true, remember: true, savePath: path }];
   if (parent !== path) {
     opts.push({ label: `Trust parent folder (${parent})`, trusted: true, remember: true, savePath: parent });
   }

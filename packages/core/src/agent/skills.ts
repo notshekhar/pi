@@ -75,7 +75,8 @@ function parseFrontmatter(content: string): Record<string, string | boolean> {
 function validateName(name: string): string[] {
   const errors: string[] = [];
   if (name.length > MAX_NAME_LENGTH) errors.push(`name exceeds ${MAX_NAME_LENGTH} characters (${name.length})`);
-  if (!/^[a-z0-9-]+$/.test(name)) errors.push("name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)");
+  if (!/^[a-z0-9-]+$/.test(name))
+    errors.push("name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)");
   if (name.startsWith("-") || name.endsWith("-")) errors.push("name must not start or end with a hyphen");
   if (name.includes("--")) errors.push("name must not contain consecutive hyphens");
   return errors;

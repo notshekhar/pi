@@ -299,10 +299,7 @@ export async function startLogout(deps: LoginDeps, target?: string): Promise<voi
   const { tui, history, selectOnce } = deps;
   let pick = target;
   if (!pick) {
-    const authed: string[] = [
-      ...listAuthorizedProviders(),
-      ...listCustomProviders().map((c) => `custom:${c.name}`),
-    ];
+    const authed: string[] = [...listAuthorizedProviders(), ...listCustomProviders().map((c) => `custom:${c.name}`)];
     if (authed.length === 0) {
       history.addSystem("no providers to sign out from");
       tui.requestRender();

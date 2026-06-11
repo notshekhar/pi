@@ -62,7 +62,9 @@ async function main(): Promise<void> {
       return;
     case undefined:
     default:
-      await (await interactive()).runInteractive({
+      await (
+        await interactive()
+      ).runInteractive({
         modelId: (args.flags.model as string) || undefined,
         provider: (args.flags.provider as ProviderId) || undefined,
         cwd: (args.flags.cwd as string) || process.cwd(),

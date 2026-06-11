@@ -16,4 +16,7 @@ export interface AppState {
   abort: AbortController;
   pendingInjection: string | null;
   lastCtrlCAt: number;
+  /** Resolves when trust prompt + SessionStart hooks settle; the first turn
+   * awaits it so hook-injected context isn't lost to a fast first prompt. */
+  startupHooksDone: Promise<void> | null;
 }

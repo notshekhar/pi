@@ -30,9 +30,11 @@ import {
   saveAgent,
   deleteAgent,
   getAgentPrompt,
-  hasDefaultOverride,
+  getAgentTools,
+  hasBuiltinOverride,
   DEFAULT_AGENT_NAME,
   DEFAULT_BASE_PROMPT,
+  TOOL_NAMES,
   setActiveProvider,
   settingsStore,
   THINKING_LEVEL_DESCRIPTIONS,
@@ -60,6 +62,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
     showWorking,
     hideWorking,
     selectOnce,
+    toggleOnce,
     promptOnce,
     resolveModelId,
     cleanExit,
@@ -449,21 +452,31 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
       tui.requestRender();
     },
     async manageAgents() {
+      const toolsLabel = (tools: string[] | undefined) => (tools?.length ? tools.join(", ") : "all tools");
+      // Toggle multi-select (cursor stays put, Enter/Space toggles).
+      // Returns undefined = all tools, null = cancelled.
+      const pickTools = async (initial: string[] | undefined): Promise<string[] | undefined | null> => {
+        const all = [...TOOL_NAMES] as string[];
+        const picked = await toggleOnce(all, new Set(initial?.length ? initial : all), "Agent tools");
+        if (picked === null) return null;
+        return picked.length === all.length ? undefined : picked;
+      };
+
       // Loop so Esc in submenus returns to the agent list, like /settings.
       while (true) {
         const agents = listAgents();
         const items: SelectItem[] = [
-          { value: " new", label: "+ new agent", description: "create an agent with its own system prompt" },
+          { value: "+new", label: "+ new agent", description: "create an agent with its own tools and system prompt" },
           ...agents.map((a) => ({
             value: a.name,
             label: a.name + (a.name === state.agent ? "  (active)" : "") + (a.builtin ? "  [built-in]" : ""),
-            description: a.prompt.split("\n")[0].slice(0, 80),
+            description: `[${toolsLabel(a.tools)}] ${a.prompt.split("\n")[0].slice(0, 60)}`,
           })),
         ];
         const pick = await selectOnce(items, "Agents (Esc to close)");
         if (!pick) return;
 
-        if (pick.value === " new") {
+        if (pick.value === "+new") {
           const name = (await promptOnce("agent name (e.g. reviewer)")).trim();
           if (!name) continue;
           if (!isValidAgentName(name)) {
@@ -476,30 +489,40 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
             tui.requestRender();
             continue;
           }
-          const prompt = await promptOnce(`system prompt for "${name}"`, DEFAULT_BASE_PROMPT);
+          // Tools first, then the prompt — the prompt can reference what's allowed.
+          const tools = await pickTools(undefined);
+          if (tools === null) continue;
+          const prompt = await promptOnce(`system prompt for "${name}" [${toolsLabel(tools)}]`, DEFAULT_BASE_PROMPT);
           if (!prompt.trim()) continue;
-          saveAgent(name, prompt);
+          saveAgent(name, prompt, tools);
           registerAgentCommand(commands, name);
           refreshCommands();
           history.addSystem(
-            `agent "${name}" created — /${name} <message> for one message, /agents → use for the session`,
+            `agent "${name}" created [${toolsLabel(tools)}] — /${name} <message> for one message, /agents → use for the session`,
           );
           tui.requestRender();
           continue;
         }
 
         const name = pick.value;
-        const isDefault = name === DEFAULT_AGENT_NAME;
+        const info = agents.find((a) => a.name === name);
+        const isBuiltin = info?.builtin ?? false;
+        const currentTools = getAgentTools(name);
         const actions: SelectItem[] = [
           { value: "use", label: "use", description: `switch active agent to "${name}"` },
           { value: "edit", label: "edit prompt", description: "edit this agent's system prompt" },
         ];
-        if (!isDefault) {
+        if (isBuiltin) {
+          // Built-in tool sets are fixed — preview only, no edit.
+          actions.push({ value: "tools-view", label: "tools (fixed)", description: toolsLabel(currentTools) });
+          if (hasBuiltinOverride(name)) {
+            actions.push({ value: "delete", label: "reset to built-in", description: "remove the prompt override" });
+          }
+        } else {
+          actions.push({ value: "tools", label: "edit tools", description: `current: ${toolsLabel(currentTools)}` });
           actions.push({ value: "delete", label: "delete", description: "remove agent and its /command" });
-        } else if (hasDefaultOverride()) {
-          actions.push({ value: "delete", label: "reset to built-in", description: "remove the prompt override" });
         }
-        const action = await selectOnce(actions, `Agent: ${name}`);
+        const action = await selectOnce(actions, `Agent: ${name} [${toolsLabel(currentTools)}]`);
         if (!action) continue;
 
         if (action.value === "use") {
@@ -510,25 +533,43 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
           tui.requestRender();
           return;
         }
+        if (action.value === "tools-view") {
+          history.addSystem(`agent "${name}" tools (fixed): ${toolsLabel(currentTools)}`);
+          tui.requestRender();
+          continue;
+        }
+        if (action.value === "tools") {
+          const tools = await pickTools(currentTools);
+          if (tools === null) continue;
+          saveAgent(name, getAgentPrompt(name) ?? DEFAULT_BASE_PROMPT, tools);
+          history.addSystem(`agent "${name}" tools → ${toolsLabel(tools)}`);
+          tui.requestRender();
+          continue;
+        }
         if (action.value === "edit") {
           const current = getAgentPrompt(name) ?? DEFAULT_BASE_PROMPT;
-          const edited = await promptOnce(`system prompt for "${name}"`, current);
+          // Built-ins: tools are fixed but still previewed before editing.
+          if (isBuiltin) {
+            history.addSystem(chalk.dim(`tools (fixed): ${toolsLabel(currentTools)}`));
+            tui.requestRender();
+          }
+          const edited = await promptOnce(`system prompt for "${name}" [${toolsLabel(currentTools)}]`, current);
           if (!edited.trim() || edited.trim() === current.trim()) continue;
-          saveAgent(name, edited);
+          saveAgent(name, edited, currentTools);
           history.addSystem(`agent "${name}" prompt updated`);
           tui.requestRender();
           continue;
         }
         if (action.value === "delete") {
           deleteAgent(name);
-          if (state.agent === name && !isDefault) {
+          if (state.agent === name && !isBuiltin) {
             state.agent = DEFAULT_AGENT_NAME;
             settingsStore.set("agent", DEFAULT_AGENT_NAME);
             footer.setAgent(DEFAULT_AGENT_NAME);
           }
-          if (!isDefault) commands.unregister(name);
+          if (!isBuiltin) commands.unregister(name);
           refreshCommands();
-          history.addSystem(isDefault ? "default prompt reset to built-in" : `agent "${name}" deleted`);
+          history.addSystem(isBuiltin ? `"${name}" prompt reset to built-in` : `agent "${name}" deleted`);
           tui.requestRender();
           continue;
         }

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.17] - 2026-06-11
+
+### Added
+
+- Per-agent tools: pick the allowed tool subset when creating or editing an agent (`/agents`, stored as `tools:` frontmatter in `~/.pi/agents/<name>.md`); the model only receives the allowed tools, and the system prompt lists exactly what's available
+- `/plan` built-in agent: read-only planning agent (read, ls, grep, find) that explores the codebase and produces step-by-step implementation plans without being able to modify anything; prompt overridable like default, tool set fixed
+- Built-in agents show their fixed tool set everywhere (agent list, action menu, edit flow) — visible but not editable
+- Toggle-style multi-select for the tool picker: Enter or Space flips an entry with the cursor staying in place; "done" confirms
+
 ## [0.3.16] - 2026-06-11
 
 ### Added

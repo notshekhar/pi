@@ -23,6 +23,8 @@ export interface AppDeps {
   hideWorking: () => void;
   showSelector: (component: Container, focusable: Container | SelectList) => () => void;
   selectOnce: (items: SelectItem[], title?: string) => Promise<SelectItem | null>;
+  /** Multi-select toggle list (Enter/Space toggles, done confirms, Esc → null). */
+  toggleOnce: (values: string[], initial: Set<string>, title?: string) => Promise<string[] | null>;
   promptOnce: (label?: string, initial?: string) => Promise<string>;
   resolveModelId: (input: string) => Promise<string | null>;
   /** Rebuild slash-command autocomplete after runtime command changes (agent create/delete). */

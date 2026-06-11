@@ -20,35 +20,34 @@ function dayKey(d = new Date()): string {
 export class CostTracker {
     private session: CostBreakdown = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, usd: 0 };
 
-    add(modelId: string, usage: UsageBlock, cwd?: string): CostBreakdown {
-        const { provider } = parseModelId(modelId);
+    private computeUsd(modelId: string, provider: string, usage: UsageBlock): number {
+        if (typeof usage.cost === "number" && provider === "openrouter") return usage.cost;
+        const model = getModelSync(modelId);
+        if (!model) return 0;
         const inTok = usage.inputTokens ?? 0;
-        const outTok = usage.outputTokens ?? 0;
         const cacheTok = usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? 0;
         const cacheWriteTok = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+        const billedIn = usage.inputTokenDetails?.noCacheTokens ?? Math.max(0, inTok - cacheTok - cacheWriteTok);
+        return (
+            (billedIn / 1_000_000) * model.cost.input +
+            ((usage.outputTokens ?? 0) / 1_000_000) * model.cost.output +
+            (cacheTok / 1_000_000) * model.cost.cacheRead +
+            (cacheWriteTok / 1_000_000) * model.cost.cacheWrite
+        );
+    }
 
-        let usd: number;
-        if (typeof usage.cost === "number" && provider === "openrouter") {
-            usd = usage.cost;
-        } else {
-            const model = getModelSync(modelId);
-            if (!model) {
-                usd = 0;
-            } else {
-                const billedIn =
-                    usage.inputTokenDetails?.noCacheTokens ?? Math.max(0, inTok - cacheTok - cacheWriteTok);
-                usd =
-                    (billedIn / 1_000_000) * model.cost.input +
-                    (outTok / 1_000_000) * model.cost.output +
-                    (cacheTok / 1_000_000) * model.cost.cacheRead +
-                    (cacheWriteTok / 1_000_000) * model.cost.cacheWrite;
-            }
-        }
-
-        this.session.inputTokens += inTok;
-        this.session.outputTokens += outTok;
-        this.session.cachedInputTokens += cacheTok;
+    private accumulateSession(modelId: string, provider: string, usage: UsageBlock): number {
+        const usd = this.computeUsd(modelId, provider, usage);
+        this.session.inputTokens += usage.inputTokens ?? 0;
+        this.session.outputTokens += usage.outputTokens ?? 0;
+        this.session.cachedInputTokens += usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? 0;
         this.session.usd += usd;
+        return usd;
+    }
+
+    add(modelId: string, usage: UsageBlock, cwd?: string): CostBreakdown {
+        const { provider } = parseModelId(modelId);
+        const usd = this.accumulateSession(modelId, provider, usage);
 
         const lifetime = costStore.get("lifetime") as { usd: number; byProvider: Record<string, number> };
         lifetime.usd = (lifetime.usd ?? 0) + usd;
@@ -96,6 +95,27 @@ export class CostTracker {
             monthUsd,
             cwdUsd: cwd ? (byCwd[cwd] ?? 0) : 0,
         };
+    }
+
+    /**
+     * Rebuild session totals from a resumed transcript's usage entries.
+     * Session-only: lifetime/daily/cwd stores were billed when those turns
+     * actually ran. Returns the last turn's token count for the ctx meter.
+     */
+    seedFromEntries(modelId: string, usages: UsageBlock[]): { ctxTokens: number } {
+        this.reset();
+        const { provider } = parseModelId(modelId);
+        let last: UsageBlock | undefined;
+        for (const u of usages) {
+            this.accumulateSession(modelId, provider, u);
+            last = u;
+        }
+        const ctxTokens = last
+            ? typeof last.totalTokens === "number" && last.totalTokens > 0
+                ? last.totalTokens
+                : (last.inputTokens ?? 0) + (last.outputTokens ?? 0) + (last.cachedInputTokens ?? 0)
+            : 0;
+        return { ctxTokens };
     }
 
     sessionBreakdown(): CostBreakdown {

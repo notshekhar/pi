@@ -14,6 +14,7 @@ import {
     type ProviderId,
     type Session,
     type ThinkingLevel,
+    type UsageBlock,
     bustCatalogCache,
     getActiveProvider,
     getCatalog,
@@ -305,6 +306,21 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                     footer.setModel(state.modelId);
                 }
                 footer.setSession(state.session.id);
+                // Restore cost/usage/ctx from the resumed transcript.
+                const usages = state.session
+                    .entries()
+                    .filter(
+                        (e) =>
+                            e.type === "message" &&
+                            (e as { role?: string }).role === "assistant" &&
+                            (e as { usage?: unknown }).usage,
+                    )
+                    .map((e) => (e as { usage: UsageBlock }).usage);
+                state.latestContextTokens = tracker.seedFromEntries(
+                    state.session.info.model || state.modelId,
+                    usages,
+                ).ctxTokens;
+                refreshFooter();
                 history.reset();
                 if (state.session.path !== selectedPath) {
                     history.addSystem(`resumed fork ${state.session.id}`);

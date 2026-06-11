@@ -109,6 +109,21 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     }
 
     const tracker = new CostTracker();
+    // Resumed sessions restore their cost/usage/ctx from the transcript's
+    // usage entries instead of showing zeros until the next message.
+    let seededCtxTokens = 0;
+    if (initialSession) {
+        const usages = initialSession
+            .entries()
+            .filter(
+                (e) =>
+                    e.type === "message" &&
+                    (e as { role?: string }).role === "assistant" &&
+                    (e as { usage?: UsageBlock }).usage,
+            )
+            .map((e) => (e as { usage: UsageBlock }).usage);
+        seededCtxTokens = tracker.seedFromEntries(initialSession.info.model || initialModelId, usages).ctxTokens;
+    }
     const commands = new CommandRegistry();
     await registerBuiltins(commands, { cwd: opts.cwd });
 
@@ -132,7 +147,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         agent: agentExists(savedAgent) ? savedAgent : DEFAULT_AGENT_NAME,
         oneShotAgent: null,
         session: initialSession,
-        latestContextTokens: 0,
+        latestContextTokens: seededCtxTokens,
         busy: false,
         abort: new AbortController(),
         pendingInjection: null,

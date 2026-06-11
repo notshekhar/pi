@@ -41,15 +41,21 @@ export function selectOnce(host: SelectorHost, items: SelectItem[], title?: stri
   });
 }
 
-export function promptOnce(host: SelectorHost, editorTheme: EditorTheme, label?: string): Promise<string> {
+export function promptOnce(
+  host: SelectorHost,
+  editorTheme: EditorTheme,
+  label?: string,
+  initial?: string,
+): Promise<string> {
   return new Promise((resolve) => {
     const tempEditor = new Editor(host.tui, editorTheme, { paddingX: 1 });
+    if (initial) tempEditor.setText(initial);
     const wrapper = new Container();
     if (label) wrapper.addChild(new Text(chalk.cyan(` ${label}`), 0, 0));
     wrapper.addChild(new DynamicBorder());
     wrapper.addChild(tempEditor);
     wrapper.addChild(new DynamicBorder());
-    wrapper.addChild(new Text(chalk.dim(" Enter to submit · Esc to cancel"), 0, 0));
+    wrapper.addChild(new Text(chalk.dim(" Enter to submit · Shift+Enter newline · Esc to cancel"), 0, 0));
     const close = host.showSelector(wrapper, tempEditor as never);
 
     let done = false;

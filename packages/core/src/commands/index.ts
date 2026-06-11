@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getPiDir } from "../auth/storage";
 import { loadProjectSkills } from "../agent/skills";
+import { listAgents } from "../agent/agents";
 
 export interface CommandContext {
   emit(event: string, data?: unknown): void;
@@ -28,6 +29,9 @@ export interface CommandContext {
   importSession(path: string): Promise<void>;
   reload(): Promise<void>;
   showChangelog(): void;
+  manageAgents(): Promise<void>;
+  /** With message: run that one message under this agent's prompt (one-shot). */
+  useAgent(name: string, message?: string): Promise<void> | void;
   stub(name: string): void;
   clearScreen(): void;
 }
@@ -43,6 +47,10 @@ export class CommandRegistry {
 
   register(cmd: SlashCommand): void {
     this.commands.set(cmd.name, cmd);
+  }
+
+  unregister(name: string): boolean {
+    return this.commands.delete(name);
   }
 
   has(name: string): boolean {
@@ -233,6 +241,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
       },
     },
     { name: "changelog", description: "Show changelog entries", handler: (ctx) => ctx.showChangelog() },
+    {
+      name: "agents",
+      description: "Create, select, or edit agents (custom system prompts)",
+      handler: async (ctx) => {
+        await ctx.manageAgents();
+      },
+    },
     { name: "fork", description: "Create a new fork from a previous user message", handler: (ctx) => ctx.stub("fork") },
     {
       name: "clone",
@@ -295,4 +310,21 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
       });
     }
   }
+
+  // custom agents as commands: /<name> switches the active system prompt
+  for (const agent of listAgents()) {
+    if (agent.builtin) continue;
+    registerAgentCommand(reg, agent.name);
+  }
+}
+
+/** Register /<name> for an agent. Skipped when the name collides with an existing command. */
+export function registerAgentCommand(reg: CommandRegistry, name: string): boolean {
+  if (reg.has(name)) return false;
+  reg.register({
+    name,
+    description: `Run one message with agent "${name}": /${name} <message>`,
+    handler: (ctx, args) => ctx.useAgent(name, args || undefined),
+  });
+  return true;
 }

@@ -257,6 +257,15 @@ function readClaudePluginHooks(home: string): HooksConfig {
 }
 
 export function loadHooksConfig(cwd: string): HooksConfig {
+  // A broken config file must never take the agent down.
+  try {
+    return loadHooksConfigUnsafe(cwd);
+  } catch {
+    return {};
+  }
+}
+
+function loadHooksConfigUnsafe(cwd: string): HooksConfig {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
   const importClaude = (settingsStore.get("importClaudeHooks") as boolean | undefined) !== false;
   // User-global hooks (the user's own machine config) always load.
@@ -311,12 +320,39 @@ interface CommandResult {
 // /dev/tty, which tears our TUI. 2.1.141 introduced terminalSequence.
 const CLAUDE_HOOK_API_VERSION = "2.1.141";
 
+/** Cap captured stdout/stderr per hook — runaway output must not eat memory. */
+const MAX_CAPTURE_BYTES = 1_000_000;
+
+function clampTimeoutS(t: number | undefined): number {
+  if (typeof t !== "number" || !Number.isFinite(t) || t <= 0) return DEFAULT_TIMEOUT_S;
+  return Math.min(t, 600);
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "{}";
+  } catch {
+    return "{}"; // circular tool output — hook still gets a valid payload
+  }
+}
+
+/** hookBus subscribers are app code — their bugs must not break dispatch. */
+function busEmit(event: string, data: unknown): void {
+  try {
+    hookBus.emit(event, data);
+  } catch {
+    // listener threw — ignore
+  }
+}
+
 function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promise<CommandResult> {
   const startedAt = Date.now();
   const event = payload.hook_event_name;
-  hookBus.emit("start", { event, command: cmd.command, statusMessage: cmd.statusMessage });
+  busEmit("start", { event, command: cmd.command, statusMessage: cmd.statusMessage });
   return new Promise((resolve) => {
-    const child = spawn("/bin/sh", ["-c", cmd.command], {
+    // sh on POSIX; cmd.exe on Windows builds (no /bin/sh there).
+    const isWin = process.platform === "win32";
+    const child = spawn(isWin ? "cmd.exe" : "/bin/sh", [isWin ? "/c" : "-c", cmd.command], {
       cwd,
       // PI_PROJECT_DIR for pi hooks; CLAUDE_PROJECT_DIR so imported Claude
       // hooks that reference ${CLAUDE_PROJECT_DIR} keep working unchanged.
@@ -344,16 +380,20 @@ function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promis
           child.kill("SIGKILL");
         }
       },
-      (cmd.timeout ?? DEFAULT_TIMEOUT_S) * 1000,
+      clampTimeoutS(cmd.timeout) * 1000,
     );
-    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
-    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    child.stdout.on("data", (d: Buffer) => {
+      if (stdout.length < MAX_CAPTURE_BYTES) stdout += d.toString();
+    });
+    child.stderr.on("data", (d: Buffer) => {
+      if (stderr.length < MAX_CAPTURE_BYTES) stderr += d.toString();
+    });
     let finished = false;
     const finish = (code: number | null) => {
       if (finished) return; // spawn-error then close would double-fire
       finished = true;
       clearTimeout(timer);
-      hookBus.emit("end", {
+      busEmit("end", {
         event,
         command: cmd.command,
         statusMessage: cmd.statusMessage,
@@ -368,7 +408,7 @@ function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promis
     // A hook may exit without reading stdin — swallow EPIPE instead of
     // crashing the whole process on an unhandled stream error.
     child.stdin.on("error", () => {});
-    child.stdin.write(JSON.stringify(payload));
+    child.stdin.write(safeStringify(payload));
     child.stdin.end();
   });
 }
@@ -388,29 +428,41 @@ interface HookJsonOutput {
   };
 }
 
-/** Fold one command's result into the outcome. Returns true if it blocked. */
+/**
+ * Fold one command's result into the outcome. Output (messages, context,
+ * terminal sequences, updatedInput) is always collected; block decisions are
+ * first-wins in config order — a later hook never overrides an earlier block.
+ */
 function applyResult(
   event: HookEvent,
   cmd: HookCommand,
   res: CommandResult,
   outcome: HookOutcome,
   contexts: string[],
-): boolean {
+): void {
+  // User-facing strings get clipped — a hook spewing megabytes must not
+  // flood the chat. additionalContext stays full: it's model-bound by design.
+  const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… [truncated]` : s);
+  const block = (reason: string) => {
+    if (!outcome.block) {
+      outcome.block = true;
+      outcome.reason = clip(reason, 500);
+    }
+  };
   if (res.timedOut) {
-    outcome.messages.push(`hook timed out (${event}): ${cmd.command}`);
-    return false;
+    outcome.messages.push(`hook timed out (${event}): ${clip(cmd.command, 200)}`);
+    return;
   }
   if (res.code === 2) {
-    outcome.block = true;
-    outcome.reason = res.stderr.trim() || `blocked by ${event} hook`;
-    return true;
+    block(res.stderr.trim() || `blocked by ${event} hook`);
+    return;
   }
   if (res.code !== 0) {
-    outcome.messages.push(`hook failed (${event}, exit ${res.code}): ${res.stderr.trim() || cmd.command}`);
-    return false;
+    outcome.messages.push(`hook failed (${event}, exit ${res.code}): ${clip(res.stderr.trim() || cmd.command, 500)}`);
+    return;
   }
   const text = res.stdout.trim();
-  if (!text) return false;
+  if (!text) return;
   let parsed: HookJsonOutput;
   try {
     parsed = JSON.parse(text) as HookJsonOutput;
@@ -418,40 +470,39 @@ function applyResult(
     // Non-JSON stdout: for SessionStart/UserPromptSubmit it's context
     // (Claude Code behavior); elsewhere show it to the user.
     if (event === "SessionStart" || event === "UserPromptSubmit") contexts.push(text);
-    else outcome.messages.push(text);
-    return false;
+    else outcome.messages.push(clip(text, 1000));
+    return;
   }
+  if (!parsed || typeof parsed !== "object") return; // bare JSON scalar — nothing to apply
   const hso = parsed.hookSpecificOutput;
-  if (parsed.systemMessage) outcome.messages.push(parsed.systemMessage);
-  if (parsed.terminalSequence) outcome.terminalSequences.push(parsed.terminalSequence);
-  if (hso?.additionalContext) contexts.push(hso.additionalContext);
-  if (hso?.updatedInput !== undefined) outcome.updatedInput = hso.updatedInput;
+  if (typeof parsed.systemMessage === "string" && parsed.systemMessage)
+    outcome.messages.push(clip(parsed.systemMessage, 1000));
+  if (typeof parsed.terminalSequence === "string" && parsed.terminalSequence)
+    outcome.terminalSequences.push(parsed.terminalSequence);
+  if (typeof hso?.additionalContext === "string" && hso.additionalContext) contexts.push(hso.additionalContext);
+  if (hso?.updatedInput !== undefined && outcome.updatedInput === undefined) outcome.updatedInput = hso.updatedInput;
   // `continue: false` halts everything in Claude Code — treat as block.
   if (parsed.continue === false) {
-    outcome.block = true;
-    outcome.reason = parsed.stopReason ?? parsed.reason ?? `stopped by ${event} hook`;
-    return true;
+    block(parsed.stopReason ?? parsed.reason ?? `stopped by ${event} hook`);
+    return;
   }
   // "ask" needs a permission prompt we don't have — deny is the safe
   // fallback (silently allowing would grant what the hook wanted gated).
   if (hso?.permissionDecision === "ask") {
-    outcome.block = true;
-    outcome.reason = `${hso.permissionDecisionReason ?? `${event} hook requested confirmation`} (ask unsupported in pi — denied)`;
-    return true;
+    block(`${hso.permissionDecisionReason ?? `${event} hook requested confirmation`} (ask unsupported in pi — denied)`);
+    return;
   }
   if (parsed.decision === "block" || hso?.permissionDecision === "deny") {
-    outcome.block = true;
-    outcome.reason = parsed.reason ?? hso?.permissionDecisionReason ?? `blocked by ${event} hook`;
-    return true;
+    block(parsed.reason ?? hso?.permissionDecisionReason ?? `blocked by ${event} hook`);
   }
-  return false;
 }
 
 /**
  * Run all configured hooks for an event in parallel (Claude Code behavior)
- * and merge results in config order, so the first configured block wins
- * deterministically. `async: true` hooks fire without being awaited and never
- * contribute to the outcome.
+ * and merge results in config order: all output is collected, the first
+ * configured block wins. `async: true` hooks fire without being awaited and
+ * never contribute to the outcome. Never throws — a misbehaving hook or
+ * config degrades to a warning message, not a broken agent.
  */
 export async function runHooks(
   event: HookEvent,
@@ -460,28 +511,34 @@ export async function runHooks(
   cwd: string,
 ): Promise<HookOutcome> {
   const outcome: HookOutcome = { block: false, messages: [], terminalSequences: [] };
-  const groups = loadHooksConfig(cwd)[event];
-  if (!groups?.length) return outcome;
+  try {
+    const groups = loadHooksConfig(cwd)[event];
+    if (!groups?.length) return outcome;
 
-  const fullPayload: HookPayload = { ...payload, cwd, hook_event_name: event };
+    const fullPayload: HookPayload = { ...payload, cwd, hook_event_name: event };
 
-  const sync: HookCommand[] = [];
-  for (const group of groups) {
-    if (!matcherTest(group.matcher, matcherValue)) continue;
-    for (const cmd of group.hooks ?? []) {
-      if (cmd.type && cmd.type !== "command") continue; // v1: command hooks only
-      if (cmd.async) void runCommand(cmd, fullPayload, cwd);
-      else sync.push(cmd);
+    const sync: HookCommand[] = [];
+    for (const group of groups) {
+      if (!matcherTest(group.matcher, matcherValue)) continue;
+      for (const cmd of group.hooks ?? []) {
+        if (!cmd || typeof cmd.command !== "string" || !cmd.command.trim()) continue;
+        if (cmd.type && cmd.type !== "command") continue; // v1: command hooks only
+        if (cmd.async) void runCommand(cmd, fullPayload, cwd);
+        else sync.push(cmd);
+      }
     }
-  }
-  if (sync.length === 0) return outcome;
+    if (sync.length === 0) return outcome;
 
-  const results = await Promise.all(sync.map((cmd) => runCommand(cmd, fullPayload, cwd)));
+    const results = await Promise.all(sync.map((cmd) => runCommand(cmd, fullPayload, cwd)));
 
-  const contexts: string[] = [];
-  for (let i = 0; i < sync.length; i++) {
-    if (applyResult(event, sync[i], results[i], outcome, contexts)) break;
+    const contexts: string[] = [];
+    for (let i = 0; i < sync.length; i++) {
+      applyResult(event, sync[i], results[i], outcome, contexts);
+    }
+    if (contexts.length) outcome.additionalContext = contexts.join("\n");
+    return outcome;
+  } catch (err) {
+    outcome.messages.push(`hook system error (${event}): ${err instanceof Error ? err.message : String(err)}`);
+    return outcome;
   }
-  if (contexts.length) outcome.additionalContext = contexts.join("\n");
-  return outcome;
 }

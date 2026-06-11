@@ -7,6 +7,7 @@ import { settingsStore } from "../auth/storage";
 import { getCustomProvider, isCustomProvider, parseCustomProviderId } from "../auth";
 import { createTools } from "../tools";
 import { buildSystemPrompt } from "./system-prompt";
+import { getAgentPrompt } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
@@ -24,6 +25,18 @@ export { THINKING_LEVELS, THINKING_LEVEL_DESCRIPTIONS, buildProviderOptions, typ
 export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
 export { loadProjectSkills, type Skill } from "./skills";
 export { runHooks, loadHooksConfig, hookBus, type HookEvent, type HooksConfig, type HookOutcome } from "./hooks";
+export {
+  DEFAULT_AGENT_NAME,
+  listAgents,
+  getAgentPrompt,
+  agentExists,
+  hasDefaultOverride,
+  saveAgent,
+  deleteAgent,
+  isValidAgentName,
+  type AgentInfo,
+} from "./agents";
+export { DEFAULT_BASE_PROMPT } from "./system-prompt";
 export {
   hasProjectTrustInputs,
   getTrustDecision,
@@ -45,6 +58,8 @@ export interface RunTurnOptions {
   emitter: EventEmitter;
   maxSteps?: number;
   thinkingLevel?: ThinkingLevel;
+  /** Named agent whose prompt replaces the built-in persona ("default" = built-in). */
+  agent?: string;
   /** internal: recursion depth for Stop-hook continuations */
   hookDepth?: number;
 }
@@ -165,7 +180,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const skillsEnabled = (settingsStore.get("skills") as boolean) !== false && isTrusted(cwd);
   const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
 
-  const system = buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text }) + (skills.promptBlock ?? "");
+  const agentPrompt = opts.agent ? getAgentPrompt(opts.agent) : undefined;
+  const system =
+    buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text, basePrompt: agentPrompt }) +
+    (skills.promptBlock ?? "");
   const tools = withToolHooks(createTools({ cwd, abortSignal }), {
     cwd,
     sessionId: session.id,
@@ -377,10 +395,11 @@ function withToolHooks<T extends object>(
           return { error: `blocked by PreToolUse hook: ${pre.reason}` };
         }
         const effectiveInput = pre.updatedInput !== undefined ? pre.updatedInput : input;
-        // The tool-call event already showed the original args — tell the user
-        // the hook rewrote them so UI and execution don't silently diverge.
+        // Hook rewrote the input (e.g. rtk): update the rendered tool call in
+        // place so the chat shows what actually executed — no separate line.
         if (pre.updatedInput !== undefined) {
-          ctx.emitter.emit("hook-message", `PreToolUse hook updated ${name} input: ${JSON.stringify(effectiveInput)}`);
+          const toolCallId = (options as { toolCallId?: string } | undefined)?.toolCallId;
+          ctx.emitter.emit("tool-input-updated", { toolCallId, toolName: name, input: effectiveInput });
         }
         const output = await t.execute!(effectiveInput, options);
         const post = await runHooks(

@@ -171,6 +171,10 @@ export class ChatHistory extends Container {
     this.liveComponent = null;
   }
 
+  updateToolCallInput(toolCallId: string, args: Record<string, unknown>): void {
+    this.toolComponents.get(toolCallId)?.updateArgs(args);
+  }
+
   addToolCall(toolName: string, toolCallId: string, args: Record<string, unknown>): void {
     if (this.liveMsg) {
       this.liveMsg.content.push({ type: "toolCall", id: toolCallId, name: toolName, arguments: args });
@@ -201,6 +205,16 @@ export class ChatHistory extends Container {
   /** Hook-related lines get their own orange accent, like tools get grey/green. */
   addHook(text: string): void {
     this.addChild(new Text(HOOK_ORANGE(`⚙ ${text}`), 1, 0));
+  }
+
+  /** Echo an executed slash command: highlighted /name, dim args. */
+  addCommand(text: string): void {
+    this.addChild(new Spacer(1));
+    const space = text.indexOf(" ");
+    const cmd = space < 0 ? text : text.slice(0, space);
+    const rest = space < 0 ? "" : text.slice(space);
+    this.addChild(new Text(chalk.bold.cyan(cmd) + (rest ? chalk.dim(rest) : ""), 1, 0));
+    this.assistantTurn = null;
   }
 
   /** Themed markdown block (changelog, release notes). */

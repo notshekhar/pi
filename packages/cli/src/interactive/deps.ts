@@ -23,8 +23,10 @@ export interface AppDeps {
   hideWorking: () => void;
   showSelector: (component: Container, focusable: Container | SelectList) => () => void;
   selectOnce: (items: SelectItem[], title?: string) => Promise<SelectItem | null>;
-  promptOnce: (label?: string) => Promise<string>;
+  promptOnce: (label?: string, initial?: string) => Promise<string>;
   resolveModelId: (input: string) => Promise<string | null>;
+  /** Rebuild slash-command autocomplete after runtime command changes (agent create/delete). */
+  refreshCommands: () => void;
   ensureSession: () => Promise<Session>;
   cleanExit: (code?: number) => void;
 }

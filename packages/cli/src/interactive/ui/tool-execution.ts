@@ -41,6 +41,13 @@ export class ToolExecutionComponent extends Container {
     this.updateDisplay();
   }
 
+  /** PreToolUse hooks may rewrite the input (e.g. rtk) — show what actually ran. */
+  updateArgs(args: Record<string, unknown>): void {
+    this.args = args;
+    this.updateDisplay();
+    this.tui.requestRender();
+  }
+
   updateResult(result: ToolResultLike, isPartial = false): void {
     this.result = result;
     this.isPartial = isPartial;

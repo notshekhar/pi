@@ -71,9 +71,9 @@ function startCallbackServer(expectedState: string): Promise<CallbackServerInfo>
         res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" }).end("<p>Login failed.</p>");
         return;
       }
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(
-        "<p>Anthropic login complete. You can close this window.</p>",
-      );
+      res
+        .writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+        .end("<p>Anthropic login complete. You can close this window.</p>");
       settle?.({ code, state });
     });
     server.on("error", reject);

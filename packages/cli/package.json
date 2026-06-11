@@ -5,13 +5,27 @@
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/notshekhar/pi#readme",
-  "bugs": { "url": "https://github.com/notshekhar/pi/issues" },
+  "bugs": {
+    "url": "https://github.com/notshekhar/pi/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/notshekhar/pi.git",
     "directory": "packages/cli"
   },
-  "keywords": ["ai", "agent", "cli", "tui", "coding", "claude", "gpt", "grok", "gemini", "openrouter", "pi"],
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "tui",
+    "coding",
+    "claude",
+    "gpt",
+    "grok",
+    "gemini",
+    "openrouter",
+    "pi"
+  ],
   "bin": {
     "pi": "./dist/cli.js",
     "agent": "./dist/cli.js"

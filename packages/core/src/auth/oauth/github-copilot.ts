@@ -49,7 +49,14 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new Error("Login cancelled"));
     const t = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => { clearTimeout(t); reject(new Error("Login cancelled")); }, { once: true });
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(t);
+        reject(new Error("Login cancelled"));
+      },
+      { once: true },
+    );
   });
 }
 

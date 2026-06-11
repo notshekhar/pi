@@ -21,13 +21,7 @@ import { join } from "node:path";
 import { settingsStore } from "../auth/storage";
 import { isTrusted } from "./trust";
 
-export type HookEvent =
-  | "SessionStart"
-  | "UserPromptSubmit"
-  | "PreToolUse"
-  | "PostToolUse"
-  | "Stop"
-  | "SessionEnd";
+export type HookEvent = "SessionStart" | "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop" | "SessionEnd";
 
 export interface HookCommand {
   type?: "command";
@@ -204,6 +198,7 @@ export function loadHooksConfig(cwd: string): HooksConfig {
   // User-global hooks (the user's own machine config) always load.
   const userPi = (settingsStore.get("hooks") as HooksConfig | undefined) ?? {};
   const userClaude = importClaude ? readClaudeHooks([join(home, ".claude", "settings.json")]) : {};
+  const userClaudePlugins = importClaude ? readClaudePluginHooks(home) : {};
 
   // Project hooks come from the repo — gated behind project trust, so opening
   // an untrusted clone doesn't run its .pi/.claude hooks.
@@ -217,7 +212,7 @@ export function loadHooksConfig(cwd: string): HooksConfig {
   }
 
   const merged: HooksConfig = {};
-  const layers = [userClaude, userPi, projectClaude, projectPi];
+  const layers = [userClaude, userClaudePlugins, userPi, projectClaude, projectPi];
   const events = new Set(layers.flatMap((l) => Object.keys(l)) as HookEvent[]);
   for (const ev of events) {
     merged[ev] = layers.flatMap((l) => l[ev] ?? []);
@@ -254,6 +249,8 @@ function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promis
       // hooks that reference ${CLAUDE_PROJECT_DIR} keep working unchanged.
       env: { ...process.env, PI_PROJECT_DIR: cwd, CLAUDE_PROJECT_DIR: cwd },
       stdio: ["pipe", "pipe", "pipe"],
+      // Own process group so a timeout kills the shell's children too.
+      detached: true,
     });
     let stdout = "";
     let stderr = "";
@@ -261,7 +258,12 @@ function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promis
     const timer = setTimeout(
       () => {
         timedOut = true;
-        child.kill("SIGKILL");
+        // Negative pid → kill the whole process group, not just /bin/sh.
+        try {
+          process.kill(-child.pid!, "SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
       },
       (cmd.timeout ?? DEFAULT_TIMEOUT_S) * 1000,
     );
@@ -275,6 +277,9 @@ function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promis
       clearTimeout(timer);
       resolve({ code, stdout, stderr, timedOut });
     });
+    // A hook may exit without reading stdin — swallow EPIPE instead of
+    // crashing the whole process on an unhandled stream error.
+    child.stdin.on("error", () => {});
     child.stdin.write(JSON.stringify(payload));
     child.stdin.end();
   });
@@ -283,6 +288,8 @@ function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promis
 interface HookJsonOutput {
   decision?: string;
   reason?: string;
+  continue?: boolean;
+  stopReason?: string;
   systemMessage?: string;
   hookSpecificOutput?: {
     permissionDecision?: string;
@@ -293,8 +300,9 @@ interface HookJsonOutput {
 }
 
 /**
- * Run all configured hooks for an event sequentially. First block wins and
- * stops the chain (matches the practical Claude Code behavior for decisions).
+ * Run all configured hooks for an event sequentially; first block wins and
+ * stops the chain. Divergence from Claude Code: CC runs an event's hooks in
+ * parallel — sequential keeps the first-block-wins decision deterministic.
  */
 export async function runHooks(
   event: HookEvent,
@@ -344,10 +352,22 @@ export async function runHooks(
       if (parsed.systemMessage) outcome.messages.push(parsed.systemMessage);
       if (hso?.additionalContext) contexts.push(hso.additionalContext);
       if (hso?.updatedInput !== undefined) outcome.updatedInput = hso.updatedInput;
+      // `continue: false` halts everything in Claude Code — treat as block.
+      if (parsed.continue === false) {
+        outcome.block = true;
+        outcome.reason = parsed.stopReason ?? parsed.reason ?? `stopped by ${event} hook`;
+        return outcome;
+      }
+      // "ask" needs a permission prompt we don't have — deny is the safe
+      // fallback (silently allowing would grant what the hook wanted gated).
+      if (hso?.permissionDecision === "ask") {
+        outcome.block = true;
+        outcome.reason = `${hso.permissionDecisionReason ?? `${event} hook requested confirmation`} (ask unsupported in pi — denied)`;
+        return outcome;
+      }
       if (parsed.decision === "block" || hso?.permissionDecision === "deny") {
         outcome.block = true;
-        outcome.reason =
-          parsed.reason ?? hso?.permissionDecisionReason ?? `blocked by ${event} hook`;
+        outcome.reason = parsed.reason ?? hso?.permissionDecisionReason ?? `blocked by ${event} hook`;
         return outcome;
       }
     }

@@ -6,11 +6,7 @@ const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
 };
-const externals = [
-  ...Object.keys(pkg.dependencies ?? {}),
-  ...Object.keys(pkg.peerDependencies ?? {}),
-  "node:*",
-];
+const externals = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {}), "node:*"];
 
 const result = await Bun.build({
   entrypoints: [join(import.meta.dir, "src/index.ts")],

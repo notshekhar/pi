@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { CostTracker, SessionManager, runTurn, getActiveProvider, settingsStore } from "@notshekhar/pi-core";
+import { CostTracker, SessionManager, runTurn, runHooks, getActiveProvider, settingsStore } from "@notshekhar/pi-core";
 import type { ProviderId } from "@notshekhar/pi-core";
 
 export interface PrintOptions {
@@ -31,15 +31,37 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
 
   process.on("SIGINT", () => abort.abort());
 
+  // SessionStart hooks run in print mode too (Claude Code -p parity);
+  // additionalContext is prepended to the one-shot prompt.
+  const startHooks = await runHooks(
+    "SessionStart",
+    "startup",
+    { session_id: session.id, transcript_path: session.path, source: "startup" },
+    opts.cwd,
+  );
+  for (const m of startHooks.messages) process.stderr.write(`\n[hook] ${m}\n`);
+  const userInput = startHooks.additionalContext ? `${startHooks.additionalContext}\n\n${opts.prompt}` : opts.prompt;
+
   await runTurn({
     session,
     modelId,
-    userInput: opts.prompt,
+    userInput,
     cwd: opts.cwd,
     abortSignal: abort.signal,
     tracker,
     emitter,
   });
+
+  // SessionEnd hooks: give them a moment, then finish regardless.
+  await Promise.race([
+    runHooks(
+      "SessionEnd",
+      undefined,
+      { session_id: session.id, transcript_path: session.path, reason: "exit" },
+      opts.cwd,
+    ),
+    new Promise((r) => setTimeout(r, 3_000)),
+  ]);
 
   process.stderr.write(`\n${tracker.format()}\n`);
 }

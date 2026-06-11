@@ -1,0 +1,4 @@
+node_modules
+dist
+packages/core/src/catalog/generated
+bun.lock

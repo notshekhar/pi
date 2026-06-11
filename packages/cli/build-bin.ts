@@ -23,10 +23,7 @@ function currentTarget(): string {
   const platform = process.platform;
   const arch = process.arch;
   const os =
-    platform === "darwin" ? "darwin" :
-    platform === "linux" ? "linux" :
-    platform === "win32" ? "windows" :
-    null;
+    platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : platform === "win32" ? "windows" : null;
   if (!os) throw new Error(`Unsupported platform: ${platform}`);
   const a = arch === "arm64" ? "arm64" : arch === "x64" ? "x64" : null;
   if (!a) throw new Error(`Unsupported arch: ${arch}`);

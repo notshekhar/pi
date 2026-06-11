@@ -63,7 +63,8 @@ export function createLsTool(ctx: LsToolContext) {
       const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
       let output = truncation.content;
       const notices: string[] = [];
-      if (entryLimitReached) notices.push(`${effectiveLimit} entries limit reached. Use limit=${effectiveLimit * 2} for more`);
+      if (entryLimitReached)
+        notices.push(`${effectiveLimit} entries limit reached. Use limit=${effectiveLimit * 2} for more`);
       if (truncation.truncated) notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
       if (notices.length > 0) output += `\n\n[${notices.join(". ")}]`;
       return output;

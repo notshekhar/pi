@@ -41,7 +41,9 @@ function messageToText(message: { role: "user" | "assistant" | "tool"; content: 
   return `[${message.role}] ${typeof message.content === "string" ? message.content : JSON.stringify(message.content)}`;
 }
 
-export function compactedContextMessages(session: Session): Array<{ role: "user" | "assistant" | "tool"; content: unknown }> {
+export function compactedContextMessages(
+  session: Session,
+): Array<{ role: "user" | "assistant" | "tool"; content: unknown }> {
   const messages = session.messages();
   const compact = latestCompact(session);
   if (!compact) return messages;

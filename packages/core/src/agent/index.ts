@@ -12,7 +12,7 @@ import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
 import { CostTracker } from "./cost";
 import { compactedContextMessages, runCompact } from "./compact";
-import { runHooks } from "./hooks";
+import { runHooks, type HookOutcome } from "./hooks";
 import { isTrusted } from "./trust";
 import { buildProviderOptions, type ThinkingLevel } from "./thinking";
 import type { Session } from "../sessions";
@@ -20,12 +20,7 @@ import type { UsageBlock } from "../types";
 
 export { CostTracker } from "./cost";
 export { runCompact, CompactAbortedError } from "./compact";
-export {
-  THINKING_LEVELS,
-  THINKING_LEVEL_DESCRIPTIONS,
-  buildProviderOptions,
-  type ThinkingLevel,
-} from "./thinking";
+export { THINKING_LEVELS, THINKING_LEVEL_DESCRIPTIONS, buildProviderOptions, type ThinkingLevel } from "./thinking";
 export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
 export { loadProjectSkills, type Skill } from "./skills";
 export { runHooks, loadHooksConfig, type HookEvent, type HooksConfig } from "./hooks";
@@ -71,10 +66,7 @@ function estimateContextTokens(messages: ModelMessage[]): number {
  */
 function withAnthropicCaching(system: string, messages: ModelMessage[]): ModelMessage[] {
   const cache = { anthropic: { cacheControl: { type: "ephemeral" as const } } };
-  const out: ModelMessage[] = [
-    { role: "system", content: system, providerOptions: cache },
-    ...messages,
-  ];
+  const out: ModelMessage[] = [{ role: "system", content: system, providerOptions: cache }, ...messages];
   const last = out[out.length - 1];
   out[out.length - 1] = { ...last, providerOptions: cache } as ModelMessage;
   return out;
@@ -84,7 +76,10 @@ function toModelMessages(session: Session): ModelMessage[] {
   const out: ModelMessage[] = [];
   for (const m of compactedContextMessages(session)) {
     if (m.role === "tool") continue;
-    out.push({ role: m.role as "user" | "assistant", content: typeof m.content === "string" ? m.content : JSON.stringify(m.content) });
+    out.push({
+      role: m.role as "user" | "assistant",
+      content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    });
   }
   return out;
 }
@@ -104,15 +99,24 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   // Extract any image paths from the user input → ai-sdk image parts
   const { textWithoutPaths, images } = extractImagesFromInput(userInput, cwd);
   if (images.length > 0) {
-    emitter.emit("attached-images", images.map((i) => i.path));
+    emitter.emit(
+      "attached-images",
+      images.map((i) => i.path),
+    );
   }
-  // UserPromptSubmit hooks: may block the turn or inject context for the model
-  const promptHooks = await runHooks(
-    "UserPromptSubmit",
-    undefined,
-    { session_id: session.id, prompt: userInput },
-    cwd,
-  );
+  // UserPromptSubmit hooks: may block the turn or inject context for the
+  // model. Skipped for Stop-hook continuations (hookDepth > 0) — those are
+  // synthetic turns, and Claude Code doesn't fire UserPromptSubmit for them.
+  const hookDepth = opts.hookDepth ?? 0;
+  let promptHooks: HookOutcome = { block: false, messages: [] };
+  if (hookDepth === 0) {
+    promptHooks = await runHooks(
+      "UserPromptSubmit",
+      undefined,
+      { session_id: session.id, transcript_path: session.path, prompt: userInput },
+      cwd,
+    );
+  }
   for (const m of promptHooks.messages) emitter.emit("hook-message", m);
   if (promptHooks.block) {
     emitter.emit("error", `prompt blocked by hook: ${promptHooks.reason}`);
@@ -154,7 +158,12 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
 
   const system = buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text }) + (skills.promptBlock ?? "");
-  const tools = withToolHooks(createTools({ cwd, abortSignal }), { cwd, sessionId: session.id, emitter });
+  const tools = withToolHooks(createTools({ cwd, abortSignal }), {
+    cwd,
+    sessionId: session.id,
+    transcriptPath: session.path,
+    emitter,
+  });
   const model = await getModel(modelId);
 
   // If we extracted image paths, override the last user message with a multipart
@@ -174,20 +183,25 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   }
 
   // Hook-injected context rides only the model-bound copy, not the transcript.
+  // Must target the *last* user message even when image extraction already
+  // turned it into a parts array — falling through to an earlier message would
+  // rewrite history and bust the prompt-cache prefix.
   if (promptHooks.additionalContext) {
+    const ctxBlock = `<hook-context>\n${promptHooks.additionalContext}\n</hook-context>`;
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user" && typeof messages[i].content === "string") {
-        messages[i] = {
-          role: "user",
-          content: `${messages[i].content as string}\n\n<hook-context>\n${promptHooks.additionalContext}\n</hook-context>`,
-        };
-        break;
+      const m = messages[i];
+      if (m.role !== "user") continue;
+      if (typeof m.content === "string") {
+        messages[i] = { role: "user", content: `${m.content}\n\n${ctxBlock}` };
+      } else if (Array.isArray(m.content)) {
+        messages[i] = { role: "user", content: [...m.content, { type: "text", text: ctxBlock }] as never };
       }
+      break;
     }
   }
 
   const thinkingLevel: ThinkingLevel =
-    opts.thinkingLevel ?? ((settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off");
+    opts.thinkingLevel ?? (settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off";
   // Custom providers (gateways like bifrost) proxy a real vendor API — map
   // thinking/caching by the configured sdk so e.g. an anthropic-compatible
   // gateway gets adaptive thinking + prompt-cache breakpoints.
@@ -197,9 +211,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     if (sdk) effectiveProvider = sdk === "openai-compatible" ? "openai" : sdk;
   }
   let providerOptions =
-    modelInfo?.reasoning === false
-      ? undefined
-      : buildProviderOptions(effectiveProvider, thinkingLevel, modelShortId);
+    modelInfo?.reasoning === false ? undefined : buildProviderOptions(effectiveProvider, thinkingLevel, modelShortId);
 
   // Ollama defaults num_ctx to ~4096 regardless of the model's real context,
   // which truncates long agent loops and makes the model stop early. Pin it to
@@ -292,12 +304,18 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   // agent keeps working (Claude Code parity, e.g. "tests must pass"). Depth
   // capped to avoid infinite hook loops.
   if (!abortSignal?.aborted) {
-    const depth = opts.hookDepth ?? 0;
-    const stopHooks = await runHooks("Stop", undefined, { session_id: session.id }, cwd);
+    // stop_hook_active mirrors Claude Code: true when this turn is already a
+    // stop-hook continuation, so ported hooks can use it as their loop guard.
+    const stopHooks = await runHooks(
+      "Stop",
+      undefined,
+      { session_id: session.id, transcript_path: session.path, stop_hook_active: hookDepth > 0 },
+      cwd,
+    );
     for (const m of stopHooks.messages) emitter.emit("hook-message", m);
-    if (stopHooks.block && depth < 3) {
+    if (stopHooks.block && hookDepth < 3) {
       emitter.emit("hook-message", `stop hook requested continuation: ${stopHooks.reason}`);
-      await runTurn({ ...opts, userInput: `[stop hook] ${stopHooks.reason}`, hookDepth: depth + 1 });
+      await runTurn({ ...opts, userInput: `[stop hook] ${stopHooks.reason}`, hookDepth: hookDepth + 1 });
     }
   }
 }
@@ -312,7 +330,7 @@ type AnyTool = { execute?: (input: unknown, options: unknown) => Promise<unknown
  */
 function withToolHooks<T extends object>(
   tools: T,
-  ctx: { cwd: string; sessionId: string; emitter: EventEmitter },
+  ctx: { cwd: string; sessionId: string; transcriptPath: string; emitter: EventEmitter },
 ): T {
   const wrapped: Record<string, AnyTool> = {};
   for (const [name, t] of Object.entries(tools as Record<string, AnyTool>)) {
@@ -326,7 +344,7 @@ function withToolHooks<T extends object>(
         const pre = await runHooks(
           "PreToolUse",
           name,
-          { session_id: ctx.sessionId, tool_name: name, tool_input: input },
+          { session_id: ctx.sessionId, transcript_path: ctx.transcriptPath, tool_name: name, tool_input: input },
           ctx.cwd,
         );
         for (const m of pre.messages) ctx.emitter.emit("hook-message", m);
@@ -334,11 +352,25 @@ function withToolHooks<T extends object>(
           return { error: `blocked by PreToolUse hook: ${pre.reason}` };
         }
         const effectiveInput = pre.updatedInput !== undefined ? pre.updatedInput : input;
+        // The tool-call event already showed the original args — tell the user
+        // the hook rewrote them so UI and execution don't silently diverge.
+        if (pre.updatedInput !== undefined) {
+          ctx.emitter.emit("hook-message", `PreToolUse hook updated ${name} input: ${JSON.stringify(effectiveInput)}`);
+        }
         const output = await t.execute!(effectiveInput, options);
         const post = await runHooks(
           "PostToolUse",
           name,
-          { session_id: ctx.sessionId, tool_name: name, tool_input: effectiveInput, tool_output: output },
+          {
+            session_id: ctx.sessionId,
+            transcript_path: ctx.transcriptPath,
+            tool_name: name,
+            tool_input: effectiveInput,
+            // Claude Code sends `tool_response`; keep `tool_output` too for
+            // any pi hooks already written against it.
+            tool_response: output,
+            tool_output: output,
+          },
           ctx.cwd,
         );
         for (const m of post.messages) ctx.emitter.emit("hook-message", m);

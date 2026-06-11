@@ -112,7 +112,10 @@ export function createFindTool(ctx: FindToolContext) {
           const truncation = truncateHead(rawOut, { maxLines: Number.MAX_SAFE_INTEGER });
           let result = truncation.content;
           const notices: string[] = [];
-          if (limitReached) notices.push(`${effectiveLimit} results limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`);
+          if (limitReached)
+            notices.push(
+              `${effectiveLimit} results limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`,
+            );
           if (truncation.truncated) notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
           if (notices.length > 0) result += `\n\n[${notices.join(". ")}]`;
           resolve(result);

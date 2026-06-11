@@ -74,7 +74,8 @@ export function createEditTool(ctx: EditToolContext) {
         try {
           await fsAccess(absolutePath, constants.R_OK | constants.W_OK);
         } catch (err) {
-          const code = err instanceof Error && "code" in err ? `Error code: ${(err as { code?: string }).code}` : String(err);
+          const code =
+            err instanceof Error && "code" in err ? `Error code: ${(err as { code?: string }).code}` : String(err);
           throw new Error(`Could not edit file: ${path}. ${code}.`);
         }
         if (signal?.aborted) throw new Error("Operation aborted");

@@ -61,7 +61,10 @@ export class ChatHistory extends Container {
   private assistantTurn: Container | null = null;
   private expanded = false;
 
-  constructor(private tui: TUI, private cwd: string) {
+  constructor(
+    private tui: TUI,
+    private cwd: string,
+  ) {
     super();
     void this.tui;
     void this.cwd;
@@ -174,7 +177,6 @@ export class ChatHistory extends Container {
     this.toolComponents.delete(toolCallId);
   }
 
-
   addSystem(text: string): void {
     this.addChild(new Text(chalk.dim(text), 1, 0));
   }
@@ -202,9 +204,9 @@ function stringifyResult(output: unknown): string {
   }
   if (typeof o.content === "string") return o.content;
   if (typeof o.matches === "string") return o.matches;
-  if (Array.isArray((o as { paths?: unknown }).paths)) return ((o as { paths: string[] }).paths).join("\n");
+  if (Array.isArray((o as { paths?: unknown }).paths)) return (o as { paths: string[] }).paths.join("\n");
   if (Array.isArray((o as { entries?: unknown }).entries)) {
-    return ((o as { entries: { name: string; type: string }[] }).entries)
+    return (o as { entries: { name: string; type: string }[] }).entries
       .map((e) => (e.type === "dir" ? `${e.name}/` : e.name))
       .join("\n");
   }

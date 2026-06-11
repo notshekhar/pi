@@ -21,8 +21,7 @@ export class CostTracker {
       if (!model) {
         usd = 0;
       } else {
-        const billedIn =
-          usage.inputTokenDetails?.noCacheTokens ?? Math.max(0, inTok - cacheTok - cacheWriteTok);
+        const billedIn = usage.inputTokenDetails?.noCacheTokens ?? Math.max(0, inTok - cacheTok - cacheWriteTok);
         usd =
           (billedIn / 1_000_000) * model.cost.input +
           (outTok / 1_000_000) * model.cost.output +

@@ -1,7 +1,7 @@
 {
   "name": "@notshekhar/pi-tui",
   "version": "0.0.2",
-  "description": "TUI renderer for pi \u2014 differential rendering, editor, markdown, select lists. Port of @earendil-works/pi-tui (MIT, Mario Zechner / earendil-works).",
+  "description": "TUI renderer for pi — differential rendering, editor, markdown, select lists. Port of @earendil-works/pi-tui (MIT, Mario Zechner / earendil-works).",
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/notshekhar/pi#readme",

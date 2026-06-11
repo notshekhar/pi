@@ -22,6 +22,7 @@ import {
   parseModelId,
   registerBuiltins,
   runCompact,
+  runHooks,
   setActiveProvider,
   settingsStore,
   THINKING_LEVEL_DESCRIPTIONS,
@@ -32,7 +33,7 @@ import type { AppState } from "./state";
 import { readClipboardImageToFile } from "./clipboard-image";
 import { startLogin, startLogout } from "./login-flow";
 import { initTheme } from "./ui/theme";
-import { getChangelogPath, parseChangelog } from "../changelog";
+import { loadChangelogEntries } from "../changelog";
 
 export function createCommandContext(state: AppState, deps: AppDeps): CommandContext {
   const {
@@ -165,6 +166,13 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
       showWorking("Compacting");
       tui.requestRender();
       try {
+        // PreCompact is informational for watchers — block is ignored.
+        await runHooks(
+          "PreCompact",
+          "manual",
+          { session_id: state.session.id, transcript_path: state.session.path, trigger: "manual" },
+          state.cwd,
+        );
         const result = await runCompact({
           session: state.session,
           modelId: state.modelId,
@@ -411,7 +419,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
       tui.requestRender();
     },
     showChangelog() {
-      const entries = parseChangelog(getChangelogPath());
+      const entries = loadChangelogEntries();
       if (entries.length === 0) {
         history.addSystem("no changelog entries found");
         tui.requestRender();

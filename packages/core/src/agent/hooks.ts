@@ -11,23 +11,54 @@
  *
  * Contract per command: JSON payload on stdin. Exit 0 → stdout parsed as JSON
  * (decision/block, hookSpecificOutput.permissionDecision, updatedInput,
- * additionalContext, systemMessage). Exit 2 → block, stderr is the reason.
- * Any other exit → non-blocking warning. Deliberate v1 subset: the other
- * Claude Code handler types (http/mcp_tool/prompt/agent) are not supported.
+ * additionalContext, systemMessage, terminalSequence). Exit 2 → block, stderr
+ * is the reason. Any other exit → non-blocking warning. Deliberate v1 subset:
+ * the other Claude Code handler types (http/mcp_tool/prompt/agent) are not
+ * supported.
+ *
+ * Agent-state watchers (herdr, Warp, …) consume these events to know whether
+ * the agent is working / waiting / done: UserPromptSubmit = working,
+ * Stop = done, Notification = needs attention. They get the same payloads and
+ * env passthrough they get from Claude Code, plus `terminalSequence` output
+ * so they can emit OSC notifications without touching /dev/tty (which would
+ * tear our TUI). `hookBus` exposes start/end of every hook command for UI.
  */
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { settingsStore } from "../auth/storage";
 import { isTrusted } from "./trust";
 
-export type HookEvent = "SessionStart" | "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop" | "SessionEnd";
+export type HookEvent =
+  | "SessionStart"
+  | "UserPromptSubmit"
+  | "PreToolUse"
+  | "PostToolUse"
+  | "Notification"
+  | "PermissionRequest"
+  | "PreCompact"
+  | "SubagentStop"
+  | "Stop"
+  | "SessionEnd";
 
 export interface HookCommand {
   type?: "command";
   command: string;
   timeout?: number;
+  /** Fire-and-forget: run without blocking the agent or contributing to the outcome. */
+  async?: boolean;
+  /** Shown by the UI while the hook runs (plugin hooks ship this). */
+  statusMessage?: string;
 }
+
+/**
+ * Observable hook activity: emits "start" ({event, command, statusMessage?})
+ * and "end" ({event, command, code, timedOut, durationMs}) for every hook
+ * command. Lets UIs show progress and future integrations subscribe without
+ * touching the dispatch path.
+ */
+export const hookBus = new EventEmitter();
 
 export interface HookMatcherGroup {
   matcher?: string;
@@ -57,15 +88,23 @@ export interface HookOutcome {
   updatedInput?: unknown;
   /** Messages hooks want shown to the user (systemMessage / warnings). */
   messages: string[];
+  /** Raw OSC sequences hooks want written to the terminal (Warp-style notifications). */
+  terminalSequences: string[];
 }
 
 const DEFAULT_TIMEOUT_S = 60;
 
+// SubagentStop is accepted from config for forward-compat but never fired —
+// pi has no subagents.
 const SUPPORTED_EVENTS: HookEvent[] = [
   "SessionStart",
   "UserPromptSubmit",
   "PreToolUse",
   "PostToolUse",
+  "Notification",
+  "PermissionRequest",
+  "PreCompact",
+  "SubagentStop",
   "Stop",
   "SessionEnd",
 ];
@@ -127,26 +166,47 @@ function remapClaudeMatcher(matcher: string | undefined): string | undefined {
  * matchers to our tool names. Gated by the `importClaudeHooks` setting
  * (default on) since these are the user's own already-trusted hooks.
  */
+/**
+ * Allowlist for imported Claude Code hooks: `claudeHooksFilter` setting, an
+ * array of lowercase substrings matched against the hook command and (for
+ * plugins) the plugin key. Unset/empty = import everything. Lets users keep
+ * e.g. only their agent-state watchers (["caveman", "herdr", "warp"]) without
+ * dragging every Claude hook into pi.
+ */
+function claudeImportFilter(): string[] | null {
+  const v = settingsStore.get("claudeHooksFilter") as unknown;
+  if (!Array.isArray(v) || v.length === 0) return null;
+  return v.map((s) => String(s).toLowerCase());
+}
+
+function matchesFilter(filter: string[] | null, text: string): boolean {
+  if (!filter) return true;
+  const lower = text.toLowerCase();
+  return filter.some((term) => lower.includes(term));
+}
+
 function readClaudeHooks(files: string[]): HooksConfig {
   const merged: HooksConfig = {};
   for (const f of files) {
-    mergeClaudeConfig(merged, readHooksFromFile(f));
+    mergeClaudeConfig(merged, readHooksFromFile(f), undefined, claudeImportFilter());
   }
   return merged;
 }
 
-function mergeClaudeConfig(into: HooksConfig, cfg: HooksConfig, pluginRoot?: string): void {
+function mergeClaudeConfig(into: HooksConfig, cfg: HooksConfig, pluginRoot?: string, filter?: string[] | null): void {
   for (const ev of SUPPORTED_EVENTS) {
     const groups = cfg[ev];
     if (!Array.isArray(groups) || !groups.length) continue;
-    const prepared = groups.map((g) => ({
-      ...g,
-      matcher: remapClaudeMatcher(g.matcher),
-      hooks: (g.hooks ?? []).map((h) =>
-        pluginRoot ? { ...h, command: h.command.replaceAll("${CLAUDE_PLUGIN_ROOT}", pluginRoot) } : h,
-      ),
-    }));
-    into[ev] = [...(into[ev] ?? []), ...prepared];
+    const prepared = groups
+      .map((g) => ({
+        ...g,
+        matcher: remapClaudeMatcher(g.matcher),
+        hooks: (g.hooks ?? [])
+          .map((h) => (pluginRoot ? { ...h, command: h.command.replaceAll("${CLAUDE_PLUGIN_ROOT}", pluginRoot) } : h))
+          .filter((h) => matchesFilter(filter ?? null, h.command)),
+      }))
+      .filter((g) => g.hooks.length > 0);
+    if (prepared.length) into[ev] = [...(into[ev] ?? []), ...prepared];
   }
 }
 
@@ -175,9 +235,13 @@ function readClaudePluginHooks(home: string): HooksConfig {
     return (wrapped && typeof wrapped === "object" ? wrapped : data) as HooksConfig;
   };
 
+  const filter = claudeImportFilter();
   const merged: HooksConfig = {};
   for (const [key, on] of Object.entries(enabled)) {
     if (!on) continue;
+    // Filter matches the plugin key ("caveman@caveman", "warp@claude-code-warp");
+    // an allowed plugin imports all of its hooks.
+    if (!matchesFilter(filter, key)) continue;
     const root = installed.plugins[key]?.[0]?.installPath;
     if (!root) continue;
     const manifest = readJsonFile(join(root, ".claude-plugin", "plugin.json")) as
@@ -241,13 +305,28 @@ interface CommandResult {
   timedOut: boolean;
 }
 
+// The Claude Code hook API surface we emulate. Advertised via
+// CLAUDE_CODE_VERSION so version-sniffing integrations (e.g. Warp) take the
+// structured `terminalSequence` output path instead of writing raw OSC to
+// /dev/tty, which tears our TUI. 2.1.141 introduced terminalSequence.
+const CLAUDE_HOOK_API_VERSION = "2.1.141";
+
 function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promise<CommandResult> {
+  const startedAt = Date.now();
+  const event = payload.hook_event_name;
+  hookBus.emit("start", { event, command: cmd.command, statusMessage: cmd.statusMessage });
   return new Promise((resolve) => {
     const child = spawn("/bin/sh", ["-c", cmd.command], {
       cwd,
       // PI_PROJECT_DIR for pi hooks; CLAUDE_PROJECT_DIR so imported Claude
       // hooks that reference ${CLAUDE_PROJECT_DIR} keep working unchanged.
-      env: { ...process.env, PI_PROJECT_DIR: cwd, CLAUDE_PROJECT_DIR: cwd },
+      // Watcher env (HERDR_*, etc.) flows through untouched via process.env.
+      env: {
+        ...process.env,
+        PI_PROJECT_DIR: cwd,
+        CLAUDE_PROJECT_DIR: cwd,
+        CLAUDE_CODE_VERSION: CLAUDE_HOOK_API_VERSION,
+      },
       stdio: ["pipe", "pipe", "pipe"],
       // Own process group so a timeout kills the shell's children too.
       detached: true,
@@ -269,14 +348,23 @@ function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promis
     );
     child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
     child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
-    child.on("error", () => {
+    let finished = false;
+    const finish = (code: number | null) => {
+      if (finished) return; // spawn-error then close would double-fire
+      finished = true;
       clearTimeout(timer);
-      resolve({ code: 127, stdout, stderr: stderr || "failed to spawn hook command", timedOut });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code, stdout, stderr, timedOut });
-    });
+      hookBus.emit("end", {
+        event,
+        command: cmd.command,
+        statusMessage: cmd.statusMessage,
+        code,
+        timedOut,
+        durationMs: Date.now() - startedAt,
+      });
+      resolve({ code, stdout, stderr: code === 127 && !stderr ? "failed to spawn hook command" : stderr, timedOut });
+    };
+    child.on("error", () => finish(127));
+    child.on("close", (code) => finish(code));
     // A hook may exit without reading stdin — swallow EPIPE instead of
     // crashing the whole process on an unhandled stream error.
     child.stdin.on("error", () => {});
@@ -291,6 +379,7 @@ interface HookJsonOutput {
   continue?: boolean;
   stopReason?: string;
   systemMessage?: string;
+  terminalSequence?: string;
   hookSpecificOutput?: {
     permissionDecision?: string;
     permissionDecisionReason?: string;
@@ -299,10 +388,70 @@ interface HookJsonOutput {
   };
 }
 
+/** Fold one command's result into the outcome. Returns true if it blocked. */
+function applyResult(
+  event: HookEvent,
+  cmd: HookCommand,
+  res: CommandResult,
+  outcome: HookOutcome,
+  contexts: string[],
+): boolean {
+  if (res.timedOut) {
+    outcome.messages.push(`hook timed out (${event}): ${cmd.command}`);
+    return false;
+  }
+  if (res.code === 2) {
+    outcome.block = true;
+    outcome.reason = res.stderr.trim() || `blocked by ${event} hook`;
+    return true;
+  }
+  if (res.code !== 0) {
+    outcome.messages.push(`hook failed (${event}, exit ${res.code}): ${res.stderr.trim() || cmd.command}`);
+    return false;
+  }
+  const text = res.stdout.trim();
+  if (!text) return false;
+  let parsed: HookJsonOutput;
+  try {
+    parsed = JSON.parse(text) as HookJsonOutput;
+  } catch {
+    // Non-JSON stdout: for SessionStart/UserPromptSubmit it's context
+    // (Claude Code behavior); elsewhere show it to the user.
+    if (event === "SessionStart" || event === "UserPromptSubmit") contexts.push(text);
+    else outcome.messages.push(text);
+    return false;
+  }
+  const hso = parsed.hookSpecificOutput;
+  if (parsed.systemMessage) outcome.messages.push(parsed.systemMessage);
+  if (parsed.terminalSequence) outcome.terminalSequences.push(parsed.terminalSequence);
+  if (hso?.additionalContext) contexts.push(hso.additionalContext);
+  if (hso?.updatedInput !== undefined) outcome.updatedInput = hso.updatedInput;
+  // `continue: false` halts everything in Claude Code — treat as block.
+  if (parsed.continue === false) {
+    outcome.block = true;
+    outcome.reason = parsed.stopReason ?? parsed.reason ?? `stopped by ${event} hook`;
+    return true;
+  }
+  // "ask" needs a permission prompt we don't have — deny is the safe
+  // fallback (silently allowing would grant what the hook wanted gated).
+  if (hso?.permissionDecision === "ask") {
+    outcome.block = true;
+    outcome.reason = `${hso.permissionDecisionReason ?? `${event} hook requested confirmation`} (ask unsupported in pi — denied)`;
+    return true;
+  }
+  if (parsed.decision === "block" || hso?.permissionDecision === "deny") {
+    outcome.block = true;
+    outcome.reason = parsed.reason ?? hso?.permissionDecisionReason ?? `blocked by ${event} hook`;
+    return true;
+  }
+  return false;
+}
+
 /**
- * Run all configured hooks for an event sequentially; first block wins and
- * stops the chain. Divergence from Claude Code: CC runs an event's hooks in
- * parallel — sequential keeps the first-block-wins decision deterministic.
+ * Run all configured hooks for an event in parallel (Claude Code behavior)
+ * and merge results in config order, so the first configured block wins
+ * deterministically. `async: true` hooks fire without being awaited and never
+ * contribute to the outcome.
  */
 export async function runHooks(
   event: HookEvent,
@@ -310,69 +459,29 @@ export async function runHooks(
   payload: Omit<HookPayload, "hook_event_name">,
   cwd: string,
 ): Promise<HookOutcome> {
-  const outcome: HookOutcome = { block: false, messages: [] };
+  const outcome: HookOutcome = { block: false, messages: [], terminalSequences: [] };
   const groups = loadHooksConfig(cwd)[event];
   if (!groups?.length) return outcome;
 
   const fullPayload: HookPayload = { ...payload, cwd, hook_event_name: event };
-  const contexts: string[] = [];
 
+  const sync: HookCommand[] = [];
   for (const group of groups) {
     if (!matcherTest(group.matcher, matcherValue)) continue;
     for (const cmd of group.hooks ?? []) {
       if (cmd.type && cmd.type !== "command") continue; // v1: command hooks only
-      const res = await runCommand(cmd, fullPayload, cwd);
-
-      if (res.timedOut) {
-        outcome.messages.push(`hook timed out (${event}): ${cmd.command}`);
-        continue;
-      }
-      if (res.code === 2) {
-        outcome.block = true;
-        outcome.reason = res.stderr.trim() || `blocked by ${event} hook`;
-        return outcome;
-      }
-      if (res.code !== 0) {
-        outcome.messages.push(`hook failed (${event}, exit ${res.code}): ${res.stderr.trim() || cmd.command}`);
-        continue;
-      }
-      const text = res.stdout.trim();
-      if (!text) continue;
-      let parsed: HookJsonOutput;
-      try {
-        parsed = JSON.parse(text) as HookJsonOutput;
-      } catch {
-        // Non-JSON stdout: for SessionStart/UserPromptSubmit it's context
-        // (Claude Code behavior); elsewhere show it to the user.
-        if (event === "SessionStart" || event === "UserPromptSubmit") contexts.push(text);
-        else outcome.messages.push(text);
-        continue;
-      }
-      const hso = parsed.hookSpecificOutput;
-      if (parsed.systemMessage) outcome.messages.push(parsed.systemMessage);
-      if (hso?.additionalContext) contexts.push(hso.additionalContext);
-      if (hso?.updatedInput !== undefined) outcome.updatedInput = hso.updatedInput;
-      // `continue: false` halts everything in Claude Code — treat as block.
-      if (parsed.continue === false) {
-        outcome.block = true;
-        outcome.reason = parsed.stopReason ?? parsed.reason ?? `stopped by ${event} hook`;
-        return outcome;
-      }
-      // "ask" needs a permission prompt we don't have — deny is the safe
-      // fallback (silently allowing would grant what the hook wanted gated).
-      if (hso?.permissionDecision === "ask") {
-        outcome.block = true;
-        outcome.reason = `${hso.permissionDecisionReason ?? `${event} hook requested confirmation`} (ask unsupported in pi — denied)`;
-        return outcome;
-      }
-      if (parsed.decision === "block" || hso?.permissionDecision === "deny") {
-        outcome.block = true;
-        outcome.reason = parsed.reason ?? hso?.permissionDecisionReason ?? `blocked by ${event} hook`;
-        return outcome;
-      }
+      if (cmd.async) void runCommand(cmd, fullPayload, cwd);
+      else sync.push(cmd);
     }
   }
+  if (sync.length === 0) return outcome;
 
+  const results = await Promise.all(sync.map((cmd) => runCommand(cmd, fullPayload, cwd)));
+
+  const contexts: string[] = [];
+  for (let i = 0; i < sync.length; i++) {
+    if (applyResult(event, sync[i], results[i], outcome, contexts)) break;
+  }
   if (contexts.length) outcome.additionalContext = contexts.join("\n");
   return outcome;
 }

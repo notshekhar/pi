@@ -23,7 +23,7 @@ export { runCompact, CompactAbortedError } from "./compact";
 export { THINKING_LEVELS, THINKING_LEVEL_DESCRIPTIONS, buildProviderOptions, type ThinkingLevel } from "./thinking";
 export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
 export { loadProjectSkills, type Skill } from "./skills";
-export { runHooks, loadHooksConfig, type HookEvent, type HooksConfig } from "./hooks";
+export { runHooks, loadHooksConfig, hookBus, type HookEvent, type HooksConfig, type HookOutcome } from "./hooks";
 export {
   hasProjectTrustInputs,
   getTrustDecision,
@@ -108,7 +108,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   // model. Skipped for Stop-hook continuations (hookDepth > 0) — those are
   // synthetic turns, and Claude Code doesn't fire UserPromptSubmit for them.
   const hookDepth = opts.hookDepth ?? 0;
-  let promptHooks: HookOutcome = { block: false, messages: [] };
+  let promptHooks: HookOutcome = { block: false, messages: [], terminalSequences: [] };
   if (hookDepth === 0) {
     promptHooks = await runHooks(
       "UserPromptSubmit",
@@ -118,6 +118,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     );
   }
   for (const m of promptHooks.messages) emitter.emit("hook-message", m);
+  for (const s of promptHooks.terminalSequences) emitter.emit("hook-terminal-sequence", s);
   if (promptHooks.block) {
     emitter.emit("error", `prompt blocked by hook: ${promptHooks.reason}`);
     emitter.emit("finish", { usage: undefined });
@@ -138,6 +139,13 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const tokens = estimateContextTokens(messages);
     if (tokens > modelInfo.contextWindow * threshold) {
       emitter.emit("compact-start", { reason: "auto" });
+      // PreCompact is informational for watchers — block is ignored.
+      await runHooks(
+        "PreCompact",
+        "auto",
+        { session_id: session.id, transcript_path: session.path, trigger: "auto" },
+        cwd,
+      );
       try {
         const result = await runCompact({ session, modelId, abortSignal });
         emitter.emit("compact-end", result);
@@ -313,6 +321,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
       cwd,
     );
     for (const m of stopHooks.messages) emitter.emit("hook-message", m);
+    for (const s of stopHooks.terminalSequences) emitter.emit("hook-terminal-sequence", s);
     if (stopHooks.block && hookDepth < 3) {
       emitter.emit("hook-message", `stop hook requested continuation: ${stopHooks.reason}`);
       await runTurn({ ...opts, userInput: `[stop hook] ${stopHooks.reason}`, hookDepth: hookDepth + 1 });
@@ -348,7 +357,23 @@ function withToolHooks<T extends object>(
           ctx.cwd,
         );
         for (const m of pre.messages) ctx.emitter.emit("hook-message", m);
+        for (const s of pre.terminalSequences) ctx.emitter.emit("hook-terminal-sequence", s);
         if (pre.block) {
+          // Watchers treat Notification as "agent needs attention" — fire it
+          // for permission-style denials; its own outcome is ignored.
+          void runHooks(
+            "Notification",
+            undefined,
+            {
+              session_id: ctx.sessionId,
+              transcript_path: ctx.transcriptPath,
+              message: `Permission needed: ${name} — ${pre.reason}`,
+              title: "pi",
+            },
+            ctx.cwd,
+          ).then((n) => {
+            for (const s of n.terminalSequences) ctx.emitter.emit("hook-terminal-sequence", s);
+          });
           return { error: `blocked by PreToolUse hook: ${pre.reason}` };
         }
         const effectiveInput = pre.updatedInput !== undefined ? pre.updatedInput : input;
@@ -374,6 +399,7 @@ function withToolHooks<T extends object>(
           ctx.cwd,
         );
         for (const m of post.messages) ctx.emitter.emit("hook-message", m);
+        for (const s of post.terminalSequences) ctx.emitter.emit("hook-terminal-sequence", s);
         const feedback = [post.block ? `BLOCKED: ${post.reason}` : null, post.additionalContext]
           .filter(Boolean)
           .join("\n");

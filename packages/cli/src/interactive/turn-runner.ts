@@ -111,6 +111,11 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
       history.addHook(m);
       tui.requestRender();
     });
+    // OSC sequences from hooks (Warp-style notifications): invisible control
+    // sequences, safe to write directly without tearing the renderer.
+    emitter.on("hook-terminal-sequence", (s: string) => {
+      process.stdout.write(s);
+    });
     emitter.on("compact-start", () => {
       showWorking("Compacting");
       tui.requestRender();

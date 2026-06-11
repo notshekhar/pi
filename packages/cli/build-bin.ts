@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { $ } from "bun";
 
 const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as { version: string };
+// Embedded so the standalone binary can serve /changelog without a file on disk.
+const changelog = readFileSync(join(import.meta.dir, "CHANGELOG.md"), "utf8");
 
 const VALID_TARGETS = new Set([
   "bun-darwin-arm64",
@@ -55,6 +57,7 @@ await $`bun build ${join(import.meta.dir, "src/cli.ts")} \
   --target=${target} \
   --minify \
   --define __PI_VERSION__=${JSON.stringify(pkg.version)} \
+  --define __PI_CHANGELOG__=${JSON.stringify(changelog)} \
   --outfile ${binPath}`;
 
 // Ship package.json alongside the binary — version metadata for installers.

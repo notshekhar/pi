@@ -34,6 +34,7 @@ import {
     loadHooksConfig,
     hookBus,
     agentExists,
+    isBuiltinAgent,
     DEFAULT_AGENT_NAME,
     getProjectModel,
     hasProjectTrustInputs,
@@ -111,19 +112,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const tracker = new CostTracker();
     // Resumed sessions restore their cost/usage/ctx from the transcript's
     // usage entries instead of showing zeros until the next message.
-    let seededCtxTokens = 0;
-    if (initialSession) {
-        const usages = initialSession
-            .entries()
-            .filter(
-                (e) =>
-                    ((e.type === "message" && (e as { role?: string }).role === "assistant") ||
-                        e.type === "subagent") &&
-                    (e as { usage?: UsageBlock }).usage,
-            )
-            .map((e) => (e as { usage: UsageBlock }).usage);
-        seededCtxTokens = tracker.seedFromEntries(initialSession.info.model || initialModelId, usages).ctxTokens;
-    }
+    const seededCtxTokens = initialSession ? tracker.seedFromSession(initialSession).ctxTokens : 0;
     const commands = new CommandRegistry();
     await registerBuiltins(commands, { cwd: opts.cwd });
 
@@ -146,6 +135,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         thinkingLevel: initialThinking,
         agent: agentExists(savedAgent) ? savedAgent : DEFAULT_AGENT_NAME,
         oneShotAgent: null,
+        cycleCustomAgent: agentExists(savedAgent) && !isBuiltinAgent(savedAgent) ? savedAgent : null,
         session: initialSession,
         latestContextTokens: seededCtxTokens,
         busy: false,
@@ -367,7 +357,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         `pi · ${state.modelId} · session ${state.session?.id ?? "unsaved"}` +
             (state.agent !== DEFAULT_AGENT_NAME ? ` · agent ${state.agent}` : ""),
     );
-    history.addSystem(`Type /help for commands. Tab toggles agent (default ⇆ plan). Ctrl+C twice to quit.`);
+    history.addSystem(`Type /help for commands. Tab cycles agents. Ctrl+C twice to quit.`);
 
     if ((settingsStore.get("workspaceContext") as boolean) !== false) {
         const ws = loadWorkspaceContext(state.cwd);

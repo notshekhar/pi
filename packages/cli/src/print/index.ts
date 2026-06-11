@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import {
+    asTurnEmitter,
     CostTracker,
     SessionManager,
     runTurn,
@@ -26,7 +27,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     const manager = new SessionManager();
     const session = await manager.create({ cwd: opts.cwd, provider, model: modelId });
     const tracker = new CostTracker();
-    const emitter = new EventEmitter();
+    const emitter = asTurnEmitter(new EventEmitter());
     const abort = new AbortController();
 
     emitter.on("text-delta", (text: string) => process.stdout.write(text));

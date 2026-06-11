@@ -1,6 +1,7 @@
 import { costStore } from "../auth/storage";
 import { getModelSync } from "../catalog";
 import type { CostBreakdown, ProviderId, UsageBlock } from "../types";
+import type { Session } from "../sessions";
 import { parseModelId } from "../providers";
 
 export interface CostStats {
@@ -49,32 +50,45 @@ export class CostTracker {
         const { provider } = parseModelId(modelId);
         const usd = this.accumulateSession(modelId, provider, usage);
 
-        const lifetime = costStore.get("lifetime") as { usd: number; byProvider: Record<string, number> };
+        // Single read + single atomic write — configstore re-reads and
+        // rewrites the whole file on every get/set, and add() runs per step.
+        const all = costStore.all as {
+            lifetime?: { usd: number; byProvider: Record<string, number> };
+            daily?: Record<string, number>;
+            byCwd?: Record<string, number>;
+        };
+        const lifetime = all.lifetime ?? { usd: 0, byProvider: {} };
         lifetime.usd = (lifetime.usd ?? 0) + usd;
         lifetime.byProvider[provider] = (lifetime.byProvider[provider] ?? 0) + usd;
-        costStore.set("lifetime", lifetime);
+        all.lifetime = lifetime;
 
         // Daily + per-directory buckets power /cost's "today / 7d / month / here"
         // views. Only accrues from now on — pre-existing lifetime spend has no
         // time/cwd attribution to recover.
         if (usd > 0) {
-            const daily = (costStore.get("daily") as Record<string, number> | undefined) ?? {};
+            const daily = all.daily ?? {};
             daily[dayKey()] = (daily[dayKey()] ?? 0) + usd;
-            costStore.set("daily", daily);
+            all.daily = daily;
             if (cwd) {
-                const byCwd = (costStore.get("byCwd") as Record<string, number> | undefined) ?? {};
+                const byCwd = all.byCwd ?? {};
                 byCwd[cwd] = (byCwd[cwd] ?? 0) + usd;
-                costStore.set("byCwd", byCwd);
+                all.byCwd = byCwd;
             }
         }
+        costStore.all = all;
 
         return { ...this.session };
     }
 
     stats(cwd?: string): CostStats {
-        const lifetime = costStore.get("lifetime") as { usd: number; byProvider: Record<string, number> };
-        const daily = (costStore.get("daily") as Record<string, number> | undefined) ?? {};
-        const byCwd = (costStore.get("byCwd") as Record<string, number> | undefined) ?? {};
+        const all = costStore.all as {
+            lifetime?: { usd: number; byProvider: Record<string, number> };
+            daily?: Record<string, number>;
+            byCwd?: Record<string, number>;
+        };
+        const lifetime = all.lifetime ?? { usd: 0, byProvider: {} };
+        const daily = all.daily ?? {};
+        const byCwd = all.byCwd ?? {};
 
         const today = dayKey();
         const last7Keys = new Set(Array.from({ length: 7 }, (_, i) => dayKey(new Date(Date.now() - i * 86_400_000))));
@@ -98,10 +112,20 @@ export class CostTracker {
     }
 
     /**
-     * Rebuild session totals from a resumed transcript's usage entries.
-     * Session-only: lifetime/daily/cwd stores were billed when those turns
-     * actually ran. Returns the last turn's token count for the ctx meter.
+     * Rebuild session totals from a resumed transcript (assistant turns +
+     * subagent runs). Session-only: lifetime/daily/cwd stores were billed
+     * when those turns actually ran. Returns the last turn's token count
+     * for the ctx meter.
      */
+    seedFromSession(session: Session): { ctxTokens: number } {
+        const usages: UsageBlock[] = [];
+        for (const e of session.entries()) {
+            if (e.type === "message" && e.role === "assistant" && e.usage) usages.push(e.usage);
+            else if (e.type === "subagent" && e.usage) usages.push(e.usage);
+        }
+        return this.seedFromEntries(session.info.model, usages);
+    }
+
     seedFromEntries(modelId: string, usages: UsageBlock[]): { ctxTokens: number } {
         this.reset();
         const { provider } = parseModelId(modelId);

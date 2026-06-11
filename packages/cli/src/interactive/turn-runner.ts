@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { type CommandContext, parseModelId, runTurn, type UsageBlock } from "@notshekhar/pi-core";
+import { asTurnEmitter, type CommandContext, parseModelId, runTurn, type UsageBlock } from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 
@@ -92,7 +92,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
 
         const { provider: turnProvider } = parseModelId(state.modelId);
         history.ensureAssistant(turnProvider, state.modelId);
-        const emitter = new EventEmitter();
+        const emitter = asTurnEmitter(new EventEmitter());
         emitter.on("text-delta", (t: string) => {
             history.appendAssistantDelta(t, turnProvider, state.modelId);
             tui.requestRender();
@@ -123,10 +123,34 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             const one = v.split("\n")[0];
             return ` ${one.length > 70 ? `${one.slice(0, 67)}…` : one}`;
         };
+        // Streaming repaint coalescing: subagent deltas arrive per token —
+        // rebuilding the tool box for each one burns CPU for invisible
+        // frames. Dirty ids flush on a ~50ms timer instead.
+        const subagentStatus = new Map<string, string>();
+        const dirtySubagents = new Set<string>();
+        let subagentFlushTimer: ReturnType<typeof setTimeout> | null = null;
+        const flushSubagentProgress = () => {
+            subagentFlushTimer = null;
+            for (const id of dirtySubagents) {
+                const buf = subagentBuf.get(id);
+                if (buf === undefined) continue; // already finished
+                history.updateToolProgress(id, buf);
+                const status = subagentStatus.get(id);
+                if (status) history.setToolStatus(id, status);
+            }
+            dirtySubagents.clear();
+            tui.requestRender();
+        };
+        const queueSubagentRepaint = (id: string) => {
+            dirtySubagents.add(id);
+            if (!subagentFlushTimer) subagentFlushTimer = setTimeout(flushSubagentProgress, 50);
+        };
         emitter.on("tool-result", (part: { output?: unknown; toolCallId?: string }) => {
             const id = part.toolCallId ?? "";
             const activity = subagentBuf.get(id);
             subagentBuf.delete(id);
+            subagentStatus.delete(id);
+            dirtySubagents.delete(id);
             // Task tools: prepend the activity log to the final report.
             const output =
                 activity && typeof part.output === "string" ? `${activity.trimEnd()}\n\n${part.output}` : part.output;
@@ -139,17 +163,15 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             const line = `> ${e.toolName ?? "tool"}${subagentArgSummary(e.input)}\n`;
             const next = `${prev}${prev && !prev.endsWith("\n") ? "\n" : ""}${line}`.slice(-6000);
             subagentBuf.set(e.toolCallId, next);
-            history.updateToolProgress(e.toolCallId, next);
-            history.setToolStatus(e.toolCallId, e.toolName ?? "running");
+            subagentStatus.set(e.toolCallId, e.toolName ?? "running");
+            queueSubagentRepaint(e.toolCallId);
             showWorking(`Subagent ${e.agent} · ${e.toolName}…`);
-            tui.requestRender();
         });
         emitter.on("subagent-delta", (e: { toolCallId: string; agent: string; text: string }) => {
             const next = ((subagentBuf.get(e.toolCallId) ?? "") + e.text).slice(-6000);
             subagentBuf.set(e.toolCallId, next);
-            history.updateToolProgress(e.toolCallId, next);
-            history.setToolStatus(e.toolCallId, "writing");
-            tui.requestRender();
+            subagentStatus.set(e.toolCallId, "writing");
+            queueSubagentRepaint(e.toolCallId);
         });
         emitter.on("subagent-finish", (e: { toolCallId: string }) => {
             // Buffer intentionally kept — tool-result composes it into the

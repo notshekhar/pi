@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { tool } from "ai";
 import { z } from "zod";
 import { resolveReadPath } from "./utils/path-utils";
+import { recordRead } from "./utils/read-registry";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "./utils/truncate";
 
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp)$/i;
@@ -41,6 +42,8 @@ export function createReadTool(ctx: ReadToolContext) {
                 return `[image file: ${mime} at ${absolutePath}. Image rendering not supported in this tool result; use bash 'file' or vision-capable read elsewhere.]`;
             }
             const buf = await fsReadFile(absolutePath);
+            // Unlocks edit/write for this file (read-before-modify enforcement).
+            recordRead(absolutePath);
             const textContent = buf.toString("utf-8");
             const allLines = textContent.split("\n");
             const totalFileLines = allLines.length;

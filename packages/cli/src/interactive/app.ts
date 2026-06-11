@@ -47,7 +47,7 @@ import {
 } from "@notshekhar/pi-core";
 import { ChatHistory } from "./components/chat-history";
 import { CostFooter } from "./components/cost-footer";
-import { selectOnce as selectOnceShared, promptOnce as promptOnceShared } from "./selectors";
+import { selectOnce as selectOnceShared, promptOnce as promptOnceShared, toggleSelectOnce } from "./selectors";
 import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
 import { checkForUpdate } from "../commands";
@@ -261,6 +261,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
   const selectorHost = { tui, showSelector };
   const selectOnce = (items: SelectItem[], title?: string) => selectOnceShared(selectorHost, items, title);
   const promptOnce = (label?: string, initial?: string) => promptOnceShared(selectorHost, editorTheme, label, initial);
+  const toggleOnce = (values: string[], initial: Set<string>, title?: string) =>
+    toggleSelectOnce(selectorHost, values, initial, title);
 
   async function ensureSession(): Promise<Session> {
     if (state.session) return state.session;
@@ -317,6 +319,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     hideWorking,
     showSelector,
     selectOnce,
+    toggleOnce,
     promptOnce,
     resolveModelId,
     ensureSession,

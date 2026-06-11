@@ -7,7 +7,7 @@ import { settingsStore } from "../auth/storage";
 import { getCustomProvider, isCustomProvider, parseCustomProviderId } from "../auth";
 import { createTools } from "../tools";
 import { buildSystemPrompt } from "./system-prompt";
-import { getAgentPrompt } from "./agents";
+import { getAgentPrompt, getAgentTools } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
@@ -27,9 +27,13 @@ export { loadProjectSkills, type Skill } from "./skills";
 export { runHooks, loadHooksConfig, hookBus, type HookEvent, type HooksConfig, type HookOutcome } from "./hooks";
 export {
   DEFAULT_AGENT_NAME,
+  PLAN_BASE_PROMPT,
   listAgents,
   getAgentPrompt,
+  getAgentTools,
   agentExists,
+  isBuiltinAgent,
+  hasBuiltinOverride,
   hasDefaultOverride,
   saveAgent,
   deleteAgent,
@@ -181,10 +185,22 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
   const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
 
   const agentPrompt = opts.agent ? getAgentPrompt(opts.agent) : undefined;
+  // Per-agent tool restriction (e.g. plan = read-only). undefined = all tools.
+  const allowedTools = opts.agent ? getAgentTools(opts.agent) : undefined;
+  const fullToolSet = createTools({ cwd, abortSignal });
+  const toolSet = (
+    allowedTools?.length
+      ? Object.fromEntries(Object.entries(fullToolSet).filter(([name]) => allowedTools.includes(name)))
+      : fullToolSet
+  ) as typeof fullToolSet;
   const system =
-    buildSystemPrompt({ cwd, workspaceContext: workspaceContext.text, basePrompt: agentPrompt }) +
-    (skills.promptBlock ?? "");
-  const tools = withToolHooks(createTools({ cwd, abortSignal }), {
+    buildSystemPrompt({
+      cwd,
+      workspaceContext: workspaceContext.text,
+      basePrompt: agentPrompt,
+      tools: Object.keys(toolSet),
+    }) + (skills.promptBlock ?? "");
+  const tools = withToolHooks(toolSet, {
     cwd,
     sessionId: session.id,
     transcriptPath: session.path,

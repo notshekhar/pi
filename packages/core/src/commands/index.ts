@@ -311,9 +311,10 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
     }
   }
 
-  // custom agents as commands: /<name> switches the active system prompt
+  // agents as commands: /<name> <message> runs one message under that agent.
+  // "default" gets no command — it's what plain messages already use.
   for (const agent of listAgents()) {
-    if (agent.builtin) continue;
+    if (agent.name === "default") continue;
     registerAgentCommand(reg, agent.name);
   }
 }

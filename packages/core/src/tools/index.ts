@@ -26,6 +26,11 @@ export function createTools(ctx: ToolContext) {
 }
 
 export type ToolSet = ReturnType<typeof createTools>;
+
+/** Stable tool name list — agents reference these for per-agent tool selection. */
+export const TOOL_NAMES = ["read", "write", "edit", "bash", "ls", "grep", "find"] as const;
+export type ToolName = (typeof TOOL_NAMES)[number];
+
 export {
   createBashTool,
   createEditTool,

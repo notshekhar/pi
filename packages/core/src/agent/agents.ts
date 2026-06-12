@@ -41,11 +41,11 @@ Hard rules:
 const READONLY_TOOLS = ["read", "ls", "grep", "find"];
 
 /** Built-in agents: fixed tool sets, prompt overridable via ~/.pi/agents/<name>.md. */
-const BUILTINS: Record<string, { prompt: string; tools?: string[]; subagentTools?: string[] }> = {
+const BUILTINS: Record<string, { prompt: string; tools?: string[] }> = {
     [DEFAULT_AGENT_NAME]: { prompt: DEFAULT_BASE_PROMPT },
-    // plan may delegate (task) but everything it spawns is capped read-only —
-    // delegation must never widen access beyond the caller's sandbox.
-    plan: { prompt: PLAN_BASE_PROMPT, tools: [...READONLY_TOOLS, "task"], subagentTools: READONLY_TOOLS },
+    // plan may delegate (task); its subagents fork plan (or are capped to its
+    // tools), so everything it spawns stays read-only with no extra config.
+    plan: { prompt: PLAN_BASE_PROMPT, tools: [...READONLY_TOOLS, "task"] },
 };
 
 export interface AgentInfo {
@@ -55,8 +55,6 @@ export interface AgentInfo {
     builtin: boolean;
     /** Allowed tool names (may include "task"); undefined = all tools. */
     tools?: string[];
-    /** Cap on tools available to subagents this agent spawns; undefined = no cap. */
-    subagentTools?: string[];
 }
 
 function agentsDir(): string {
@@ -82,23 +80,18 @@ function sanitizeTools(tools: string[] | undefined, valid: readonly string[]): s
     return kept;
 }
 
-export function parseAgentFile(raw: string): { prompt: string; tools?: string[]; subagentTools?: string[] } {
+export function parseAgentFile(raw: string): { prompt: string; tools?: string[] } {
     const fm = /^---\n([\s\S]*?)\n---\n?/.exec(raw);
     if (!fm) return { prompt: raw.trim() };
     const prompt = raw.slice(fm[0].length).trim();
     const toolsLine = /^tools:\s*(.+)$/m.exec(fm[1]);
-    const subToolsLine = /^subagent-tools:\s*(.+)$/m.exec(fm[1]);
     const tools = toolsLine ? toolsLine[1].split(",").map((s) => s.trim()) : undefined;
-    const subagentTools = subToolsLine ? subToolsLine[1].split(",").map((s) => s.trim()) : undefined;
-    return {
-        prompt,
-        tools: sanitizeTools(tools, AGENT_TOOL_NAMES),
-        // The cap never includes task — subagents don't nest.
-        subagentTools: sanitizeTools(subagentTools, TOOL_NAMES),
-    };
+    // `subagent-tools:` (removed) is ignored if present in older files —
+    // subagents now inherit the spawning turn's tools instead of a config cap.
+    return { prompt, tools: sanitizeTools(tools, AGENT_TOOL_NAMES) };
 }
 
-function readAgentFile(name: string): { prompt: string; tools?: string[]; subagentTools?: string[] } | undefined {
+function readAgentFile(name: string): { prompt: string; tools?: string[] } | undefined {
     const p = agentPath(name);
     if (!existsSync(p)) return undefined;
     try {
@@ -115,7 +108,6 @@ export function listAgents(): AgentInfo[] {
         prompt: readAgentFile(name)?.prompt ?? b.prompt,
         builtin: true,
         tools: b.tools,
-        subagentTools: b.subagentTools,
     }));
     const dir = agentsDir();
     if (!existsSync(dir)) return agents;
@@ -125,13 +117,7 @@ export function listAgents(): AgentInfo[] {
         if (name in BUILTINS || !isValidAgentName(name)) continue;
         const parsed = readAgentFile(name);
         if (parsed) {
-            agents.push({
-                name,
-                prompt: parsed.prompt,
-                builtin: false,
-                tools: parsed.tools,
-                subagentTools: parsed.subagentTools,
-            });
+            agents.push({ name, prompt: parsed.prompt, builtin: false, tools: parsed.tools });
         }
     }
     return agents;
@@ -145,12 +131,6 @@ export function getAgentPrompt(name: string): string | undefined {
 export function getAgentTools(name: string): string[] | undefined {
     if (name in BUILTINS) return BUILTINS[name].tools;
     return readAgentFile(name)?.tools;
-}
-
-/** Tool cap for subagents spawned by this agent; undefined = no cap. */
-export function getAgentSubagentTools(name: string): string[] | undefined {
-    if (name in BUILTINS) return BUILTINS[name].subagentTools;
-    return readAgentFile(name)?.subagentTools;
 }
 
 export function agentExists(name: string): boolean {
@@ -171,18 +151,13 @@ export function hasDefaultOverride(): boolean {
     return hasBuiltinOverride(DEFAULT_AGENT_NAME);
 }
 
-export function saveAgent(name: string, prompt: string, tools?: string[], subagentTools?: string[]): void {
+export function saveAgent(name: string, prompt: string, tools?: string[]): void {
     if (!isValidAgentName(name)) throw new Error(`invalid agent name: ${name}`);
     mkdirSync(agentsDir(), { recursive: true });
     // Built-in tool sets are fixed — only the prompt is persisted for them.
     const isBuiltin = name in BUILTINS;
     const effectiveTools = isBuiltin ? undefined : sanitizeTools(tools, AGENT_TOOL_NAMES);
-    const effectiveSub = isBuiltin ? undefined : sanitizeTools(subagentTools, TOOL_NAMES);
-    const lines = [
-        ...(effectiveTools ? [`tools: ${effectiveTools.join(", ")}`] : []),
-        ...(effectiveSub ? [`subagent-tools: ${effectiveSub.join(", ")}`] : []),
-    ];
-    const fm = lines.length ? `---\n${lines.join("\n")}\n---\n\n` : "";
+    const fm = effectiveTools ? `---\ntools: ${effectiveTools.join(", ")}\n---\n\n` : "";
     writeFileSync(agentPath(name), fm + prompt.trim() + "\n");
 }
 

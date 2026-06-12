@@ -2,7 +2,7 @@
  * Session → model-message conversion and context-size estimation.
  * Pure transforms over the session transcript; no side effects.
  */
-import type { ModelMessage } from "ai";
+import type { ModelMessage, SystemModelMessage } from "ai";
 import type { Session } from "../sessions";
 import { compactedContextEntries, latestCompactEntry } from "./compact";
 
@@ -35,6 +35,14 @@ export function estimateContextTokens(session: Session): number {
     return Math.ceil(chars / 4);
 }
 
+const ANTHROPIC_CACHE = { anthropic: { cacheControl: { type: "ephemeral" as const } } };
+
+/** System message with a cache breakpoint — the cache prefix is tools →
+ * system, so one anchor covers both. */
+export function anthropicCachedSystem(system: string): SystemModelMessage {
+    return { role: "system", content: system, providerOptions: ANTHROPIC_CACHE };
+}
+
 /**
  * Anthropic prompt caching: two ephemeral breakpoints (limit is 4).
  * One on the system message — the cache prefix is tools → system, so this
@@ -43,10 +51,33 @@ export function estimateContextTokens(session: Session): number {
  * Other providers (OpenAI, xAI, Google) cache automatically server-side.
  */
 export function withAnthropicCaching(system: string, messages: ModelMessage[]): ModelMessage[] {
-    const cache = { anthropic: { cacheControl: { type: "ephemeral" as const } } };
-    const out: ModelMessage[] = [{ role: "system", content: system, providerOptions: cache }, ...messages];
+    const out: ModelMessage[] = [anthropicCachedSystem(system), ...messages];
     const last = out[out.length - 1];
-    out[out.length - 1] = { ...last, providerOptions: cache } as ModelMessage;
+    out[out.length - 1] = { ...last, providerOptions: ANTHROPIC_CACHE } as ModelMessage;
+    return out;
+}
+
+/**
+ * Per-step moving breakpoint for multi-step loops (prepareStep). Anthropic
+ * only caches up to an explicit breakpoint, so without this every step of an
+ * agent loop re-bills the whole accumulated context (tool results included)
+ * at full input price — quadratic in steps. Re-anchoring the last message
+ * each step makes step N+1 a cache read of everything step N sent.
+ * The previous step's tail anchor is stripped (system anchors stay) so a
+ * long run never exceeds Anthropic's 4-breakpoint-per-request limit.
+ */
+export function moveAnthropicCacheTail(messages: ModelMessage[]): ModelMessage[] {
+    if (messages.length === 0) return messages;
+    const out = messages.map((m) => {
+        if (m.role === "system" || !m.providerOptions?.anthropic) return m;
+        const { anthropic: _drop, ...rest } = m.providerOptions;
+        const clean = { ...m, providerOptions: rest } as ModelMessage;
+        if (Object.keys(rest).length === 0) delete (clean as { providerOptions?: unknown }).providerOptions;
+        return clean;
+    });
+    const last = out[out.length - 1];
+    if (last.role === "system") return out;
+    out[out.length - 1] = { ...last, providerOptions: { ...last.providerOptions, ...ANTHROPIC_CACHE } } as ModelMessage;
     return out;
 }
 

@@ -7,9 +7,12 @@
  * task box, its report, and its cost.
  */
 import { stepCountIs, tool, ToolLoopAgent } from "ai";
+import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { TurnEmitter } from "./events";
-import { getModel } from "../providers";
+import { effectiveSdkProvider } from "../auth";
+import { getModel, parseModelId } from "../providers";
+import { anthropicCachedSystem, moveAnthropicCacheTail } from "./model-messages";
 import { getSetting } from "../settings";
 import { createTools } from "../tools";
 import type { Session } from "../sessions";
@@ -18,14 +21,15 @@ import { buildSystemPrompt } from "./system-prompt";
 import { agentExists, DEFAULT_AGENT_NAME, getAgentPrompt, getAgentTools, listAgents } from "./agents";
 import { runHooks } from "./hooks";
 import { withToolHooks } from "./tool-hooks";
-import type { CostTracker } from "./cost";
+import { sumUsage, type CostTracker } from "./cost";
 
 const SUBAGENT_SYSTEM_SUFFIX = `
 
 You are a subagent launched by a main agent. Rules of the run:
 - Work autonomously — there is no user to ask; resolve ambiguity with the most reasonable reading of the prompt and say which reading you chose.
 - Stay on the given task. Do not expand scope or touch anything the prompt didn't cover.
-- Only your final message returns to the main agent. Make it a complete, self-contained report: what you did or found, exact file paths and names, and anything surprising — the main agent has none of your context.
+- Be economical: take the shortest path to the answer. Don't re-read files, don't repeat searches, don't exhaustively sweep directories when a few targeted reads answer the question. Stop investigating the moment you can answer — every extra step costs real money and delays the main agent.
+- Only your final message returns to the main agent. Lead with the answer, then the essentials: exact file paths, names, and anything surprising — the main agent has none of your context. Keep it tight and structured; no padding, no play-by-play of what you tried.
 - If you cannot finish, report exactly how far you got and what blocked you; a precise partial report beats a vague complete-sounding one.`;
 
 /** One-line summary of a tool call's input for the activity log (` arg`, capped). */
@@ -47,10 +51,17 @@ export interface SubagentCtx {
     session: Session;
     sessionId: string;
     transcriptPath: string;
-    /** Caller's cap on subagent tools — intersected with the target agent's
-     * own tools, so delegation can never widen access (e.g. plan spawns
-     * read-only subagents even when targeting an unrestricted agent). */
-    subagentToolCap?: string[];
+    /** Agent active for this turn (session agent or one-shot /<agent>) — the
+     * subagent is a fork of it unless the task call names another agent. */
+    turnAgent?: string;
+    /** Parent's effective file-tool names. Always the cap on what a subagent
+     * may use: a fork inherits exactly the parent's tools, and a named
+     * override is intersected with them — delegation never widens access. */
+    parentTools: string[];
+    /** Parent's workspace context (CLAUDE.md etc.) — a fork sees the same rules. */
+    workspaceContext?: string;
+    /** Parent's skills prompt block. */
+    skillsPrompt?: string;
 }
 
 export function createTaskTool(ctx: SubagentCtx) {
@@ -61,15 +72,18 @@ export function createTaskTool(ctx: SubagentCtx) {
         description:
             "Launch a subagent to handle a self-contained task and return its final report. " +
             "Use for context-heavy or parallelizable work (broad searches, analysis, multi-file changes) " +
-            "to keep the main context small. The subagent runs autonomously with its own context window " +
-            "and cannot ask questions — include everything it needs in the prompt, and say what output you expect. " +
+            "to keep the main context small. By default the subagent is a fork of you — same prompt and " +
+            "tools (minus task), fresh context window. It runs autonomously and cannot ask questions — " +
+            "include everything it needs in the prompt, and say what output you expect. " +
             "Call task on its own: do not combine it with other tool calls in the same step — the subagent " +
             "covers the exploration itself.",
         inputSchema: z.object({
             agent: z
                 .string()
                 .optional()
-                .describe(`Agent to run the task with (its prompt + tool restrictions apply). One of: ${agentNames}`),
+                .describe(
+                    `Optional named agent to run instead of a fork of yourself (its prompt applies; its tools are capped to yours). One of: ${agentNames}`,
+                ),
             prompt: z.string().describe("Complete task description for the subagent, including the expected output"),
         }),
         execute: (input, options) =>
@@ -81,8 +95,19 @@ export function createTaskTool(ctx: SubagentCtx) {
         // toModelOutput is what keeps it out of the parent context. Without
         // this a runaway subagent could blow the main context, defeating the
         // point of delegating.
-        toModelOutput: (output) => ({ type: "text", value: boundReport(reportOf(output)) }),
+        // NOTE: the SDK calls this with an options object ({ toolCallId, input,
+        // output }), not the bare output — destructure, or the parent reads the
+        // wrapper and every report degrades to the no-response placeholder.
+        toModelOutput: taskToolModelOutput,
     });
+}
+
+/** What the parent model receives for a task tool call. Exported for tests:
+ * the argument shape must match the SDK's createToolModelOutput call site —
+ * an options object, NOT the bare output (regression: reading the wrapper
+ * made every subagent report degrade to the no-response placeholder). */
+export function taskToolModelOutput({ output }: { output: unknown }): { type: "text"; value: string } {
+    return { type: "text", value: boundReport(reportOf(output)) };
 }
 
 export interface SubagentOutput {
@@ -131,11 +156,13 @@ function boundReport(report: string): string {
 
 /**
  * Resolve a subagent's effective tool names: the target agent's own tools,
- * intersected with the caller's cap. `task` is always stripped (no nesting).
+ * intersected with the parent's effective tools. `task` is always stripped
+ * (no nesting). A fork (target = parent agent) resolves to exactly the
+ * parent's tools; a named override can only narrow, never widen.
  * Pure + exported so the security boundary is unit-testable.
  *   - allFileTools: the file-tool names available (no "task")
  *   - targetTools:  target agent's tools (undefined = all)
- *   - cap:          caller's subagent-tools cap (undefined = no cap)
+ *   - cap:          parent's effective tools (undefined = no cap)
  */
 export function resolveSubagentTools(
     allFileTools: string[],
@@ -153,10 +180,13 @@ async function runSubagent(
     prompt: string,
     toolCallId: string,
 ): Promise<SubagentOutput> {
-    const name = agentName && agentExists(agentName) ? agentName : DEFAULT_AGENT_NAME;
+    // No override → fork of the turn's agent (session agent or one-shot
+    // /<agent> for this message): same prompt, same tools, fresh context.
+    const fork = ctx.turnAgent && agentExists(ctx.turnAgent) ? ctx.turnAgent : DEFAULT_AGENT_NAME;
+    const name = agentName && agentExists(agentName) ? agentName : fork;
     try {
         const full = createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal });
-        const effective = resolveSubagentTools(Object.keys(full), getAgentTools(name), ctx.subagentToolCap);
+        const effective = resolveSubagentTools(Object.keys(full), getAgentTools(name), ctx.parentTools);
         const subTools = Object.fromEntries(Object.entries(full).filter(([n]) => effective.includes(n))) as typeof full;
         // Subagent tool calls run the same PreToolUse/PostToolUse hooks,
         // tagged with agent_id so watchers can tell them apart.
@@ -168,19 +198,47 @@ async function runSubagent(
             agentId: toolCallId,
         });
         const maxSteps = getSetting("subagentMaxSteps") || 50;
+        // Same composition as the parent's system prompt (workspace context +
+        // agent prompt + skills) so a fork behaves like the main agent — only
+        // the subagent run rules and the missing task tool differ.
+        const system =
+            buildSystemPrompt({
+                cwd: ctx.cwd,
+                workspaceContext: ctx.workspaceContext,
+                basePrompt: getAgentPrompt(name),
+                tools: Object.keys(subTools),
+            }) +
+            (ctx.skillsPrompt ?? "") +
+            SUBAGENT_SYSTEM_SUFFIX;
+        // Anthropic-shaped providers only cache up to explicit cache_control
+        // breakpoints. runTurn sets them, but this loop didn't — so every
+        // subagent step re-billed its whole accumulated context at full input
+        // price (a single long run burned millions of uncached tokens). Anchor
+        // the system prompt once and move a tail breakpoint every step, same
+        // as runTurn.
+        const anthropicCaching = effectiveSdkProvider(parseModelId(ctx.modelId).provider) === "anthropic";
         // AI SDK's native agent loop — same streamText core runTurn uses, with
         // the loop/stop handling owned by the SDK.
         const agent = new ToolLoopAgent({
             model: await getModel(ctx.modelId),
-            instructions:
-                buildSystemPrompt({ cwd: ctx.cwd, basePrompt: getAgentPrompt(name), tools: Object.keys(subTools) }) +
-                SUBAGENT_SYSTEM_SUFFIX,
+            instructions: anthropicCaching ? anthropicCachedSystem(system) : system,
             tools: hooked,
             stopWhen: stepCountIs(maxSteps),
+            ...(anthropicCaching
+                ? {
+                      prepareStep: ({ messages }: { messages: ModelMessage[] }) => ({
+                          messages: moveAnthropicCacheTail(messages),
+                      }),
+                  }
+                : {}),
         });
         const result = await agent.stream({ prompt, abortSignal: ctx.abortSignal });
 
         let totalUsage: UsageBlock | undefined;
+        // Running per-step sum — when the run is aborted mid-flight `finish`
+        // never arrives, but the completed steps were already billed; persist
+        // their sum so a resumed session seeds the real cost instead of 0.
+        let stepUsageSum: UsageBlock | undefined;
         // One ordered activity log: text, reasoning, and tool parts appended in
         // stream order so the subagent's real flow (text → tool → text → …) is
         // preserved — structured, so renderers can style each kind on its own.
@@ -214,6 +272,7 @@ async function runSubagent(
                     // the spend of completed steps.
                     const u = (part as { usage?: UsageBlock }).usage;
                     if (u) {
+                        stepUsageSum = sumUsage(stepUsageSum, u);
                         ctx.tracker.add(ctx.modelId, u, ctx.cwd);
                         ctx.emitter.emit("subagent-step-usage", { toolCallId, agent: name, usage: u });
                     }
@@ -264,7 +323,7 @@ async function runSubagent(
             prompt,
             result: report || formatSubagentActivity(activity) || "(subagent produced no output)",
             activity: activity.length ? activity : undefined,
-            usage: totalUsage,
+            usage: totalUsage ?? stepUsageSum,
         });
 
         // The history is the tool output (saved + rendered); toModelOutput

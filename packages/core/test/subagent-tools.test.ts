@@ -4,9 +4,9 @@ import { resolveSubagentTools } from "../src/agent/subagent";
 const ALL = ["read", "write", "edit", "bash", "ls", "grep", "find"];
 const READONLY = ["read", "ls", "grep", "find"];
 
-describe("resolveSubagentTools — delegation never widens access", () => {
-    test("plan cap (read-only) strips write/edit/bash even targeting an unrestricted agent", () => {
-        const eff = resolveSubagentTools(ALL, undefined /* default = all */, READONLY /* plan's cap */);
+describe("resolveSubagentTools — delegation never widens access (cap = parent's effective tools)", () => {
+    test("read-only parent (plan) strips write/edit/bash even targeting an unrestricted agent", () => {
+        const eff = resolveSubagentTools(ALL, undefined /* default = all */, READONLY /* plan's own tools */);
         expect(eff.sort()).toEqual([...READONLY].sort());
         expect(eff).not.toContain("write");
         expect(eff).not.toContain("edit");

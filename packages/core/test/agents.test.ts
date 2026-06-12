@@ -48,10 +48,11 @@ describe("parseAgentFile", () => {
         expect(parsed.tools).toEqual(["read", "grep", "task"]);
     });
 
-    test("subagent-tools cap parses, excludes task", () => {
+    test("legacy subagent-tools line is ignored (subagents fork the active agent now)", () => {
         const parsed = parseAgentFile("---\ntools: read, task\nsubagent-tools: read, grep, task\n---\n\nBody.");
         expect(parsed.tools).toEqual(["read", "task"]);
-        expect(parsed.subagentTools).toEqual(["read", "grep"]);
+        expect(parsed).not.toHaveProperty("subagentTools");
+        expect(parsed.prompt).toBe("Body.");
     });
 
     test("frontmatter without tools line keeps prompt", () => {

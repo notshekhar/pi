@@ -5,7 +5,9 @@
 import type { TUI } from "@notshekhar/pi-tui";
 import type { ChatHistory } from "./components/chat-history";
 
-export function installConsoleBridge(history: ChatHistory, tui: TUI): void {
+/** Returns a restore function — needed when the TUI hands the terminal back
+ * (e.g. /update runs the installer with inherited stdio). */
+export function installConsoleBridge(history: ChatHistory, tui: TUI): () => void {
     // Stray console output from libraries (warnings, deprecation notices)
     // bypasses the renderer and tears frames. Route it into the chat as
     // messages instead — errors red, the rest dim. stdout/stderr writes from
@@ -24,7 +26,8 @@ export function installConsoleBridge(history: ChatHistory, tui: TUI): void {
         history.addError(fmt(args));
         tui.requestRender();
     };
-    process.once("exit", () => Object.assign(console, origConsole));
+    const restore = () => Object.assign(console, origConsole);
+    process.once("exit", restore);
 
     // Last-resort error surfacing: anything that escapes a handler renders in
     // chat instead of tearing the TUI via stderr or killing the process.
@@ -36,4 +39,6 @@ export function installConsoleBridge(history: ChatHistory, tui: TUI): void {
     };
     process.on("uncaughtException", surfaceError("uncaught"));
     process.on("unhandledRejection", surfaceError("unhandled"));
+
+    return restore;
 }

@@ -51,7 +51,7 @@ export function startUpdateCheck(history: ChatHistory, tui: TUI, version: string
     if (!version) return;
     void checkForUpdate(version).then((latest) => {
         if (latest) {
-            history.addSystem(`Update available: v${version} → ${latest}. Run \`pi update\` to upgrade.`);
+            history.addSystem(`Update available: v${version} → ${latest}. Run /update (or \`pi update\`) to upgrade.`);
             tui.requestRender();
         }
     });

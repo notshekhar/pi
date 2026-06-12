@@ -89,7 +89,7 @@ Flags: `--model <provider/id>`, `--provider <id>`, `--cwd <path>`, `--session <i
 | Tree     | `/tree` `/fork` `/clone`                                                               |
 | Models   | `/model` `/provider` `/thinking`                                                       |
 | Agents   | `/agents` `/<agent> <message>` (one-shot)                                              |
-| Setup    | `/login` `/logout` `/settings` `/hooks` `/reload`                                      |
+| Setup    | `/login` `/logout` `/settings` `/hooks` `/reload` `/update`                            |
 | Misc     | `/help` `/cost` `/attach` `/paste` `/copy` `/cwd` `/hotkeys` `/changelog` `/quit`      |
 
 `/clear` starts a fresh session (and clears the screen). Messages and slash commands typed while the agent is generating queue up and run after the turn.
@@ -152,9 +152,9 @@ The footer shows live cost/usage/context per step (subagents included). `/cost` 
 curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | bash
 ```
 
-Downloads the latest GitHub Release binary tarball (bun-compiled, zero runtime), verifies sha256, symlinks `pi` and `agent` into `/usr/local/bin` or `~/.local/bin`.
+Downloads the latest GitHub Release binary tarball (bun-compiled, zero runtime), verifies sha256, runs the binary once to confirm it works on your machine, and symlinks `pi` and `agent` into `/usr/local/bin` or `~/.local/bin` (with an exact PATH line for your shell if needed). musl distros (Alpine) get a clear pointer to `gcompat` or a source build.
 
-Env knobs: `PI_VERSION`, `PI_FORCE`, `PI_FROM_SOURCE`, `PI_HOME`, `PI_BIN_DIR`.
+Env knobs: `PI_VERSION` (pin a tag), `PI_FORCE`, `PI_FROM_SOURCE`, `PI_HOME`, `PI_BIN_DIR`, `PI_UNINSTALL=1` (clean removal — keeps `~/.pi` config).
 
 ### Windows
 
@@ -170,9 +170,13 @@ cmd.exe (bootstraps PowerShell):
 curl -fsSLo %TEMP%\pi-install.cmd https://raw.githubusercontent.com/notshekhar/pi/main/install.cmd && %TEMP%\pi-install.cmd
 ```
 
-Installs to `%USERPROFILE%\.pi-bin\pi.exe`, adds it to user `PATH`. Open a new terminal after install. First run shows SmartScreen — click "More info" → "Run anyway".
+Installs to `%USERPROFILE%\.pi-bin\pi.exe`, adds it to user `PATH` **and the current session** — `pi` works immediately, no new terminal needed. Windows on ARM gets the x64 build (runs under Windows 11's emulation). First run shows SmartScreen — click "More info" → "Run anyway".
 
-Env knobs: `$env:PI_VERSION`, `$env:PI_FORCE`, `$env:PI_HOME`.
+Env knobs: `$env:PI_VERSION`, `$env:PI_FORCE`, `$env:PI_HOME`, `$env:PI_UNINSTALL = '1'` (clean removal — keeps `~\.pi` config).
+
+### Updating
+
+`/update` inside the TUI, or `pi update` from the shell — both check the latest release and run the platform installer in place (self-update works while pi is running, on Windows too). The TUI also tells you at startup when a newer release exists. `PI_SKIP_VERSION_CHECK=1` silences the startup check.
 
 ### From source
 

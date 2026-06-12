@@ -12,6 +12,7 @@ import type { AppState } from "../state";
 import { readClipboardImageToFile } from "../clipboard-image";
 import { startLogin, startLogout } from "../login-flow";
 import { loadChangelogEntries } from "../../changelog";
+import { resolveAvailableUpdate, runUpgrade } from "../../commands";
 
 type MiscHandlers = Pick<
     CommandContext,
@@ -25,6 +26,7 @@ type MiscHandlers = Pick<
     | "setCwd"
     | "startLogin"
     | "startLogout"
+    | "updateApp"
     | "stub"
 >;
 
@@ -174,6 +176,30 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
         },
         startLogout(target) {
             return startLogout(loginDeps, target);
+        },
+        async updateApp() {
+            if (state.busy) {
+                history.addSystem("busy; finish or abort current turn first");
+                tui.requestRender();
+                return;
+            }
+            const version = deps.version ?? "0.0.0";
+            deps.showWorking("Checking for updates");
+            const latest = await resolveAvailableUpdate(version);
+            deps.hideWorking();
+            if (!latest) {
+                history.addSystem(`already up to date (v${version})`);
+                tui.requestRender();
+                return;
+            }
+            history.addSystem(`updating v${version} → ${latest}…`);
+            tui.requestRender();
+            // Hand the terminal to the installer: stop rendering, restore
+            // console, let the platform install script take over. runUpgrade
+            // exits the process when the installer finishes.
+            tui.stop();
+            deps.restoreConsole();
+            await runUpgrade(version);
         },
         stub(name) {
             history.addSystem(chalk.yellow(`/${name} not implemented yet`));

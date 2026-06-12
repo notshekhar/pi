@@ -41,6 +41,8 @@ export interface CommandContext {
     cloneSession(): Promise<void> | void;
     /** /tree — navigate the session tree (switch branches). */
     showTree(): void;
+    /** /update — self-update to the latest release (exits on success). */
+    updateApp(): Promise<void>;
 }
 
 export interface SlashCommand {
@@ -246,6 +248,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             description: "Reload prompts, keybindings, settings",
             handler: async (ctx) => {
                 await ctx.reload();
+            },
+        },
+        {
+            name: "update",
+            description: "Update pi to the latest release",
+            handler: async (ctx) => {
+                await ctx.updateApp();
             },
         },
         { name: "changelog", description: "Show changelog entries", handler: (ctx) => ctx.showChangelog() },

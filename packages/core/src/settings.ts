@@ -13,6 +13,8 @@ export interface PiSettings {
     thinkingLevel?: ThinkingLevel;
     maxSteps?: number;
     subagentMaxSteps?: number;
+    /** Master switch for the task tool (subagents). Default on. */
+    subagents?: boolean;
     autoCompactThreshold?: number;
     workspaceContext?: boolean;
     skills?: boolean;

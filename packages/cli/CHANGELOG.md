@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.3.26] - 2026-06-12
+
+### Added
+
+- Searchable model picker: type to filter (substring over id/name/description) — practical for OpenRouter's huge list. `+ add model…` registers any `provider/id` to `~/.pi/models.json`, usable immediately; a wrong id just errors at chat time. Custom models are marked and removable from the picker.
+
+### Changed
+
+- Subagents no longer bloat the main context: the parent model receives only the subagent's final report (bounded to 24k chars via the AI SDK `toModelOutput` pattern) — never the subagent's intermediate tool calls or file contents. The full activity log stays UI-only.
+- Subagent activity is now stored as structured parts (text / reasoning / tool, in stream order) instead of one flat string — display order matches the real run, and renderers can style each kind independently. Old sessions with string activity still replay. The report handed to the parent is the AI SDK's final response text, with a stand-in when the subagent never produced one (abort, tool-only finish).
+
+## [0.3.25] - 2026-06-12
+
+### Added
+
+- The `read` tool now also fetches URLs: pass an `http(s)://` URL and it returns the page as readable text (HTML stripped, truncated, timeout + size caps). Available to every agent that has `read` — including plan and subagents — with no extra tool to wire.
+- `/settings → subagents` toggle: master on/off switch for the task tool (subagents). Off → no agent gets `task`.
+
+### Fixed
+
+- Subagent activity log (the streamed `> read …` tool lines) now persists with the run and replays on session resume, above the report — previously only the final report came back.
+
 ## [0.3.24] - 2026-06-11
 
 ### Added

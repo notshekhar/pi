@@ -96,10 +96,26 @@ export interface SessionInfoData {
     model: string;
 }
 
+/** One step of a subagent's run, in stream order. Structured (not a flat
+ * string) so renderers can style text / reasoning / tool lines differently. */
+export type SubagentActivityPart =
+    | { type: "text"; text: string }
+    | { type: "reasoning"; text: string }
+    | { type: "tool"; name: string; summary: string };
+
 export type Entry =
     | ({ type: "session-info"; ts: number } & SessionInfoData)
     | { type: "message"; role: "user" | "assistant" | "tool"; content: unknown; ts: number; usage?: UsageBlock }
-    | { type: "subagent"; ts: number; agent: string; prompt: string; result: string; usage?: UsageBlock }
+    | {
+          type: "subagent";
+          ts: number;
+          agent: string;
+          prompt: string;
+          result: string;
+          /** Ordered run log (text/reasoning/tool parts, stream order). */
+          activity?: SubagentActivityPart[];
+          usage?: UsageBlock;
+      }
     | { type: "model-change"; from: string; to: string; ts: number }
     | { type: "compact"; summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number }
     | { type: "branch-summary"; summary: string; ts: number }

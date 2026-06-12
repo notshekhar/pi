@@ -1,5 +1,12 @@
 import { EventEmitter } from "node:events";
-import { asTurnEmitter, type CommandContext, parseModelId, runTurn, type UsageBlock } from "@notshekhar/pi-core";
+import {
+    asTurnEmitter,
+    type CommandContext,
+    parseModelId,
+    runTurn,
+    subagentArgSummary,
+    type UsageBlock,
+} from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 
@@ -115,14 +122,6 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         // (keyed by the task toolCallId). On finish, the activity log stays on
         // top of the final report so expanding shows the whole run.
         const subagentBuf = new Map<string, string>();
-        const subagentArgSummary = (input: unknown): string => {
-            if (!input || typeof input !== "object") return "";
-            const a = input as Record<string, unknown>;
-            const v = a.command ?? a.path ?? a.file_path ?? a.pattern ?? a.prompt;
-            if (typeof v !== "string" || !v) return "";
-            const one = v.split("\n")[0];
-            return ` ${one.length > 70 ? `${one.slice(0, 67)}…` : one}`;
-        };
         // Streaming repaint coalescing: subagent deltas arrive per token —
         // rebuilding the tool box for each one burns CPU for invisible
         // frames. Dirty ids flush on a ~50ms timer instead.
@@ -147,14 +146,13 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         };
         emitter.on("tool-result", (part: { output?: unknown; toolCallId?: string }) => {
             const id = part.toolCallId ?? "";
-            const activity = subagentBuf.get(id);
             subagentBuf.delete(id);
             subagentStatus.delete(id);
             dirtySubagents.delete(id);
-            // Task tools: prepend the activity log to the final report.
-            const output =
-                activity && typeof part.output === "string" ? `${activity.trimEnd()}\n\n${part.output}` : part.output;
-            history.addToolResult(id, output);
+            // Task tools output { history, report } — stringifyResult shows
+            // the full uncapped history (the live buffer is tail-capped).
+            // Normal tools show their output as-is.
+            history.addToolResult(id, part.output);
             showWorking("Generating");
             tui.requestRender();
         });

@@ -18,6 +18,9 @@ import {
     bustCatalogCache,
     getActiveProvider,
     getCatalog,
+    addCustomModel,
+    removeCustomModel,
+    listCustomModelIds,
     listAuthorizedProviders,
     listCustomProviders,
     parseModelId,
@@ -72,6 +75,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         showWorking,
         hideWorking,
         selectOnce,
+        searchOnce,
         toggleOnce,
         promptOnce,
         resolveModelId,
@@ -350,10 +354,12 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                         }
                     } else if (e.type === "subagent") {
                         if (latestCompact && messageIndex < latestCompact.cutAt) continue;
-                        // Replay the task box exactly like a live run's final state.
+                        // Replay the task box exactly like a live run's final
+                        // state: same { history, report } shape the task tool
+                        // outputs, so stringifyResult renders both identically.
                         const id = `replay-task-${e.ts}`;
                         history.addToolCall("task", id, { agent: e.agent, prompt: e.prompt });
-                        history.addToolResult(id, e.result);
+                        history.addToolResult(id, e.activity ? { history: e.activity, report: e.result } : e.result);
                     } else if (e.type === "compact" && !latestCompact) {
                         history.addCompactionSummary(e.summary, e.tokensBefore, e.ts);
                     }
@@ -396,9 +402,22 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                         value: "workspaceContext",
                         label: `workspaceContext: ${settingsStore.get("workspaceContext") ?? true}`,
                     },
+                    {
+                        value: "subagents",
+                        label: `subagents (task tool): ${settingsStore.get("subagents") === false ? "off" : "on"}`,
+                        description: "let agents delegate work to subagents via the task tool",
+                    },
                 ];
                 const pick = await selectOnce(items, "Settings (Esc to close)");
                 if (!pick) return;
+                // Booleans toggle in place — no value prompt.
+                if (pick.value === "subagents") {
+                    const next = settingsStore.get("subagents") === false; // off → on, else → off
+                    settingsStore.set("subagents", next);
+                    history.addSystem(`subagents → ${next ? "on" : "off"}`);
+                    tui.requestRender();
+                    continue;
+                }
                 // Theme gets a picker (built-ins + ~/.pi/agent/themes/*.json) and
                 // applies live — the global theme proxy makes themed components
                 // re-resolve colors on the next render.
@@ -437,29 +456,70 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
             }
         },
         async openModelPicker() {
-            const cat = await getCatalog();
             const active = (getActiveProvider() ?? state.provider) as ProviderId;
-            const items: SelectItem[] = Object.values(cat)
-                .filter((m) => m.provider === active && m.available)
-                .sort((a, b) => a.id.localeCompare(b.id))
-                .map((m) => {
-                    const label = m.id.slice(active.length + 1);
-                    const description = `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`;
-                    return { value: m.id, label, description };
-                });
-            if (items.length === 0) {
-                history.addSystem(chalk.yellow(`no models available for ${active}. Try /login ${active} first.`));
+
+            const applyModel = (id: string) => {
+                state.modelId = id;
+                settingsStore.set("defaultModel", id);
+                setProjectModel(state.cwd, id);
+                footer.setModel(id);
+                history.addSystem(`model → ${id}`);
                 tui.requestRender();
+            };
+
+            const ADD = "\x00add";
+            while (true) {
+                const cat = await getCatalog();
+                const custom = new Set(listCustomModelIds());
+                const modelItems: SelectItem[] = Object.values(cat)
+                    .filter((m) => m.provider === active && m.available)
+                    .sort((a, b) => a.id.localeCompare(b.id))
+                    .map((m) => ({
+                        value: m.id,
+                        label: m.id.slice(active.length + 1) + (custom.has(m.id) ? "  (custom)" : ""),
+                        description: `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`,
+                    }));
+                const items: SelectItem[] = [
+                    { value: ADD, label: "+ add model…", description: `register a model id under ${active}` },
+                    ...modelItems,
+                ];
+                const pick = await searchOnce(items, `Model · ${active} (type to filter)`);
+                if (!pick) return;
+
+                if (pick.value === ADD) {
+                    const modelId = (await promptOnce(`new model id under ${active}/ (e.g. some-model-v2)`)).trim();
+                    if (!modelId) continue;
+                    const full = addCustomModel({ provider: active, modelId });
+                    history.addSystem(
+                        `added ${full} (custom). It'll error at chat time if ${active} doesn't serve it.`,
+                    );
+                    applyModel(full);
+                    return;
+                }
+                // A custom model offers remove via a follow-up action menu.
+                if (custom.has(pick.value)) {
+                    const action = await selectOnce(
+                        [
+                            { value: "use", label: "use", description: pick.value },
+                            {
+                                value: "remove",
+                                label: "remove custom model",
+                                description: "delete from ~/.pi/models.json",
+                            },
+                        ],
+                        pick.value,
+                    );
+                    if (!action) continue;
+                    if (action.value === "remove") {
+                        removeCustomModel(pick.value);
+                        history.addSystem(`removed custom model ${pick.value}`);
+                        tui.requestRender();
+                        continue;
+                    }
+                }
+                applyModel(pick.value);
                 return;
             }
-            const pick = await selectOnce(items);
-            if (!pick) return;
-            state.modelId = pick.value;
-            settingsStore.set("defaultModel", state.modelId);
-            setProjectModel(state.cwd, state.modelId);
-            footer.setModel(state.modelId);
-            history.addSystem(`model → ${state.modelId}`);
-            tui.requestRender();
         },
         showSessionInfo() {
             const s = tracker.sessionBreakdown();

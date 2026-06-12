@@ -157,6 +157,7 @@ Everything under `~/.pi/`:
 ~/.pi/
 ├── auth.json                           # provider tokens (mode 600)
 ├── settings.json                       # defaultModel, thinkingLevel, maxSteps
+├── models.json                         # user-added models / catalog overrides
 ├── cost.json                           # cost tracking
 ├── catalog.json                        # model catalog cache
 └── agent/
@@ -166,6 +167,28 @@ Everything under `~/.pi/`:
 ```
 
 Existing pi-mono sessions are read directly and fork on first write.
+
+### Adding a model
+
+If a model isn't in the catalog (a brand-new release, an OpenRouter `:free` variant, a private deployment), add it to `~/.pi/models.json` — either via `/model` → `+ add model…` in the TUI, or by hand:
+
+```json
+{
+  "openrouter/nex-agi/nex-n2-pro:free": {
+    "id": "openrouter/nex-agi/nex-n2-pro:free",
+    "provider": "openrouter",
+    "name": "Nex AGI: Nex-N2-Pro (free)",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+    "reasoning": true,
+    "modalities": ["text", "image"],
+    "available": true
+  }
+}
+```
+
+Keys are full `provider/model-id` ids; entries merge over the built-in catalog, so the same file also overrides pricing or context windows of known models. `cost` is per million tokens and defaults to 0 — set it if you want cost tracking to bill the model. The id is not validated up front; a wrong one simply errors on the first request.
 
 ---
 

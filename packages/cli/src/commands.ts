@@ -51,6 +51,16 @@ function semverGt(a: string, b: string): boolean {
 }
 
 async function fetchLatestTag(): Promise<string | null> {
+    // The releases/latest redirect isn't subject to the anonymous GitHub API
+    // rate limit (60 req/h/IP) that bites CI and shared networks.
+    try {
+        const r = await fetch(`https://github.com/${REPO_SLUG}/releases/latest`, {
+            method: "HEAD",
+            redirect: "follow",
+        });
+        const tag = r.url.split("/").pop() ?? "";
+        if (/^v\d/.test(tag)) return tag;
+    } catch {}
     try {
         const r = await fetch(RELEASES_API, { headers: { accept: "application/vnd.github+json" } });
         if (!r.ok) return null;
@@ -61,14 +71,19 @@ async function fetchLatestTag(): Promise<string | null> {
     }
 }
 
-// Silent startup check. Returns the newer release tag (e.g. "v0.0.3") when one
-// exists, else null. Network/parse failures resolve to null so startup is never
-// blocked or noisy. Set PI_SKIP_VERSION_CHECK to disable.
-export async function checkForUpdate(version: string): Promise<string | null> {
-    if (process.env.PI_SKIP_VERSION_CHECK) return null;
+/** Newer release tag (e.g. "v0.0.3") if one exists, else null. */
+export async function resolveAvailableUpdate(version: string): Promise<string | null> {
     const latest = await fetchLatestTag();
     if (latest && semverGt(latest, `v${version}`)) return latest;
     return null;
+}
+
+// Silent startup check — like resolveAvailableUpdate, but network/parse
+// failures resolve to null so startup is never blocked or noisy.
+// Set PI_SKIP_VERSION_CHECK to disable.
+export async function checkForUpdate(version: string): Promise<string | null> {
+    if (process.env.PI_SKIP_VERSION_CHECK) return null;
+    return resolveAvailableUpdate(version);
 }
 
 export function printHelp(version: string): void {

@@ -286,6 +286,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         }
     }
 
+    const restoreConsole = installConsoleBridge(history, tui);
+
     const cleanExit = (code = 0) => {
         tui.stop();
         // SessionEnd hooks: give them a moment, then exit regardless.
@@ -323,6 +325,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         ensureSession,
         cleanExit,
         refreshCommands,
+        version: opts.version,
+        restoreConsole,
     };
 
     history.addSystem(
@@ -335,8 +339,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const ctx = createCommandContext(state, deps);
     tui.addInputListener(createInputHandler(state, deps, ctx));
     editor.onSubmit = createTurnRunner(state, deps, ctx);
-
-    installConsoleBridge(history, tui);
 
     // Plugin hooks ship statusMessage ("Loading caveman mode…") — transient
     // "while running" text, so it rides the loader, never the chat (a chat line

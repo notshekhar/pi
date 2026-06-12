@@ -33,4 +33,8 @@ export interface AppDeps {
     refreshCommands: () => void;
     ensureSession: () => Promise<Session>;
     cleanExit: (code?: number) => void;
+    /** App version (undefined in dev runs). */
+    version?: string;
+    /** Undo the console→chat bridge before handing the terminal to a child process. */
+    restoreConsole: () => void;
 }

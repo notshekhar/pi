@@ -21,6 +21,7 @@
 #   PI_FORCE        1                 skip "already up to date" gate
 #   PI_FROM_SOURCE  1                 clone + bun build from source
 #                                       (requires bun ≥1.2)
+#   PI_UNINSTALL    1                 remove the install + symlinks and exit
 
 set -euo pipefail
 
@@ -30,6 +31,7 @@ REF="${PI_REF:-main}"
 PI_HOME="${PI_HOME:-$HOME/.pi-bin}"
 FORCE="${PI_FORCE:-0}"
 FROM_SOURCE="${PI_FROM_SOURCE:-0}"
+UNINSTALL="${PI_UNINSTALL:-0}"
 PIN_VERSION="${PI_VERSION:-}"
 
 bold() { printf "\033[1m%s\033[0m\n" "$*"; }
@@ -89,6 +91,36 @@ detect_target() {
   printf "%s-%s" "$os" "$arch"
 }
 
+# Release binaries are glibc builds; Alpine and other musl distros need a
+# source build (bun's musl build) or a glibc compat layer.
+check_libc() {
+  [ "$(uname -s)" = "Linux" ] || return 0
+  if [ -f /etc/alpine-release ] || (ldd --version 2>&1 | grep -qi musl); then
+    err "musl libc detected (Alpine?). Release binaries are glibc builds."
+    err "  options:"
+    err "    • apk add gcompat              (glibc compatibility layer)"
+    err "    • PI_FROM_SOURCE=1 <installer> (build with bun on this machine)"
+    exit 1
+  fi
+}
+
+# ── Resolve latest release tag ────────────────────────────────────────────
+# Prefer the releases/latest redirect — it isn't subject to the anonymous
+# GitHub API rate limit (60 req/h/IP) that bites CI and shared networks.
+# Fall back to the API if redirect parsing fails.
+resolve_latest_tag() {
+  local final tag
+  final="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+    "https://github.com/${REPO_SLUG}/releases/latest" 2>/dev/null || true)"
+  tag="${final##*/}"
+  case "$tag" in
+    v[0-9]*) printf "%s" "$tag"; return 0 ;;
+  esac
+  curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(v\{0,1\}[0-9][^"]*\)".*/\1/p' \
+    | head -n1 || true
+}
+
 # ── Resolve bin dir for symlinks ──────────────────────────────────────────
 resolve_bin_dir() {
   if [ -n "${PI_BIN_DIR:-}" ]; then
@@ -107,12 +139,30 @@ resolve_bin_dir() {
   printf "%s" "$fallback"
 }
 
+# ── Uninstall ─────────────────────────────────────────────────────────────
+uninstall() {
+  bold "▶ Uninstalling pi"
+  for link in "$HOME/.local/bin/pi" "$HOME/.local/bin/agent" \
+              "/usr/local/bin/pi" "/usr/local/bin/agent" \
+              "/opt/homebrew/bin/pi" "/opt/homebrew/bin/agent" \
+              "${PI_BIN_DIR:+$PI_BIN_DIR/pi}" "${PI_BIN_DIR:+$PI_BIN_DIR/agent}"; do
+    [ -n "$link" ] || continue
+    if [ -L "$link" ] || [ -f "$link" ]; then
+      rm -f "$link" 2>/dev/null && dim "  removed $link" || true
+    fi
+  done
+  rm -rf "$PI_HOME" 2>/dev/null && dim "  removed $PI_HOME" || true
+  bold "✓ Uninstalled. Config in ~/.pi (auth, sessions, settings) was kept;"
+  dim  "  remove it with: rm -rf ~/.pi"
+}
+
 # ── Source build path ─────────────────────────────────────────────────────
 install_from_source() {
   bold "▶ pi installer (source build)"
   need_tool git "Install Git first: https://git-scm.com/downloads"
   need_tool bun "Install: curl -fsSL https://bun.sh/install | bash"
 
+  rm -rf "${PI_HOME}".old.* "${PI_HOME}".new.* "${PI_HOME}".src.* 2>/dev/null || true
   local scratch="${PI_HOME}.src.$$"
   trap 'rm -rf "$scratch" 2>/dev/null || true' EXIT
   bold "▶ Cloning $REPO ($REF)"
@@ -132,6 +182,7 @@ install_from_source() {
   rm -rf "$scratch" 2>/dev/null || true
   link_globally
   printf "source\n" > "$PI_HOME/.install-method" 2>/dev/null || true
+  smoke_test
   finish_message "from source"
 }
 
@@ -140,6 +191,7 @@ install_from_release() {
   bold "▶ pi installer (binary)"
   need_tool curl "macOS: preinstalled. Linux: sudo apt install curl"
   need_tool tar  "Standard on macOS/Linux."
+  check_libc
 
   local target latest installed
   target="$(detect_target)"
@@ -147,9 +199,7 @@ install_from_release() {
 
   latest="${PIN_VERSION}"
   if [ -z "$latest" ]; then
-    latest="$(curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null \
-      | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(v\{0,1\}[0-9][^"]*\)".*/\1/p' \
-      | head -n1 || true)"
+    latest="$(resolve_latest_tag)"
   fi
   if [ -z "$latest" ]; then
     err "could not resolve latest release tag from $REPO_SLUG"
@@ -174,6 +224,9 @@ install_from_release() {
   fi
 
   local scratch tar sum url base
+  # Sweep leftovers from interrupted runs / prior self-updates — before the
+  # fresh scratch exists, so the glob can't eat it.
+  rm -rf "${PI_HOME}".old.* "${PI_HOME}".new.* "${PI_HOME}".src.* 2>/dev/null || true
   scratch="${PI_HOME}.new.$$"
   trap 'rm -rf "$scratch" 2>/dev/null || true' EXIT
   mkdir -p "$scratch"
@@ -209,12 +262,19 @@ install_from_release() {
     exit 1
   fi
 
+  # Defensive: clear quarantine if anything in the chain set it (Gatekeeper
+  # blocks unsigned quarantined binaries with a scary dialog).
+  if [ "$(uname -s)" = "Darwin" ] && command -v xattr >/dev/null 2>&1; then
+    xattr -dr com.apple.quarantine "$scratch/$target" 2>/dev/null || true
+  fi
+
   swap_into_place "$scratch/$target"
   trap - EXIT
   rm -rf "$scratch" 2>/dev/null || true
 
   link_globally
   printf "binary\n" > "$PI_HOME/.install-method" 2>/dev/null || true
+  smoke_test
   finish_message "$latest"
 }
 
@@ -273,13 +333,35 @@ link_globally() {
 
   case ":$PATH:" in
     *":$bin_dir:"*) ;;
-    *)
-      err "warning: $bin_dir is not on PATH"
-      err "  add to your shell rc: export PATH=\"$bin_dir:\$PATH\""
-      ;;
+    *) path_hint "$bin_dir" ;;
   esac
 
   PI_LINK_DIR="$bin_dir"
+}
+
+# Exact copy-pasteable PATH line for the user's shell.
+path_hint() {
+  local bin_dir="$1" shell_name rc
+  shell_name="$(basename "${SHELL:-bash}")"
+  err "warning: $bin_dir is not on PATH"
+  case "$shell_name" in
+    zsh)  rc="~/.zshrc";  err "  echo 'export PATH=\"$bin_dir:\$PATH\"' >> $rc && source $rc" ;;
+    bash) rc="~/.bashrc"; err "  echo 'export PATH=\"$bin_dir:\$PATH\"' >> $rc && source $rc" ;;
+    fish) err "  fish_add_path $bin_dir" ;;
+    *)    err "  add to your shell rc: export PATH=\"$bin_dir:\$PATH\"" ;;
+  esac
+}
+
+# The binary must actually run on this machine (catches libc/arch surprises
+# immediately instead of on first use).
+smoke_test() {
+  local v
+  if ! v="$("$PI_HOME/pi" --version 2>&1)"; then
+    err "installed binary failed to run: $v"
+    err "  try PI_FROM_SOURCE=1 to build for this machine"
+    exit 1
+  fi
+  dim "  verified: pi v$v"
 }
 
 finish_message() {
@@ -290,10 +372,13 @@ finish_message() {
   echo "  target:  $PI_HOME"
   echo
   dim "Run \`pi\` to start. Run \`pi login\` to add a provider."
+  dim "Update later with \`pi update\` (or /update inside the TUI)."
 }
 
 # ── Route ──────────────────────────────────────────────────────────────────
-if [ "$FROM_SOURCE" = "1" ]; then
+if [ "$UNINSTALL" = "1" ]; then
+  uninstall
+elif [ "$FROM_SOURCE" = "1" ]; then
   install_from_source
 else
   install_from_release

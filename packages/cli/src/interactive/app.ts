@@ -121,7 +121,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const initialThinking: ThinkingLevel = (settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off";
     footer.setThinking(initialThinking);
 
-    const savedAgent = (settingsStore.get("agent") as string | undefined) ?? DEFAULT_AGENT_NAME;
+    // Plan is a per-session mode, not a sticky preference: a new pi always
+    // boots in the default agent even if the last session ended in plan.
+    const savedAgentRaw = (settingsStore.get("agent") as string | undefined) ?? DEFAULT_AGENT_NAME;
+    const savedAgent = savedAgentRaw === "plan" ? DEFAULT_AGENT_NAME : savedAgentRaw;
     const state: AppState = {
         cwd: opts.cwd,
         modelId: initialModelId,
@@ -173,9 +176,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const editorContainer = new Container();
     editorContainer.addChild(editor);
 
-    // pi pattern: fixed-height status slot above editor so editor never shifts
+    // pi pattern: fixed-height status slot above editor so editor never shifts.
+    // Loader renders 2 rows (leading blank + spinner line) — the idle spacer
+    // must match, or the editor/footer block jumps a row on every turn start.
     const statusContainer = new Container();
-    const statusIdleSpacer = new Spacer(1);
+    const statusIdleSpacer = new Spacer(2);
     statusContainer.addChild(statusIdleSpacer);
 
     // pi-mono parity: queued user messages render between status and editor
@@ -200,6 +205,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     root.addChild(pendingContainer);
     root.addChild(editorContainer);
     root.addChild(footer);
+    // Constant breathing room below the footer — without it the status block
+    // sits flush with the terminal's bottom row once the screen fills up.
+    root.addChild(new Spacer(1));
     tui.addChild(root);
 
     showWhatsNew(history, opts.version, Boolean(opts.sessionId));

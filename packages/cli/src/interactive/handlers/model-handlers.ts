@@ -7,6 +7,7 @@ import {
     addCustomModel,
     getActiveProvider,
     getCatalog,
+    getProjectProviderModel,
     listAuthorizedProviders,
     listCustomModelIds,
     listCustomProviders,
@@ -85,14 +86,19 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
             }
             setActiveProvider(target as ProviderId);
             const cat = await getCatalog();
-            const first = Object.values(cat).find((m) => m.provider === target && m.available);
-            if (first) {
-                state.modelId = first.id;
+            // This folder's last model for the provider wins; first available is the fallback.
+            const rememberedId = getProjectProviderModel(state.cwd, target);
+            const remembered = rememberedId ? cat[rememberedId] : undefined;
+            const pick = remembered?.available
+                ? remembered
+                : Object.values(cat).find((m) => m.provider === target && m.available);
+            if (pick) {
+                state.modelId = pick.id;
                 settingsStore.set("defaultModel", state.modelId);
                 setProjectModel(state.cwd, state.modelId);
                 footer.setModel(state.modelId);
             }
-            history.addSystem(`provider → ${target}${first ? `, model → ${first.id}` : ""}`);
+            history.addSystem(`provider → ${target}${pick ? `, model → ${pick.id}` : ""}`);
             tui.requestRender();
         },
         async openModelPicker() {

@@ -23,6 +23,11 @@ type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload">;
 export function createSettingsHandlers(state: AppState, deps: AppDeps): SettingsHandlers {
     const { tui, history, footer, commands, showWorking, hideWorking, selectOnce, promptOnce, refreshCommands } = deps;
 
+    // Boolean settings toggle in place; unset falls back to the default here.
+    const BOOLEAN_DEFAULTS: Record<string, boolean> = { subagents: true, recap: false };
+    const boolSetting = (key: string): boolean =>
+        (settingsStore.get(key) as boolean | undefined) ?? BOOLEAN_DEFAULTS[key];
+
     return {
         async openSettings() {
             // Loop so Esc on the value prompt returns to the settings picker
@@ -45,17 +50,21 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     },
                     {
                         value: "subagents",
-                        label: `subagents (task tool): ${settingsStore.get("subagents") === false ? "off" : "on"}`,
+                        label: `subagents (task tool): ${boolSetting("subagents") ? "on" : "off"}`,
                         description: "let agents delegate work to subagents via the task tool",
+                    },
+                    {
+                        value: "recap",
+                        label: `recap: ${boolSetting("recap") ? "on" : "off"}`,
+                        description: "short AI-generated recap under responses that changed files",
                     },
                 ];
                 const pick = await selectOnce(items, "Settings (Esc to close)");
                 if (!pick) return;
-                // Booleans toggle in place — no value prompt.
-                if (pick.value === "subagents") {
-                    const next = settingsStore.get("subagents") === false; // off → on, else → off
-                    settingsStore.set("subagents", next);
-                    history.addSystem(`subagents → ${next ? "on" : "off"}`);
+                if (pick.value in BOOLEAN_DEFAULTS) {
+                    const next = !boolSetting(pick.value);
+                    settingsStore.set(pick.value, next);
+                    history.addSystem(`${pick.value} → ${next ? "on" : "off"}`);
                     tui.requestRender();
                     continue;
                 }

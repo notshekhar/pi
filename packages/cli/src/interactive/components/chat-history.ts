@@ -258,6 +258,14 @@ export class ChatHistory extends Container {
     addError(text: string): void {
         this.addChild(new Text(chalk.red(`error: ${text}`), 1, 0));
     }
+
+    /** Post-turn recap (data-recap): dim ✻ lines under the response. */
+    addRecap(text: string): void {
+        const lines = text.split("\n");
+        const body = lines.map((l, i) => chalk.dim(i === 0 ? `✻ ${l}` : `  ${l}`)).join("\n");
+        this.addChild(new Spacer(1));
+        this.addChild(new Text(body, 1, 0));
+    }
 }
 
 function stringifyResult(output: unknown): string {

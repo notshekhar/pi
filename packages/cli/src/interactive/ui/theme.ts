@@ -181,7 +181,10 @@ function loadThemeJson(name: string): ThemeJson {
     if (name === "dark") return DARK_THEME;
     if (name === "light") return LIGHT_THEME;
     const file = path.join(customThemesDir(), `${name}.json`);
-    return JSON.parse(fs.readFileSync(file, "utf8")) as ThemeJson;
+    const custom = JSON.parse(fs.readFileSync(file, "utf8")) as ThemeJson;
+    // Colors added after a custom theme was written fall back to dark's —
+    // otherwise theme.fg() throws on the missing key at render time.
+    return { ...custom, colors: { ...DARK_THEME.colors, ...custom.colors } };
 }
 
 export function initTheme(themeName = "dark"): void {

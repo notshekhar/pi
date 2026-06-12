@@ -54,6 +54,7 @@ export class Session {
     private labelsById = new Map<string, string>();
     private labelTimestampsById = new Map<string, number>();
     private leafId: string | null = null;
+    private sessionName: string | undefined;
 
     constructor(info: SessionInfoData, path: string, buffered: Entry[]) {
         this.id = info.id;
@@ -120,6 +121,7 @@ export class Session {
             this.byId.set(e.id, e);
             this.leafId = e.id;
             if (e.type === "label") this.applyLabel(e.targetId, e.label, e.ts);
+            if (e.type === "session-name") this.sessionName = e.name?.trim() || undefined;
         }
     }
 
@@ -154,6 +156,7 @@ export class Session {
         this.byId.set(entry.id, entry);
         this.leafId = entry.id;
         if (entry.type === "label") this.applyLabel(entry.targetId, entry.label, entry.ts);
+        if (entry.type === "session-name") this.sessionName = entry.name?.trim() || undefined;
 
         const dir = join(this.path, "..");
         mkdirSync(dir, { recursive: true });
@@ -223,6 +226,16 @@ export class Session {
         };
         await this.append(entry);
         return entry.id!;
+    }
+
+    /** User-set display name; latest session-name entry wins (pi-mono getSessionName). */
+    getName(): string | undefined {
+        return this.sessionName;
+    }
+
+    /** Set (or clear, with empty string) the session display name — pi-mono appendSessionInfo. */
+    async setName(name: string): Promise<void> {
+        await this.append({ type: "session-name", ts: Date.now(), name: name.trim() });
     }
 
     /** Set or clear a user label on an entry (pi-mono appendLabelChange). */

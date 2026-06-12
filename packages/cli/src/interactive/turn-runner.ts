@@ -219,6 +219,13 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             history.addError(formatError(err));
             tui.requestRender();
         });
+        // Recap generation is detached from the turn — this may fire after
+        // busy is already false, and renders wherever the chat currently ends.
+        emitter.on("data-recap", (e: { text: string }) => {
+            history.addRecap(e.text);
+            refreshFooter();
+            tui.requestRender();
+        });
 
         try {
             await runTurn({

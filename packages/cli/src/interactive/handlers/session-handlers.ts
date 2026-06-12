@@ -43,6 +43,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
         showWorking,
         hideWorking,
         searchOnce,
+        promptOnce,
     } = deps;
 
     /** "today 10:49 PM", "yesterday 9:12 AM", else locale date — keeps the
@@ -160,7 +161,9 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                     },
                     ...filtered.map((s) => ({
                         value: s.path,
-                        label: `${s.id.slice(0, 12)}  ${s.model || "?"}`,
+                        label: s.name
+                            ? `${s.name}  ·  ${s.id.slice(0, 12)}`
+                            : `${s.id.slice(0, 12)}  ${s.model || "?"}`,
                         description: `${formatSessionTime(s.mtime)}  ·  ${s.firstUserMessage?.slice(0, 80) ?? "(no messages)"}${s.source === "pi" ? "  [pi]" : ""}`,
                     })),
                 ];
@@ -205,6 +208,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
         showSessionInfo() {
             const s = tracker.sessionBreakdown();
             history.addSystem(`session id   ${state.session?.id ?? "unsaved"}`);
+            if (state.session?.getName()) history.addSystem(`name         ${state.session.getName()}`);
             history.addSystem(`model        ${state.modelId}`);
             history.addSystem(`provider     ${state.provider}`);
             history.addSystem(`thinking     ${state.thinkingLevel}`);
@@ -213,14 +217,21 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             history.addSystem(`cost (sess)  $${s.usd.toFixed(4)}`);
             tui.requestRender();
         },
-        setSessionName(name) {
+        async setSessionName(name) {
             if (!state.session) {
-                history.addSystem("session is unsaved");
+                history.addSystem("session is unsaved — send a message first");
                 tui.requestRender();
                 return;
             }
-            settingsStore.set(`sessionName.${state.session.id}`, name);
-            history.addSystem(`session name → ${name}`);
+            // /name with no arg opens an inline rename prompt prefilled with
+            // the current name (diverges from pi-mono, which just prints it).
+            let next = name.trim();
+            if (!next) {
+                next = (await promptOnce("session name", state.session.getName() ?? "")).trim();
+                if (!next) return;
+            }
+            await state.session.setName(next);
+            history.addSystem(`session name → ${next}`);
             tui.requestRender();
         },
         async exportSession(target) {

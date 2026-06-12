@@ -27,6 +27,8 @@ export interface ThemeColors {
     toolErrorBg: string | number;
     toolTitle: string | number;
     toolOutput: string | number;
+    /** Failed tool title/output — vivid, unlike the muted `error`/diff red. */
+    toolError: string | number;
     mdHeading: string | number;
     mdLink: string | number;
     mdLinkUrl: string | number;
@@ -107,6 +109,7 @@ export const DARK_THEME: ThemeJson = {
         toolErrorBg: "toolErrorBg",
         toolTitle: "text",
         toolOutput: "gray",
+        toolError: "#ff5555",
         mdHeading: "#f0c674",
         mdLink: "#81a2be",
         mdLinkUrl: "dimGray",
@@ -181,6 +184,7 @@ export const LIGHT_THEME: ThemeJson = {
         toolErrorBg: "toolErrorBg",
         toolTitle: "text",
         toolOutput: "mediumGray",
+        toolError: "#d70000",
         mdHeading: "yellow",
         mdLink: "blue",
         mdLinkUrl: "dimGray",

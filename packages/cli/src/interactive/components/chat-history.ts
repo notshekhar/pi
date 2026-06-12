@@ -10,7 +10,7 @@ import {
     UserMessageComponent,
 } from "../ui/messages";
 import { ToolExecutionComponent } from "../ui/tool-execution";
-import { matchSessionHookContext } from "../hook-context";
+import { matchSessionHookContext } from "@notshekhar/pi-core";
 import chalk from "chalk";
 
 const HOOK_ORANGE = chalk.hex("#e09956");

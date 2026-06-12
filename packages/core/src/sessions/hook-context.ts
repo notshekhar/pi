@@ -2,9 +2,9 @@
  * SessionStart hook context rides the first user prompt inside a tagged
  * wrapper so the model keeps it in history on every later turn. This module
  * is the single source of truth for that format: the turn runner wraps,
- * display surfaces (chat replay, tree selector, fork selector, editor text
- * restoration) unwrap. Only the transcript and the model context keep the
- * raw text.
+ * display surfaces (chat replay, session list, tree selector, fork selector,
+ * editor text restoration) unwrap. Only the transcript and the model context
+ * keep the raw text.
  */
 const HOOK_CONTEXT_RE = /^<session-start-hook-context>\n([\s\S]*?)\n<\/session-start-hook-context>\n*/;
 

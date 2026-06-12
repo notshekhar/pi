@@ -7,13 +7,13 @@ import {
     estimateContextTokens,
     runBranchSummary,
     settingsStore,
+    stripSessionHookContext,
     type CommandContext,
 } from "@notshekhar/pi-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { UserMessageSelectorComponent } from "../ui/user-message-selector";
 import { TreeSelectorComponent, type FilterMode } from "../ui/tree-selector";
-import { stripSessionHookContext } from "../hook-context";
 import { extractText, rejectWhileBusy, replayCurrentBranch } from "./shared";
 
 type SessionTreeHandlers = Pick<CommandContext, "forkFromMessage" | "cloneSession" | "showTree">;

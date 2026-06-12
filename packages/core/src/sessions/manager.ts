@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import { getPiDir, settingsStore } from "../auth/storage";
 import type { Entry, ProviderId, SessionInfoData } from "../types";
 import { Session, generateEntryId } from "./session";
+import { stripSessionHookContext } from "./hook-context";
 
 function slugCwd(cwd: string): string {
     // pi convention: "--Users-notshekhar-Documents-foo--"
@@ -67,7 +68,12 @@ export class SessionManager {
                 if (parsed.type === "message") {
                     const m = parsed as { role?: string; content?: unknown };
                     if (m.role === "user" && !firstUser) {
-                        firstUser = typeof m.content === "string" ? m.content : JSON.stringify(m.content).slice(0, 120);
+                        // Hook-context wrapper is model-facing — previews show
+                        // what the user actually typed.
+                        firstUser =
+                            typeof m.content === "string"
+                                ? stripSessionHookContext(m.content)
+                                : JSON.stringify(m.content).slice(0, 120);
                     }
                 }
             }

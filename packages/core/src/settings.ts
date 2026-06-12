@@ -15,6 +15,8 @@ export interface PiSettings {
     subagentMaxSteps?: number;
     /** Master switch for the task tool (subagents). Default on. */
     subagents?: boolean;
+    /** Post-turn recap under responses that wrote/edited files. Default off. */
+    recap?: boolean;
     autoCompactThreshold?: number;
     workspaceContext?: boolean;
     skills?: boolean;
@@ -22,6 +24,8 @@ export interface PiSettings {
     agent?: string;
     lastChangelogVersion?: string;
     projectModels?: Record<string, string>;
+    /** cwd → provider → last model picked with that provider in that folder. */
+    projectProviderModels?: Record<string, Record<string, string>>;
     importClaudeHooks?: boolean;
     claudeHooksFilter?: string[];
     hooks?: HooksConfig;

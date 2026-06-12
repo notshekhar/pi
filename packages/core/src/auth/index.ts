@@ -12,7 +12,15 @@ import type {
 } from "../types";
 
 export { XaiOAuthError, XaiErrorCode } from "./errors";
-export { authStore, settingsStore, costStore, getPiDir, getProjectModel, setProjectModel } from "./storage";
+export {
+    authStore,
+    settingsStore,
+    costStore,
+    getPiDir,
+    getProjectModel,
+    setProjectModel,
+    getProjectProviderModel,
+} from "./storage";
 
 type ProviderMap = Record<string, AuthEntry>;
 

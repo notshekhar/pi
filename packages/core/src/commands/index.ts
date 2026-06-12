@@ -174,11 +174,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         },
         {
             name: "name",
-            description: "Set session display name",
-            handler: (ctx, args) => {
-                if (!args) return ctx.emit("error", "usage: /name <name>");
-                ctx.setSessionName(args);
-            },
+            description: "Set session display name (no arg = rename prompt)",
+            handler: (ctx, args) => ctx.setSessionName(args ?? ""),
+        },
+        {
+            name: "rename",
+            description: "Alias for /name",
+            handler: (ctx, args) => ctx.setSessionName(args ?? ""),
         },
         {
             name: "cost",

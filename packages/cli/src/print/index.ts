@@ -79,6 +79,8 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         tracker,
         emitter,
         agent: (settingsStore.get("agent") as string | undefined) ?? undefined,
+        // One-shot mode prints nothing after the response — skip the recap pass.
+        recap: false,
     });
 
     // SessionEnd hooks: give them a moment, then finish regardless.

@@ -96,8 +96,9 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             const lines = [
                 "Enter           submit",
                 "Shift+Enter     newline",
-                "Tab             autocomplete · cycle agent (empty prompt)",
+                "Tab             cycle agent (applies completion when popup open)",
                 "Shift+Tab       cycle agent (always)",
+                "@ / #           file completion while typing",
                 "Up / Down       history",
                 "Esc             abort current turn",
                 "Ctrl+C          abort, twice to quit",

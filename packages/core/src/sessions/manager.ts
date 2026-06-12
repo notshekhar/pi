@@ -22,6 +22,8 @@ export interface SessionInfo extends SessionInfoData {
     path: string;
     mtime: number;
     firstUserMessage?: string;
+    /** User-set display name (/name), latest session-name entry wins. */
+    name?: string;
     source: "pi-agent" | "pi";
 }
 
@@ -58,12 +60,16 @@ export class SessionManager {
             const lines = raw.split("\n").filter(Boolean);
             let info: SessionInfoData | null = null;
             let firstUser: string | undefined;
+            let name: string | undefined;
             let source: "pi-agent" | "pi" = "pi";
             for (const line of lines) {
-                const parsed = JSON.parse(line) as { type?: string };
+                const parsed = JSON.parse(line) as { type?: string; name?: string };
                 if (parsed.type === "session-info") {
                     info = parsed as unknown as SessionInfoData;
                     source = "pi-agent";
+                }
+                if (parsed.type === "session-name") {
+                    name = parsed.name?.trim() || undefined;
                 }
                 if (parsed.type === "message") {
                     const m = parsed as { role?: string; content?: unknown };
@@ -82,7 +88,7 @@ export class SessionManager {
                 const id = path.split("/").pop()!.replace(".jsonl", "");
                 info = { id, createdAt: stat.birthtimeMs, cwd: slug, provider: "xai", model: "" };
             }
-            return { ...info, path, mtime: stat.mtimeMs, firstUserMessage: firstUser, source };
+            return { ...info, path, mtime: stat.mtimeMs, firstUserMessage: firstUser, name, source };
         } catch {
             return null;
         }

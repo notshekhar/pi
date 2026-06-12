@@ -20,6 +20,8 @@ export interface TurnEvents {
     "compact-start": { reason: string };
     "compact-end": { summary: string; cutAt: number; tokensBefore: number; tokensAfter?: number; aborted?: boolean };
     "step-usage": { usage: UsageBlock; breakdown: CostBreakdown };
+    /** Post-turn one-line recap (AI SDK data-* part convention). Arrives after finish. */
+    "data-recap": { text: string };
     finish: { usage?: UsageBlock; lastStepUsage?: UsageBlock };
     error: unknown;
     "subagent-delta": { toolCallId: string; agent: string; text: string };

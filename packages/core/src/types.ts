@@ -133,5 +133,8 @@ export type Entry = EntryTreeFields &
         | { type: "compact"; summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number }
         | { type: "branch-summary"; summary: string; ts: number; fromId?: string }
         | { type: "label"; targetId: string; label?: string; ts: number }
+        // User-set session display name (pi-mono session_info name entries):
+        // latest wins, empty/absent name clears.
+        | { type: "session-name"; name?: string; ts: number }
         | { type: "custom"; payload: unknown; ts: number }
     );

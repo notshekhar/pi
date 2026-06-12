@@ -15,10 +15,12 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         // focused — global shortcuts that would shadow them only fire when the
         // editor has focus.
         const editorFocused = (editor as unknown as { focused?: boolean }).focused === true;
-        // Agent cycling: Shift+Tab always; plain Tab only on an empty prompt
-        // (with text, Tab belongs to autocomplete). Cycle = active custom
-        // agent (if selected via /agents) plus all built-ins.
-        const wantsAgentCycle = isShiftTab(data) || (isTab(data) && editor.getText().trim() === "");
+        // Agent cycling: Shift+Tab and plain Tab both cycle, even with text in
+        // the prompt (diverges from pi: files are reached via the "@"/"#"
+        // triggers, not Tab). With the autocomplete popup open, Tab still
+        // applies the selected completion. Cycle = active custom agent (if
+        // selected via /agents) plus all built-ins.
+        const wantsAgentCycle = isShiftTab(data) || (isTab(data) && !editor.isShowingAutocomplete());
         if (wantsAgentCycle && editorFocused) {
             const cycle = [
                 ...(state.cycleCustomAgent && agentExists(state.cycleCustomAgent) ? [state.cycleCustomAgent] : []),

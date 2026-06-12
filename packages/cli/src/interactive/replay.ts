@@ -1,4 +1,4 @@
-import { parseModelId, type Entry, type Session } from "@notshekhar/pi-core";
+import { isRecapPayload, parseModelId, type Entry, type Session } from "@notshekhar/pi-core";
 import type { ChatHistory } from "./components/chat-history";
 
 /**
@@ -41,6 +41,9 @@ export function renderSessionBranch(session: Session, history: ChatHistory, mode
         } else if (e.type === "branch-summary" && e.summary) {
             if (latestCompact && messageIndex < latestCompact.cutAt) continue;
             history.addBranchSummary(e.summary);
+        } else if (e.type === "custom" && isRecapPayload(e.payload)) {
+            if (latestCompact && messageIndex < latestCompact.cutAt) continue;
+            history.addRecap(e.payload.text);
         }
     }
 }

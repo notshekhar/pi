@@ -113,6 +113,16 @@ export function adaptPiEntry(raw: unknown): Entry | null {
                 label: typeof obj.label === "string" ? obj.label : undefined,
                 ...tree,
             };
+        case "session-name":
+        // pi-mono writes display names as session_info entries (distinct from
+        // our session-info header, which pi-mono doesn't use).
+        case "session_info":
+            return {
+                type: "session-name",
+                ts,
+                name: typeof obj.name === "string" ? obj.name : undefined,
+                ...tree,
+            };
         default:
             // pi-specific shapes: user-prompt, assistant-message, tool-call, tool-result, etc.
             if (obj.type === "user-prompt" || obj.role === "user") {

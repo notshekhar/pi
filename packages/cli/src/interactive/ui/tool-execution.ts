@@ -105,6 +105,13 @@ export class ToolExecutionComponent extends Container {
         }
     }
 
+    /** Title color by state: pending/stale grey, failed vivid red, done normal. */
+    private titleColor(): "muted" | "toolError" | "toolTitle" {
+        if (this.isPartial) return "muted";
+        if (this.result?.isError) return "toolError";
+        return "toolTitle";
+    }
+
     /** `toolname summary` — bold name, muted single-line arg summary. */
     private titleLine(): string {
         // Subagent header: `task <agent> · <state> · <prompt snippet>` where
@@ -113,10 +120,10 @@ export class ToolExecutionComponent extends Container {
             const agent = typeof this.args.agent === "string" ? this.args.agent : "default";
             const state = this.isPartial ? this.statusText || "running" : this.result?.isError ? "failed" : "done";
             const snippet = typeof this.args.prompt === "string" ? this.args.prompt.split("\n")[0].slice(0, 50) : "";
-            const title = theme.fg("toolTitle", theme.bold(`task ${agent}`));
+            const title = theme.fg(this.titleColor(), theme.bold(`task ${agent}`));
             return `${title} ${theme.fg("muted", snippet ? `${state} · ${snippet}` : state)}`;
         }
-        const title = theme.fg("toolTitle", theme.bold(this.toolName));
+        const title = theme.fg(this.titleColor(), theme.bold(this.toolName));
         const summary = this.argsSummary();
         return summary ? `${title} ${theme.fg("muted", summary)}` : title;
     }
@@ -160,7 +167,7 @@ export class ToolExecutionComponent extends Container {
 
     private colorOutput(lines: string[]): string[] {
         if (this.result?.isError) {
-            return lines.map((l) => theme.fg("error", l));
+            return lines.map((l) => theme.fg("toolError", l));
         }
         // edit/write results contain unified diffs — color +/- lines
         if (this.toolName === "edit" || this.toolName === "write") {

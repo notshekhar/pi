@@ -13,6 +13,7 @@ import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
 import { CostTracker, sumUsage } from "./cost";
 import { runCompact } from "./compact";
+import { runRecap, turnDeservesRecap } from "./recap";
 import { runHooks, type HookOutcome } from "./hooks";
 import { isTrusted } from "./trust";
 import { buildProviderOptions, type ThinkingLevel } from "./thinking";
@@ -24,6 +25,7 @@ import type { UsageBlock } from "../types";
 
 export { CostTracker } from "./cost";
 export { runCompact, CompactAbortedError } from "./compact";
+export { runRecap, isRecapPayload, RECAP_KIND, type RecapPayload } from "./recap";
 export {
     runBranchSummary,
     BranchSummaryAbortedError,
@@ -90,6 +92,8 @@ export interface RunTurnOptions {
     thinkingLevel?: ThinkingLevel;
     /** Named agent whose prompt replaces the built-in persona ("default" = built-in). */
     agent?: string;
+    /** Post-turn data-recap generation. Defaults to the `recap` setting (off). */
+    recap?: boolean;
     /** internal: recursion depth for Stop-hook continuations */
     hookDepth?: number;
 }
@@ -324,6 +328,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     });
 
     let assistantText = "";
+    const toolsUsed: string[] = [];
     let lastUsage: UsageBlock | undefined;
     let lastStepUsage: UsageBlock | undefined;
     // Per-step running sum — an aborted turn never sees `finish`, but its
@@ -348,6 +353,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                 emitter.emit("reasoning-end");
                 break;
             case "tool-call":
+                if (part.toolName) toolsUsed.push(part.toolName);
                 emitter.emit("tool-call", part);
                 break;
             case "tool-result":
@@ -395,6 +401,18 @@ Write complete prompts: the subagent knows nothing about this conversation — i
             content: assistantText,
             usage: lastUsage ?? stepUsageSum,
         });
+    }
+
+    // Post-turn recap: only for turns that wrote/edited files, detached so the
+    // prompt frees immediately — the data-recap event lands in the UI whenever
+    // generation finishes. Skipped for hook continuations (the final
+    // continuation recaps the whole turn).
+    const recapEnabled = opts.recap ?? getSetting("recap") === true;
+    const recapWorthy = turnDeservesRecap(toolsUsed) && assistantText.trim() !== "";
+    if (recapEnabled && recapWorthy && hookDepth === 0 && !abortSignal?.aborted) {
+        void runRecap({ session, modelId, userInput, assistantText, toolsUsed, tracker, cwd, abortSignal })
+            .then((text) => text && emitter.emit("data-recap", { text }))
+            .catch(() => {}); // best-effort — a failed recap never fails the turn
     }
 
     // Stop hooks: a block sends the reason back as a follow-up turn so the

@@ -24,6 +24,13 @@ import type { UsageBlock } from "../types";
 
 export { CostTracker } from "./cost";
 export { runCompact, CompactAbortedError } from "./compact";
+export {
+    runBranchSummary,
+    BranchSummaryAbortedError,
+    collectEntriesForBranchSummary,
+    BRANCH_SUMMARY_PREAMBLE,
+} from "./branch-summary";
+export { estimateContextTokens } from "./model-messages";
 export { THINKING_LEVELS, THINKING_LEVEL_DESCRIPTIONS, buildProviderOptions, type ThinkingLevel } from "./thinking";
 export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
 export { loadProjectSkills, type Skill } from "./skills";

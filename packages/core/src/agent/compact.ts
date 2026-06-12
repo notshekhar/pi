@@ -1,6 +1,8 @@
 import { generateText } from "ai";
 import { getModel } from "../providers";
 import type { Session } from "../sessions";
+import { isAbortError } from "./abort";
+import { BRANCH_SUMMARY_PREAMBLE } from "./branch-summary";
 
 export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
 
@@ -34,8 +36,10 @@ export function latestCompactEntry(session: Session) {
 }
 
 function latestCompact(session: Session) {
+    // Path-based: a compaction on an abandoned branch must not apply after
+    // /tree navigation moved the leaf elsewhere.
     let latest: { summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number } | undefined;
-    for (const entry of session.entries()) {
+    for (const entry of session.getBranch()) {
         if (entry.type === "compact") latest = entry;
     }
     return latest;
@@ -65,12 +69,16 @@ export type ContextEntry =
  * chronological order so resumed sessions retain subagent reports in the
  * model context. The compact cutAt counts only message entries — subagent
  * entries ride along with the messages that survive the cut.
+ *
+ * Walks the current branch path (leaf → root), not the whole file, so
+ * abandoned branches stay out of the context after /tree navigation.
+ * Branch-summary entries on the path join the context as user messages.
  */
 export function compactedContextEntries(session: Session): ContextEntry[] {
     const compact = latestCompact(session);
     const out: ContextEntry[] = [];
     let messageIndex = 0;
-    for (const e of session.entries()) {
+    for (const e of session.getBranch()) {
         if (e.type === "message") {
             const idx = messageIndex++;
             if (compact && idx < compact.cutAt) continue;
@@ -78,6 +86,9 @@ export function compactedContextEntries(session: Session): ContextEntry[] {
         } else if (e.type === "subagent") {
             if (compact && messageIndex < compact.cutAt) continue;
             out.push({ kind: "subagent", agent: e.agent, result: e.result });
+        } else if (e.type === "branch-summary" && e.summary) {
+            if (compact && messageIndex < compact.cutAt) continue;
+            out.push({ kind: "message", role: "user", content: `${BRANCH_SUMMARY_PREAMBLE}${e.summary}` });
         }
     }
     if (compact) {
@@ -92,12 +103,6 @@ export class CompactAbortedError extends Error {
         super("compact aborted");
         this.name = "CompactAbortedError";
     }
-}
-
-function isAbortError(err: unknown): boolean {
-    if (!err) return false;
-    const e = err as { name?: string; message?: string };
-    return e.name === "AbortError" || /aborted/i.test(e.message ?? "");
 }
 
 export async function runCompact(opts: {

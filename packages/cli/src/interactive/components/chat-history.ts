@@ -3,12 +3,14 @@ import { formatSubagentActivity, type SubagentActivityPart } from "@notshekhar/p
 import { getMarkdownTheme } from "../ui/theme";
 import {
     AssistantMessageComponent,
+    BranchSummaryMessageComponent,
     CompactionSummaryMessageComponent,
     parseSkillBlock,
     SkillInvocationMessageComponent,
     UserMessageComponent,
 } from "../ui/messages";
 import { ToolExecutionComponent } from "../ui/tool-execution";
+import { matchSessionHookContext } from "../hook-context";
 import chalk from "chalk";
 
 const HOOK_ORANGE = chalk.hex("#e09956");
@@ -101,11 +103,11 @@ export class ChatHistory extends Container {
         // SessionStart hook context is model-facing — collapse it to a dim notice
         // instead of rendering it as part of what the user typed. Applies to live
         // turns and to transcript replay on resume alike.
-        const hookCtx = text.match(/^<session-start-hook-context>\n([\s\S]*?)\n<\/session-start-hook-context>\n*/);
+        const hookCtx = matchSessionHookContext(text);
         if (hookCtx) {
-            const lines = hookCtx[1].split("\n").length;
+            const lines = hookCtx.context.split("\n").length;
             this.addChild(new Text(HOOK_ORANGE(`session-start hook context attached (${lines} lines)`), 1, 0));
-            text = text.slice(hookCtx[0].length);
+            text = hookCtx.rest;
             if (!text) {
                 this.assistantTurn = null;
                 return;
@@ -240,6 +242,16 @@ export class ChatHistory extends Container {
         this.addChild(new Spacer(1));
         this.addChild(comp);
         this.compactionComponents.push(comp);
+        this.assistantTurn = null;
+    }
+
+    addBranchSummary(summary: string): void {
+        const comp = new BranchSummaryMessageComponent(summary);
+        comp.setExpanded(this.expanded);
+        this.addChild(new Spacer(1));
+        this.addChild(comp);
+        // Rides the same expand/collapse toggle as compaction summaries.
+        this.compactionComponents.push(comp as unknown as CompactionSummaryMessageComponent);
         this.assistantTurn = null;
     }
 

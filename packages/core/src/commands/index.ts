@@ -35,6 +35,12 @@ export interface CommandContext {
     useAgent(name: string, message?: string): Promise<void> | void;
     stub(name: string): void;
     clearScreen(): void;
+    /** /fork — pick a previous user message, branch it into a new session. */
+    forkFromMessage(): void;
+    /** /clone — duplicate the current branch into a new session. */
+    cloneSession(): Promise<void> | void;
+    /** /tree — navigate the session tree (switch branches). */
+    showTree(): void;
 }
 
 export interface SlashCommand {
@@ -123,9 +129,10 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         },
         {
             name: "clear",
-            description: "Clear screen scrollback",
-            handler: (ctx) => {
+            description: "Start a new session (clears screen)",
+            handler: async (ctx) => {
                 ctx.clearScreen();
+                await ctx.newSession();
             },
         },
         {
@@ -259,14 +266,16 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         {
             name: "fork",
             description: "Create a new fork from a previous user message",
-            handler: (ctx) => ctx.stub("fork"),
+            handler: (ctx) => ctx.forkFromMessage(),
         },
         {
             name: "clone",
             description: "Duplicate the current session at current position",
-            handler: (ctx) => ctx.stub("clone"),
+            handler: async (ctx) => {
+                await ctx.cloneSession();
+            },
         },
-        { name: "tree", description: "Navigate session tree (switch branches)", handler: (ctx) => ctx.stub("tree") },
+        { name: "tree", description: "Navigate session tree (switch branches)", handler: (ctx) => ctx.showTree() },
         { name: "share", description: "Share session as a secret GitHub gist", handler: (ctx) => ctx.stub("share") },
         {
             name: "scoped-models",

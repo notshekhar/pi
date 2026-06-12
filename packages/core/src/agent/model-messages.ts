@@ -16,11 +16,12 @@ export function estimateContextTokens(session: Session): number {
     const compact = latestCompactEntry(session);
     let chars = compact ? compact.summary.length + 200 : 0;
     let messageIndex = 0;
-    for (const e of session.entries()) {
+    // Branch-path walk: abandoned branches don't reach the model context.
+    for (const e of session.getBranch()) {
         if (e.type === "message") {
             const idx = messageIndex++;
             if (compact && idx < compact.cutAt) continue;
-        } else if (e.type === "subagent") {
+        } else if (e.type === "subagent" || e.type === "branch-summary") {
             if (compact && messageIndex < compact.cutAt) continue;
         } else {
             continue;

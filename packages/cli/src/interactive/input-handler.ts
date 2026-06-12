@@ -11,11 +11,15 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
     const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, footer } = deps;
 
     return (data) => {
+        // Selectors (e.g. /tree) own ctrl-key chords like ctrl+l/ctrl+d while
+        // focused — global shortcuts that would shadow them only fire when the
+        // editor has focus.
+        const editorFocused = (editor as unknown as { focused?: boolean }).focused === true;
         // Agent cycling: Shift+Tab always; plain Tab only on an empty prompt
         // (with text, Tab belongs to autocomplete). Cycle = active custom
         // agent (if selected via /agents) plus all built-ins.
         const wantsAgentCycle = isShiftTab(data) || (isTab(data) && editor.getText().trim() === "");
-        if (wantsAgentCycle && (editor as unknown as { focused?: boolean }).focused) {
+        if (wantsAgentCycle && editorFocused) {
             const cycle = [
                 ...(state.cycleCustomAgent && agentExists(state.cycleCustomAgent) ? [state.cycleCustomAgent] : []),
                 ...listAgents()
@@ -29,7 +33,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             tui.requestRender();
             return { consume: true };
         }
-        if (isCtrlL(data)) {
+        if (isCtrlL(data) && editorFocused) {
             ctx.clearScreen();
             return { consume: true };
         }
@@ -50,7 +54,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             if (path) void ctx.attachImage(path);
             return { consume: true };
         }
-        if (isCtrlD(data) && !state.busy) {
+        if (isCtrlD(data) && !state.busy && editorFocused) {
             cleanExit(0);
             return { consume: true };
         }

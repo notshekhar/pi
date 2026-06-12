@@ -38,9 +38,10 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
-        "@notshekhar/pi-tui": "*",
         "@notshekhar/pi-core": "*",
+        "@notshekhar/pi-tui": "*",
         "chalk": "^5.5.0",
+        "croner": "^10.0.1",
         "highlight.js": "^11.11.1"
     },
     "devDependencies": {}

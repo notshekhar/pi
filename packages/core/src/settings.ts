@@ -17,6 +17,8 @@ export interface PiSettings {
     subagents?: boolean;
     /** Post-turn recap under responses that wrote/edited files. Default off. */
     recap?: boolean;
+    /** Live date + hh:mm:ss clock in the footer. Default off. */
+    clock?: boolean;
     autoCompactThreshold?: number;
     workspaceContext?: boolean;
     skills?: boolean;

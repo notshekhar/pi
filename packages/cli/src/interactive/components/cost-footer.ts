@@ -1,5 +1,6 @@
 import type { Component } from "@notshekhar/pi-tui";
 import chalk from "chalk";
+import { formatClock, formatCountdown } from "../time";
 
 function fmtTokens(n: number): string {
     if (n < 1000) return String(n);
@@ -50,6 +51,8 @@ export class CostFooter implements Component {
     private ctxMax = 0;
     private thinking = "off";
     private agent = "default";
+    private timerEndsAt: number | null = null;
+    private clockEnabled = false;
 
     setModel(id: string) {
         this.modelId = id;
@@ -69,6 +72,12 @@ export class CostFooter implements Component {
     }
     setThinking(level: string) {
         this.thinking = level;
+    }
+    setTimer(endsAt: number | null) {
+        this.timerEndsAt = endsAt;
+    }
+    setClockEnabled(enabled: boolean) {
+        this.clockEnabled = enabled;
     }
 
     invalidate(): void {}
@@ -94,6 +103,12 @@ export class CostFooter implements Component {
                 : chalk.dim("agent default")) + chalk.dim(" (shift+tab)");
         const identity = [agentStr, chalk.cyan(modelLabel)];
         const usage = [chalk.dim(`session ${sid}`), chalk.green(this.cost), ctxStr];
+        if (this.timerEndsAt !== null) {
+            const remaining = this.timerEndsAt - Date.now();
+            const body = `timer ${formatCountdown(remaining)}`;
+            usage.push(remaining < 60_000 ? chalk.yellow(body) : chalk.dim(body));
+        }
+        if (this.clockEnabled) usage.push(chalk.dim(formatClock()));
         const lines = [...wrapParts(identity, width), ...wrapParts(usage, width)];
         // Hard-clip any single part that still exceeds width (rare).
         return lines.map((l) => (ansiLen(l) > width ? ansiSlice(l, width) : l));

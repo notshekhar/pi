@@ -4,6 +4,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { resolveReadPath } from "./utils/path-utils";
 import { recordRead } from "./utils/read-registry";
+import { fetchUrlAsText, isHttpUrl } from "./utils/fetch-url";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "./utils/truncate";
 
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp)$/i;
@@ -26,15 +27,19 @@ export interface ReadToolContext {
 
 export function createReadTool(ctx: ReadToolContext) {
     return tool({
-        description: `Read the contents of a file. Supports text files. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
+        description: `Read the contents of a file, or fetch a URL. A local path reads the file (text, truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; use offset/limit for large files). An http(s):// URL fetches the page and returns it as readable text (HTML stripped). When you need the full file, continue with offset until complete.`,
         inputSchema: z.object({
-            path: z.string().describe("Path to the file to read (relative or absolute)"),
+            path: z.string().describe("Local file path (relative or absolute) OR an http(s):// URL to fetch"),
             offset: z.number().int().positive().optional().describe("Line number to start reading from (1-indexed)"),
             limit: z.number().int().positive().optional().describe("Maximum number of lines to read"),
         }),
         execute: async ({ path, offset, limit }, options) => {
             const signal = options?.abortSignal ?? ctx.abortSignal;
             if (signal?.aborted) throw new Error("Operation aborted");
+            // URL → fetch as text (offset/limit don't apply to web content).
+            if (isHttpUrl(path)) {
+                return fetchUrlAsText(path.trim(), signal);
+            }
             const absolutePath = resolveReadPath(path, ctx.cwd);
             await fsAccess(absolutePath, constants.R_OK);
             const mime = detectImageMimeType(absolutePath);

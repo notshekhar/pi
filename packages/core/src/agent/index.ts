@@ -59,6 +59,7 @@ export {
     type AgentInfo,
 } from "./agents";
 export { DEFAULT_BASE_PROMPT } from "./system-prompt";
+export { subagentArgSummary, formatSubagentActivity, type SubagentOutput } from "./subagent";
 export { asTurnEmitter, type TurnEmitter, type TurnEvents } from "./events";
 export {
     hasProjectTrustInputs,
@@ -182,12 +183,14 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             ? Object.fromEntries(Object.entries(fullToolSet).filter(([name]) => allowedTools.includes(name)))
             : fullToolSet
     ) as typeof fullToolSet;
-    // Subagents: unrestricted agents always get the task tool; restricted
-    // agents get it only when their tool list opts in ("task"), and their
-    // subagent-tools cap is enforced on everything they spawn — delegation
-    // never widens access. Subagents themselves never get one (no nesting).
+    // Subagents: master `subagents` setting gates the task tool entirely (off
+    // → no agent gets it). Otherwise unrestricted agents always get it;
+    // restricted agents get it only when their tool list opts in ("task"),
+    // and their subagent-tools cap is enforced on everything they spawn —
+    // delegation never widens access. Subagents never get one (no nesting).
+    const subagentsEnabled = getSetting("subagents") !== false;
     const toolsForTurn: Record<string, unknown> = { ...toolSet };
-    if (!allowedTools?.length || allowedTools.includes("task")) {
+    if (subagentsEnabled && (!allowedTools?.length || allowedTools.includes("task"))) {
         toolsForTurn.task = createTaskTool({
             modelId,
             cwd,

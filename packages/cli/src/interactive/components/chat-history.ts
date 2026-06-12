@@ -1,4 +1,5 @@
 import { Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/pi-tui";
+import { formatSubagentActivity, type SubagentActivityPart } from "@notshekhar/pi-core";
 import { getMarkdownTheme } from "../ui/theme";
 import {
     AssistantMessageComponent,
@@ -251,6 +252,14 @@ function stringifyResult(output: unknown): string {
     if (output == null) return "";
     if (typeof output === "string") return output;
     const o = output as Record<string, unknown>;
+    // Task (subagent) output: structured run log; flatten for display. The
+    // last text part is the final report, so nothing is appended twice.
+    if (Array.isArray(o.history)) {
+        return (
+            formatSubagentActivity(o.history as SubagentActivityPart[]) ||
+            (typeof o.report === "string" ? o.report : "")
+        );
+    }
     if (typeof o.stdout === "string" || typeof o.stderr === "string") {
         return `${o.stdout ?? ""}${o.stderr ? `\n[stderr]\n${o.stderr}` : ""}`.trim();
     }

@@ -19,6 +19,90 @@ export interface SelectorHost {
     showSelector: (component: Container, focusable: Container | SelectList) => () => void;
 }
 
+type TuiWithInput = TUI & {
+    addInputListener?: (cb: (d: string) => { consume: boolean } | undefined) => () => void;
+};
+
+/** Default search predicate: case-insensitive substring over value + label + description. */
+function matchItem(item: SelectItem, query: string): boolean {
+    const q = query.toLowerCase();
+    return (
+        item.value.toLowerCase().includes(q) ||
+        item.label.toLowerCase().includes(q) ||
+        (item.description ?? "").toLowerCase().includes(q)
+    );
+}
+
+/**
+ * Like selectOnce, but with a live type-to-filter search box above the list.
+ * Printable keys build the query (substring match across value/label/
+ * description), arrows navigate the filtered set, Enter selects, Esc cancels.
+ * For long lists (e.g. an OpenRouter model picker).
+ */
+export function searchSelectOnce(host: SelectorHost, items: SelectItem[], title?: string): Promise<SelectItem | null> {
+    return new Promise((resolve) => {
+        if (!items.length) {
+            resolve(null);
+            return;
+        }
+        const list = new SelectList(items, Math.min(items.length, 10), getSelectListTheme());
+        const header = new Text("", 0, 0);
+        const renderHeader = (query: string) =>
+            header.setText(
+                chalk.bold.cyan(` ${title ?? "Select"}`) +
+                    chalk.dim("  search: ") +
+                    (query ? chalk.white(query) : chalk.dim("(type to filter)")),
+            );
+        renderHeader("");
+
+        const wrapper = new Container();
+        wrapper.addChild(header);
+        wrapper.addChild(new DynamicBorder());
+        wrapper.addChild(list);
+        wrapper.addChild(new DynamicBorder());
+        wrapper.addChild(new Text(chalk.dim(" type to filter · ↑↓ navigate · Enter select · Esc cancel"), 0, 0));
+        const close = host.showSelector(wrapper, list);
+
+        let done = false;
+        let removeInput: (() => void) | undefined;
+        const finish = (v: SelectItem | null) => {
+            if (done) return;
+            done = true;
+            removeInput?.();
+            close();
+            resolve(v);
+        };
+        list.onSelect = (item) => finish(item);
+        list.onCancel = () => finish(null);
+
+        let query = "";
+        const applyQuery = () => {
+            list.setItems(query ? items.filter((i) => matchItem(i, query)) : items);
+            renderHeader(query);
+            host.tui.requestRender();
+        };
+
+        // Printable chars + backspace drive the query; everything else
+        // (arrows, Enter, Esc) falls through to the focused list.
+        const onInput = (data: string): { consume: boolean } | undefined => {
+            if (data === "\x7f" || data === "\b") {
+                if (!query) return undefined;
+                query = query.slice(0, -1);
+                applyQuery();
+                return { consume: true };
+            }
+            if (data.length === 1 && data >= " " && data !== "\x7f") {
+                query += data;
+                applyQuery();
+                return { consume: true };
+            }
+            return undefined;
+        };
+        const addInput = (host.tui as TuiWithInput).addInputListener;
+        if (typeof addInput === "function") removeInput = addInput.call(host.tui, onInput);
+    });
+}
+
 export function selectOnce(host: SelectorHost, items: SelectItem[], title?: string): Promise<SelectItem | null> {
     return new Promise((resolve) => {
         if (!items.length) {

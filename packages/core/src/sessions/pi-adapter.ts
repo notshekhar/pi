@@ -1,4 +1,19 @@
-import type { Entry, ProviderId, UsageBlock } from "../types";
+import type { Entry, ProviderId, SubagentActivityPart, UsageBlock } from "../types";
+
+/** Activity is structured parts; entries written before that were one string. */
+function parseActivity(raw: unknown): SubagentActivityPart[] | undefined {
+    if (typeof raw === "string") return raw ? [{ type: "text", text: raw }] : undefined;
+    if (!Array.isArray(raw)) return undefined;
+    const parts = raw.filter(
+        (p): p is SubagentActivityPart =>
+            !!p &&
+            typeof p === "object" &&
+            ((p.type === "text" && typeof p.text === "string") ||
+                (p.type === "reasoning" && typeof p.text === "string") ||
+                (p.type === "tool" && typeof p.name === "string" && typeof p.summary === "string")),
+    );
+    return parts.length ? parts : undefined;
+}
 
 /**
  * Adapt a raw JSON line from a pi (or pi-agent) session into our Entry shape.
@@ -35,6 +50,7 @@ export function adaptPiEntry(raw: unknown): Entry | null {
                 agent: String(obj.agent ?? "default"),
                 prompt: String(obj.prompt ?? ""),
                 result: String(obj.result ?? ""),
+                activity: parseActivity(obj.activity),
                 usage: obj.usage as UsageBlock | undefined,
             };
         case "model-change":

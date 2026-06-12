@@ -14,8 +14,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         // Agent cycling: Shift+Tab always; plain Tab only on an empty prompt
         // (with text, Tab belongs to autocomplete). Cycle = active custom
         // agent (if selected via /agents) plus all built-ins.
-        const wantsAgentCycle =
-            isShiftTab(data) || (isTab(data) && editor.getText().trim() === "");
+        const wantsAgentCycle = isShiftTab(data) || (isTab(data) && editor.getText().trim() === "");
         if (wantsAgentCycle && (editor as unknown as { focused?: boolean }).focused) {
             const cycle = [
                 ...(state.cycleCustomAgent && agentExists(state.cycleCustomAgent) ? [state.cycleCustomAgent] : []),

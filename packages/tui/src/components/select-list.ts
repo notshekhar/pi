@@ -63,6 +63,13 @@ export class SelectList implements Component {
         this.selectedIndex = 0;
     }
 
+    /** Replace the visible item set (e.g. external search filtering). Resets the cursor to the top. */
+    setItems(items: SelectItem[]): void {
+        this.items = items;
+        this.filteredItems = items;
+        this.selectedIndex = 0;
+    }
+
     setSelectedIndex(index: number): void {
         this.selectedIndex = Math.max(0, Math.min(index, this.filteredItems.length - 1));
     }

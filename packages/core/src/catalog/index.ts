@@ -1,6 +1,6 @@
 import Configstore from "configstore";
 import { join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
 import { getPiDir } from "../auth/storage";
@@ -148,14 +148,75 @@ async function fetchOllamaCatalog(): Promise<ModelInfo[]> {
     });
 }
 
+function userOverridesPath(): string {
+    return join(getPiDir(), "models.json");
+}
+
 function readUserOverrides(): Record<string, Partial<ModelInfo>> {
-    const path = join(getPiDir(), "models.json");
+    const path = userOverridesPath();
     if (!existsSync(path)) return {};
     try {
         return JSON.parse(readFileSync(path, "utf8")) as Record<string, Partial<ModelInfo>>;
     } catch {
         return {};
     }
+}
+
+function writeUserOverrides(overrides: Record<string, Partial<ModelInfo>>): void {
+    writeFileSync(userOverridesPath(), JSON.stringify(overrides, null, 2) + "\n");
+    bustCatalogCache();
+}
+
+export interface CustomModelInput {
+    provider: ProviderId;
+    /** Short id within the provider, e.g. "anthropic/claude-x" → "claude-x". */
+    modelId: string;
+    name?: string;
+    contextWindow?: number;
+    maxOutput?: number;
+    inputCost?: number;
+    outputCost?: number;
+}
+
+/**
+ * Add a user-defined model to ~/.pi/models.json (the existing override file).
+ * No validation against the provider — a wrong id surfaces as an API error at
+ * call time, which is acceptable and documented. Returns the full id.
+ */
+export function addCustomModel(input: CustomModelInput): string {
+    const id = `${input.provider}/${input.modelId}`;
+    const overrides = readUserOverrides();
+    overrides[id] = {
+        id,
+        provider: input.provider,
+        name: input.name ?? input.modelId,
+        contextWindow: input.contextWindow ?? 128_000,
+        maxOutput: input.maxOutput ?? 8_192,
+        cost: {
+            input: input.inputCost ?? 0,
+            output: input.outputCost ?? 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+        },
+        reasoning: false,
+        modalities: ["text"],
+        available: true,
+    };
+    writeUserOverrides(overrides);
+    return id;
+}
+
+export function removeCustomModel(id: string): boolean {
+    const overrides = readUserOverrides();
+    if (!(id in overrides)) return false;
+    delete overrides[id];
+    writeUserOverrides(overrides);
+    return true;
+}
+
+/** Ids the user added/overrode locally (for listing in the picker). */
+export function listCustomModelIds(): string[] {
+    return Object.keys(readUserOverrides());
 }
 
 let refreshInFlight: Promise<Record<string, string[]>> | null = null;
@@ -317,7 +378,11 @@ export function getModelSync(id: string): ModelInfo | undefined {
         FALLBACK_BY_ID = {};
         for (const m of FALLBACK_MODELS) FALLBACK_BY_ID[m.id] = m;
     }
-    return FALLBACK_BY_ID[id];
+    if (FALLBACK_BY_ID[id]) return FALLBACK_BY_ID[id];
+    // User-defined models (~/.pi/models.json) resolve before the async catalog
+    // has been built — e.g. the footer reading a just-picked custom model.
+    const override = readUserOverrides()[id];
+    return override ? ({ ...override, id } as ModelInfo) : undefined;
 }
 
 export { GENERATED_MODELS };

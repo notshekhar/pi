@@ -43,6 +43,10 @@ export interface CommandContext {
     showTree(): void;
     /** /update — self-update to the latest release (exits on success). */
     updateApp(): Promise<void>;
+    /** /timer — set ("1h30m"), show (""), or cancel ("off") the countdown. */
+    setTimer(args: string): void;
+    /** /reminder — open the reminder manager (create/edit/delete). */
+    openReminders(): Promise<void>;
 }
 
 export interface SlashCommand {
@@ -181,6 +185,21 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             name: "rename",
             description: "Alias for /name",
             handler: (ctx, args) => ctx.setSessionName(args ?? ""),
+        },
+        {
+            name: "timer",
+            description: "Countdown timer: /timer 1h30m · /timer off · /timer shows remaining",
+            handler: (ctx, args) => ctx.setTimer(args ?? ""),
+        },
+        {
+            name: "reminder",
+            description: "Manage reminders (one-time or cron-scheduled)",
+            handler: (ctx) => ctx.openReminders(),
+        },
+        {
+            name: "reminders",
+            description: "Alias for /reminder",
+            handler: (ctx) => ctx.openReminders(),
         },
         {
             name: "cost",

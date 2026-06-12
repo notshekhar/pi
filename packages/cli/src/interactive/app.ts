@@ -34,11 +34,14 @@ import {
     isBuiltinAgent,
     DEFAULT_AGENT_NAME,
     getProjectModel,
+    deleteReminder,
+    listReminders,
     type ThinkingLevel,
     type ProviderId,
     type Session,
     type UsageBlock,
 } from "@notshekhar/pi-core";
+import { Cron } from "croner";
 import { getSelectListTheme, initTheme } from "./ui/theme";
 import { ChatHistory } from "./components/chat-history";
 import { CostFooter } from "./components/cost-footer";
@@ -140,6 +143,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         pendingInjection: null,
         lastCtrlCAt: 0,
         startupHooksDone: null,
+        timerEndsAt: null,
+        timerLabel: "",
     };
     footer.setAgent(state.agent);
 
@@ -246,13 +251,17 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.requestRender();
     }
 
+    // Open-selector count — timer/reminder prompts wait until the slot is free.
+    let selectorDepth = 0;
     function showSelector(component: Container, focusable: Container | SelectList): () => void {
+        selectorDepth++;
         editorContainer.clear();
         editorContainer.addChild(component);
         tui.setFocus(focusable as never);
         tui.invalidate();
         tui.requestRender();
         return () => {
+            selectorDepth--;
             editorContainer.clear();
             editorContainer.addChild(editor);
             tui.setFocus(editor);
@@ -294,9 +303,97 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         }
     }
 
+    // -------------------------------------------------------------------
+    // Shared 1s ticker: footer clock, /timer countdown, reminder scheduler.
+    // Runs only while one of them needs it, so idle sessions hold no timers.
+    // -------------------------------------------------------------------
+    let ticker: ReturnType<typeof setInterval> | null = null;
+    let lastTickAt = Date.now();
+    const notices: string[] = [];
+    let noticeShowing = false;
+
+    function tickerNeeded(): boolean {
+        const clockOn = settingsStore.get("clock") === true;
+        return clockOn || state.timerEndsAt !== null || listReminders().some((r) => r.enabled);
+    }
+
+    function syncTicker(): void {
+        footer.setClockEnabled(settingsStore.get("clock") === true);
+        const needed = tickerNeeded();
+        if (needed && ticker === null) {
+            lastTickAt = Date.now();
+            ticker = setInterval(onTick, 1000);
+        } else if (!needed && ticker !== null) {
+            clearInterval(ticker);
+            ticker = null;
+        }
+        tui.requestRender();
+    }
+
+    function onTick(): void {
+        const now = Date.now();
+        checkTimer(now);
+        checkReminders(now);
+        lastTickAt = now;
+        void drainNotices();
+        syncTicker(); // also renders; stops the pulse once nothing needs it
+    }
+
+    function checkTimer(now: number): void {
+        if (state.timerEndsAt === null || now < state.timerEndsAt) return;
+        const label = state.timerLabel;
+        state.timerEndsAt = null;
+        state.timerLabel = "";
+        footer.setTimer(null);
+        ring(`Timer over — ${label}`);
+    }
+
+    function checkReminders(now: number): void {
+        for (const r of listReminders()) {
+            if (!r.enabled) continue;
+            if (r.kind === "once") {
+                // Fires only if the moment passed during this tick — a deadline
+                // that lapsed while pi was closed never fires (by design).
+                if (r.at > lastTickAt && r.at <= now) {
+                    ring(`Reminder — ${r.text}`);
+                    deleteReminder(r.id); // one-shot: gone after firing; cron ones live on
+                }
+            } else {
+                try {
+                    const next = new Cron(r.expr).nextRun(new Date(lastTickAt));
+                    if (next && next.getTime() <= now) ring(`Reminder — ${r.text}`);
+                } catch {
+                    // invalid expression — the manager validates on entry; skip
+                }
+            }
+        }
+    }
+
+    function ring(title: string): void {
+        process.stdout.write("\x07"); // terminal bell
+        notices.push(title);
+    }
+
+    // Time's-up / reminder prompts swap into the input slot like any selector,
+    // but only when it's free: never during a streaming turn, never on top of
+    // an open picker. Enter (ok) or Esc dismisses; queued ones follow.
+    async function drainNotices(): Promise<void> {
+        if (noticeShowing) return;
+        noticeShowing = true;
+        try {
+            while (notices.length > 0 && !state.busy && selectorDepth === 0) {
+                const title = notices.shift()!;
+                await selectOnce([{ value: "ok", label: "ok" }], title);
+            }
+        } finally {
+            noticeShowing = false;
+        }
+    }
+
     const restoreConsole = installConsoleBridge(history, tui);
 
     const cleanExit = (code = 0) => {
+        if (ticker !== null) clearInterval(ticker);
         tui.stop();
         // SessionEnd hooks: give them a moment, then exit regardless.
         void Promise.race([
@@ -335,7 +432,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         refreshCommands,
         version: opts.version,
         restoreConsole,
+        syncTicker,
     };
+    syncTicker();
 
     history.addSystem(
         `pi · ${state.modelId} · session ${state.session?.id ?? "unsaved"}` +

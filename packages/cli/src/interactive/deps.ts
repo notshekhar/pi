@@ -37,4 +37,6 @@ export interface AppDeps {
     version?: string;
     /** Undo the console→chat bridge before handing the terminal to a child process. */
     restoreConsole: () => void;
+    /** Start/stop the shared 1s ticker after clock/timer/reminder changes. */
+    syncTicker: () => void;
 }

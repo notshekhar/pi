@@ -25,4 +25,8 @@ export interface AppState {
     /** Resolves when trust prompt + SessionStart hooks settle; the first turn
      * awaits it so hook-injected context isn't lost to a fast first prompt. */
     startupHooksDone: Promise<void> | null;
+    /** /timer deadline (ms epoch). In-memory only — dies with the process. */
+    timerEndsAt: number | null;
+    /** Original /timer input ("1h30m"), shown in the time's-up prompt. */
+    timerLabel: string;
 }

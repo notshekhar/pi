@@ -13,6 +13,7 @@ import { createModelHandlers } from "./handlers/model-handlers";
 import { createSessionHandlers } from "./handlers/session-handlers";
 import { createSessionTreeHandlers } from "./handlers/session-tree-handlers";
 import { createSettingsHandlers } from "./handlers/settings-handlers";
+import { createTimerHandlers } from "./handlers/timer-handlers";
 
 export function createCommandContext(state: AppState, deps: AppDeps): CommandContext {
     return {
@@ -26,5 +27,6 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         ...createAgentHandlers(state, deps),
         ...createHookHandlers(state, deps),
         ...createSettingsHandlers(state, deps),
+        ...createTimerHandlers(state, deps),
     };
 }

@@ -24,7 +24,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
     const { tui, history, footer, commands, showWorking, hideWorking, selectOnce, promptOnce, refreshCommands } = deps;
 
     // Boolean settings toggle in place; unset falls back to the default here.
-    const BOOLEAN_DEFAULTS: Record<string, boolean> = { subagents: true, recap: false };
+    const BOOLEAN_DEFAULTS: Record<string, boolean> = { subagents: true, recap: false, clock: false };
     const boolSetting = (key: string): boolean =>
         (settingsStore.get(key) as boolean | undefined) ?? BOOLEAN_DEFAULTS[key];
 
@@ -58,12 +58,18 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: `recap: ${boolSetting("recap") ? "on" : "off"}`,
                         description: "short AI-generated recap under responses that changed files",
                     },
+                    {
+                        value: "clock",
+                        label: `clock: ${boolSetting("clock") ? "on" : "off"}`,
+                        description: "live date + hh:mm:ss in the footer",
+                    },
                 ];
                 const pick = await selectOnce(items, "Settings (Esc to close)");
                 if (!pick) return;
                 if (pick.value in BOOLEAN_DEFAULTS) {
                     const next = !boolSetting(pick.value);
                     settingsStore.set(pick.value, next);
+                    deps.syncTicker(); // clock toggle starts/stops the 1s footer pulse
                     history.addSystem(`${pick.value} → ${next ? "on" : "off"}`);
                     tui.requestRender();
                     continue;

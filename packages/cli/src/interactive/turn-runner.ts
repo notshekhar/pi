@@ -7,9 +7,9 @@ import {
     subagentArgSummary,
     type UsageBlock,
 } from "@notshekhar/pi-core";
+import { wrapSessionHookContext } from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
-import { wrapSessionHookContext } from "./hook-context";
 
 function pickContextUsage(event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }): UsageBlock | undefined {
     return event.lastStepUsage ?? event.usage;

@@ -42,8 +42,20 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
         renderPending,
         showWorking,
         hideWorking,
-        selectOnce,
+        searchOnce,
     } = deps;
+
+    /** "today 10:49 PM", "yesterday 9:12 AM", else locale date — keeps the
+     * list scannable and makes "today"/"yesterday" searchable terms. */
+    const formatSessionTime = (mtime: number): string => {
+        const d = new Date(mtime);
+        const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+        const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+        const today = startOfDay(new Date());
+        if (d.getTime() >= today) return `today ${time}`;
+        if (d.getTime() >= today - 86_400_000) return `yesterday ${time}`;
+        return d.toLocaleString(undefined, { month: "numeric", day: "numeric", year: "numeric" }) + ` ${time}`;
+    };
 
     return {
         async newSession() {
@@ -120,13 +132,46 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                 tui.requestRender();
                 return;
             }
-            const items: SelectItem[] = sessions.map((s) => ({
-                value: s.path,
-                label: `${s.id.slice(0, 12)}  ${s.model || "?"}`,
-                description: `${new Date(s.mtime).toLocaleString()}  ·  ${s.firstUserMessage?.slice(0, 80) ?? "(no messages)"}${s.source === "pi" ? "  [pi]" : ""}`,
-            }));
-            const pick = await selectOnce(items);
-            if (!pick) return;
+
+            // Date buckets: first row cycles through them; type-to-search
+            // (searchOnce) filters the rest by id/model/date/first message.
+            const DAY = 86_400_000;
+            const now = new Date();
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            const dateFilters: Array<{ label: string; test: (mtime: number) => boolean }> = [
+                { label: "all", test: () => true },
+                { label: "today", test: (t) => t >= todayStart },
+                { label: "yesterday", test: (t) => t >= todayStart - DAY && t < todayStart },
+                { label: "last 7 days", test: (t) => t >= todayStart - 6 * DAY },
+                { label: "last 30 days", test: (t) => t >= todayStart - 29 * DAY },
+            ];
+            const FILTER_ROW = "\x00date-filter";
+            let filterIndex = 0;
+
+            let pick: SelectItem | null;
+            while (true) {
+                const filter = dateFilters[filterIndex];
+                const filtered = sessions.filter((s) => filter.test(s.mtime));
+                const items: SelectItem[] = [
+                    {
+                        value: FILTER_ROW,
+                        label: `⏷ date: ${filter.label}`,
+                        description: "Enter cycles · all → today → yesterday → last 7 days → last 30 days",
+                    },
+                    ...filtered.map((s) => ({
+                        value: s.path,
+                        label: `${s.id.slice(0, 12)}  ${s.model || "?"}`,
+                        description: `${formatSessionTime(s.mtime)}  ·  ${s.firstUserMessage?.slice(0, 80) ?? "(no messages)"}${s.source === "pi" ? "  [pi]" : ""}`,
+                    })),
+                ];
+                pick = await searchOnce(items, `Resume session · ${filtered.length}/${sessions.length}`);
+                if (!pick) return;
+                if (pick.value === FILTER_ROW) {
+                    filterIndex = (filterIndex + 1) % dateFilters.length;
+                    continue;
+                }
+                break;
+            }
             try {
                 const selectedPath = pick.value;
                 state.session = await manager.open(pick.value);

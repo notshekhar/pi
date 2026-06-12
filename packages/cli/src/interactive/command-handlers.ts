@@ -41,12 +41,10 @@ import {
     deleteAgent,
     getAgentPrompt,
     getAgentTools,
-    getAgentSubagentTools,
     AGENT_TOOL_NAMES,
     hasBuiltinOverride,
     DEFAULT_AGENT_NAME,
     DEFAULT_BASE_PROMPT,
-    TOOL_NAMES,
     setActiveProvider,
     setProjectModel,
     settingsStore,
@@ -564,15 +562,11 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                 if (picked === null) return null;
                 return picked.length === all.length ? undefined : picked;
             };
-            // Agent tools include "task" (subagents); the subagent cap is file
-            // tools only — what anything this agent spawns may use.
+            // Agent tools include "task" (subagents). No separate subagent
+            // config: a subagent forks the spawning turn's agent and is always
+            // capped to its tools, so delegation can never widen access.
             const pickTools = (initial: string[] | undefined) =>
                 pickFrom([...AGENT_TOOL_NAMES], initial, "Agent tools (task = can spawn subagents)");
-            const pickSubagentCap = (initial: string[] | undefined) =>
-                pickFrom([...TOOL_NAMES], initial, "Subagent tools — cap for everything this agent spawns");
-            const hasTask = (tools: string[] | undefined) => !tools?.length || tools.includes("task");
-            const fileToolsOf = (tools: string[] | undefined) =>
-                tools?.filter((t) => (TOOL_NAMES as readonly string[]).includes(t));
 
             // Loop so Esc in submenus returns to the agent list, like /settings.
             while (true) {
@@ -609,23 +603,16 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                     // Tools first, then the prompt — the prompt can reference what's allowed.
                     const tools = await pickTools(undefined);
                     if (tools === null) continue;
-                    // Agent can spawn subagents → ask what those may use.
-                    let subCap: string[] | undefined;
-                    if (hasTask(tools)) {
-                        const cap = await pickSubagentCap(fileToolsOf(tools));
-                        if (cap === null) continue;
-                        subCap = cap;
-                    }
                     const prompt = await promptOnce(
                         `system prompt for "${name}" [${toolsLabel(tools)}]`,
                         DEFAULT_BASE_PROMPT,
                     );
                     if (!prompt.trim()) continue;
-                    saveAgent(name, prompt, tools, subCap);
+                    saveAgent(name, prompt, tools);
                     registerAgentCommand(commands, name);
                     refreshCommands();
                     history.addSystem(
-                        `agent "${name}" created [${toolsLabel(tools)}${hasTask(tools) ? ` · subagents: ${toolsLabel(subCap)}` : ""}] — /${name} <message> for one message, /agents → use for the session`,
+                        `agent "${name}" created [${toolsLabel(tools)}] — /${name} <message> for one message, /agents → use for the session`,
                     );
                     tui.requestRender();
                     continue;
@@ -635,8 +622,6 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                 const info = agents.find((a) => a.name === name);
                 const isBuiltin = info?.builtin ?? false;
                 const currentTools = getAgentTools(name);
-                const currentSubCap = getAgentSubagentTools(name);
-                const capLabel = hasTask(currentTools) ? ` · subagents: ${toolsLabel(currentSubCap)}` : "";
                 const actions: SelectItem[] = [
                     { value: "use", label: "use", description: `switch active agent to "${name}"` },
                     { value: "edit", label: "edit prompt", description: "edit this agent's system prompt" },
@@ -646,7 +631,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                     actions.push({
                         value: "tools-view",
                         label: "tools (fixed)",
-                        description: `${toolsLabel(currentTools)}${capLabel}`,
+                        description: toolsLabel(currentTools),
                     });
                     if (hasBuiltinOverride(name)) {
                         actions.push({
@@ -659,11 +644,11 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                     actions.push({
                         value: "tools",
                         label: "edit tools",
-                        description: `current: ${toolsLabel(currentTools)}${capLabel}`,
+                        description: `current: ${toolsLabel(currentTools)}`,
                     });
                     actions.push({ value: "delete", label: "delete", description: "remove agent and its /command" });
                 }
-                const action = await selectOnce(actions, `Agent: ${name} [${toolsLabel(currentTools)}${capLabel}]`);
+                const action = await selectOnce(actions, `Agent: ${name} [${toolsLabel(currentTools)}]`);
                 if (!action) continue;
 
                 if (action.value === "use") {
@@ -677,23 +662,15 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                     return;
                 }
                 if (action.value === "tools-view") {
-                    history.addSystem(`agent "${name}" tools (fixed): ${toolsLabel(currentTools)}${capLabel}`);
+                    history.addSystem(`agent "${name}" tools (fixed): ${toolsLabel(currentTools)}`);
                     tui.requestRender();
                     continue;
                 }
                 if (action.value === "tools") {
                     const tools = await pickTools(currentTools);
                     if (tools === null) continue;
-                    let subCap: string[] | undefined;
-                    if (hasTask(tools)) {
-                        const cap = await pickSubagentCap(currentSubCap ?? fileToolsOf(tools));
-                        if (cap === null) continue;
-                        subCap = cap;
-                    }
-                    saveAgent(name, getAgentPrompt(name) ?? DEFAULT_BASE_PROMPT, tools, subCap);
-                    history.addSystem(
-                        `agent "${name}" tools → ${toolsLabel(tools)}${hasTask(tools) ? ` · subagents: ${toolsLabel(subCap)}` : ""}`,
-                    );
+                    saveAgent(name, getAgentPrompt(name) ?? DEFAULT_BASE_PROMPT, tools);
+                    history.addSystem(`agent "${name}" tools → ${toolsLabel(tools)}`);
                     tui.requestRender();
                     continue;
                 }
@@ -709,7 +686,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
                         current,
                     );
                     if (!edited.trim() || edited.trim() === current.trim()) continue;
-                    saveAgent(name, edited, currentTools, currentSubCap);
+                    saveAgent(name, edited, currentTools);
                     history.addSystem(`agent "${name}" prompt updated`);
                     tui.requestRender();
                     continue;

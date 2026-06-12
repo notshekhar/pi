@@ -4,19 +4,19 @@ import type { TurnEmitter } from "./events";
 import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
-import { getCustomProvider, isCustomProvider, parseCustomProviderId } from "../auth";
+import { effectiveSdkProvider } from "../auth";
 import { createTools } from "../tools";
 import { buildSystemPrompt } from "./system-prompt";
-import { getAgentPrompt, getAgentTools, getAgentSubagentTools, listAgents } from "./agents";
+import { getAgentPrompt, getAgentTools, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
-import { CostTracker } from "./cost";
+import { CostTracker, sumUsage } from "./cost";
 import { runCompact } from "./compact";
 import { runHooks, type HookOutcome } from "./hooks";
 import { isTrusted } from "./trust";
 import { buildProviderOptions, type ThinkingLevel } from "./thinking";
-import { estimateContextTokens, toModelMessages, withAnthropicCaching } from "./model-messages";
+import { estimateContextTokens, moveAnthropicCacheTail, toModelMessages, withAnthropicCaching } from "./model-messages";
 import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
 import type { Session } from "../sessions";
@@ -53,7 +53,6 @@ export {
     saveAgent,
     deleteAgent,
     isValidAgentName,
-    getAgentSubagentTools,
     parseAgentFile,
     AGENT_TOOL_NAMES,
     type AgentInfo,
@@ -185,9 +184,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     ) as typeof fullToolSet;
     // Subagents: master `subagents` setting gates the task tool entirely (off
     // → no agent gets it). Otherwise unrestricted agents always get it;
-    // restricted agents get it only when their tool list opts in ("task"),
-    // and their subagent-tools cap is enforced on everything they spawn —
-    // delegation never widens access. Subagents never get one (no nesting).
+    // restricted agents get it only when their tool list opts in ("task").
+    // A subagent is a fork of this turn's agent by default; either way its
+    // tools are capped to this turn's file tools, so delegation never widens
+    // access. Subagents never get task themselves (no nesting).
     const subagentsEnabled = getSetting("subagents") !== false;
     const toolsForTurn: Record<string, unknown> = { ...toolSet };
     if (subagentsEnabled && (!allowedTools?.length || allowedTools.includes("task"))) {
@@ -200,7 +200,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             session,
             sessionId: session.id,
             transcriptPath: session.path,
-            subagentToolCap: opts.agent ? getAgentSubagentTools(opts.agent) : undefined,
+            turnAgent: opts.agent,
+            parentTools: Object.keys(toolSet),
+            workspaceContext: workspaceContext.text,
+            skillsPrompt: skills.promptBlock,
         });
     }
     // System prompt is built AFTER the task tool decision so the model's tool
@@ -210,7 +213,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             ? `\n\nSubagents (task tool): delegate work that would flood your context — broad codebase exploration, analyzing many files, research across directories, or an independent multi-file change. Each subagent runs in its own context window and returns only a final report.
 Use task when: the job is self-contained, needs many file reads/searches, or you want parallel investigation of separate areas.
 Do NOT use task when: the job is one or two tool calls, needs back-and-forth with the user, or depends on context only you have (unless you include it in the prompt).
-Write complete prompts: the subagent knows nothing about this conversation — include paths, goals, constraints, and the exact output you expect. Call task alone in its step, never alongside other tool calls. Available agents: ${listAgents()
+Write complete prompts: the subagent knows nothing about this conversation — include paths, goals, constraints, and the exact output you expect. Call task alone in its step, never alongside other tool calls. By default the subagent is a fork of you (same prompt and tools, minus task); pass agent to run a named agent instead. Available agents: ${listAgents()
                   .map((a) => a.name)
                   .join(", ")}.`
             : "";
@@ -270,11 +273,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     // Custom providers (gateways like bifrost) proxy a real vendor API — map
     // thinking/caching by the configured sdk so e.g. an anthropic-compatible
     // gateway gets adaptive thinking + prompt-cache breakpoints.
-    let effectiveProvider: string = provider;
-    if (isCustomProvider(provider)) {
-        const sdk = getCustomProvider(parseCustomProviderId(provider)!)?.sdk;
-        if (sdk) effectiveProvider = sdk === "openai-compatible" ? "openai" : sdk;
-    }
+    const effectiveProvider = effectiveSdkProvider(provider);
     let providerOptions =
         modelInfo?.reasoning === false
             ? undefined
@@ -299,7 +298,16 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         ...(anthropicCaching
             ? // system inside messages is our deliberate Anthropic prompt-caching
               // pattern — allowSystemInMessages opts out of the AI SDK warning.
-              { messages: withAnthropicCaching(system, messages), allowSystemInMessages: true }
+              {
+                  messages: withAnthropicCaching(system, messages),
+                  allowSystemInMessages: true,
+                  // Per-step moving breakpoint: without it, every step after the
+                  // first re-bills all accumulated tool results at full input
+                  // price (quadratic in steps on long turns).
+                  prepareStep: ({ messages: stepMessages }: { messages: ModelMessage[] }) => ({
+                      messages: moveAnthropicCacheTail(stepMessages),
+                  }),
+              }
             : { system, messages }),
         tools,
         stopWhen: stepCountIs(maxSteps),
@@ -311,6 +319,10 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     let assistantText = "";
     let lastUsage: UsageBlock | undefined;
     let lastStepUsage: UsageBlock | undefined;
+    // Per-step running sum — an aborted turn never sees `finish`, but its
+    // completed steps were billed; persisting the sum keeps resumed-session
+    // cost seeding honest (same pattern as the subagent loop).
+    let stepUsageSum: UsageBlock | undefined;
 
     for await (const part of result.fullStream) {
         if (abortSignal?.aborted) break;
@@ -342,6 +354,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                 const u = (part as { usage?: UsageBlock }).usage;
                 if (u) {
                     lastStepUsage = u;
+                    stepUsageSum = sumUsage(stepUsageSum, u);
                     const breakdown = tracker.add(modelId, u, cwd);
                     emitter.emit("step-usage", { usage: u, breakdown });
                 }
@@ -363,14 +376,17 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     }
 
     // Aborted/tool-only turns can end with no text — don't persist an empty
-    // assistant message (Anthropic rejects empty text blocks on later turns).
-    if (assistantText.trim() !== "" || lastUsage) {
+    // assistant message (Anthropic rejects empty text blocks on later turns;
+    // toModelMessages also filters empty content on read). But DO persist when
+    // steps completed before an abort: their usage is real spend and resume
+    // seeding reads it from here.
+    if (assistantText.trim() !== "" || lastUsage || stepUsageSum) {
         await session.append({
             type: "message",
             ts: Date.now(),
             role: "assistant",
             content: assistantText,
-            usage: lastUsage,
+            usage: lastUsage ?? stepUsageSum,
         });
     }
 

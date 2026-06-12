@@ -18,6 +18,30 @@ function dayKey(d = new Date()): string {
     return d.toLocaleDateString("sv");
 }
 
+/** Sum two usage blocks field-wise — used to keep a running per-step total so
+ * aborted runs can still persist the usage of the steps that completed. */
+export function sumUsage(a: UsageBlock | undefined, b: UsageBlock): UsageBlock {
+    if (!a) return { ...b, inputTokenDetails: b.inputTokenDetails ? { ...b.inputTokenDetails } : undefined };
+    const n = (x?: number, y?: number) => (x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0));
+    const details =
+        a.inputTokenDetails || b.inputTokenDetails
+            ? {
+                  noCacheTokens: n(a.inputTokenDetails?.noCacheTokens, b.inputTokenDetails?.noCacheTokens),
+                  cacheReadTokens: n(a.inputTokenDetails?.cacheReadTokens, b.inputTokenDetails?.cacheReadTokens),
+                  cacheWriteTokens: n(a.inputTokenDetails?.cacheWriteTokens, b.inputTokenDetails?.cacheWriteTokens),
+              }
+            : undefined;
+    return {
+        inputTokens: n(a.inputTokens, b.inputTokens),
+        outputTokens: n(a.outputTokens, b.outputTokens),
+        totalTokens: n(a.totalTokens, b.totalTokens),
+        cachedInputTokens: n(a.cachedInputTokens, b.cachedInputTokens),
+        reasoningTokens: n(a.reasoningTokens, b.reasoningTokens),
+        cost: n(a.cost, b.cost),
+        inputTokenDetails: details,
+    };
+}
+
 export class CostTracker {
     private session: CostBreakdown = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, usd: 0 };
 

@@ -186,3 +186,15 @@ export function isCustomProvider(id: string): boolean {
 export function parseCustomProviderId(id: string): string | null {
     return isCustomProvider(id) ? id.slice("custom:".length) : null;
 }
+
+/**
+ * The vendor API shape a provider actually speaks: custom providers (gateways
+ * like bifrost) map to their configured sdk, so e.g. an anthropic-compatible
+ * gateway gets anthropic-specific behavior (prompt caching, thinking budget).
+ */
+export function effectiveSdkProvider(provider: string): string {
+    if (!isCustomProvider(provider)) return provider;
+    const sdk = getCustomProvider(parseCustomProviderId(provider)!)?.sdk;
+    if (!sdk) return provider;
+    return sdk === "openai-compatible" ? "openai" : sdk;
+}

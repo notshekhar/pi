@@ -252,3 +252,50 @@ export class CompactionSummaryMessageComponent extends Box {
         }
     }
 }
+
+/** Branch summary box (pi-mono BranchSummaryMessageComponent) — rendered when
+ * /tree navigation summarized the abandoned branch. */
+export class BranchSummaryMessageComponent extends Box {
+    private expanded = false;
+
+    constructor(
+        private summary: string,
+        private markdownTheme: MarkdownTheme = getMarkdownTheme(),
+    ) {
+        super(1, 1, (t) => theme.bg("customMessageBg", t));
+        this.updateDisplay();
+    }
+
+    setExpanded(expanded: boolean): void {
+        this.expanded = expanded;
+        this.updateDisplay();
+    }
+
+    override invalidate(): void {
+        super.invalidate();
+        this.updateDisplay();
+    }
+
+    private updateDisplay(): void {
+        this.clear();
+        this.addChild(new Text(theme.fg("customMessageLabel", "\x1b[1m[branch]\x1b[22m"), 0, 0));
+        this.addChild(new Spacer(1));
+        if (this.expanded) {
+            this.addChild(
+                new Markdown(`**Branch Summary**\n\n${this.summary}`, 0, 0, this.markdownTheme, {
+                    color: (text: string) => theme.fg("customMessageText", text),
+                }),
+            );
+        } else {
+            this.addChild(
+                new Text(
+                    theme.fg("customMessageText", "Branch summary (") +
+                        theme.fg("dim", EXPAND_HINT) +
+                        theme.fg("customMessageText", " to expand)"),
+                    0,
+                    0,
+                ),
+            );
+        }
+    }
+}

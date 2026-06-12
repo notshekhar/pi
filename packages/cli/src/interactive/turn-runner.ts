@@ -9,6 +9,7 @@ import {
 } from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
+import { wrapSessionHookContext } from "./hook-context";
 
 function pickContextUsage(event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }): UsageBlock | undefined {
     return event.lastStepUsage ?? event.usage;
@@ -44,8 +45,17 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         const text = raw.trim();
         if (!text) return;
 
-        // Slash commands always run inline (no queueing). Handler errors land in
-        // chat — otherwise they die as unhandled rejections nobody sees.
+        // Agent busy → queue for after the current turn. Slash commands queue
+        // too: most mutate session/model state and would race the running turn.
+        if (state.busy) {
+            queuedMessages.push(text);
+            renderPending();
+            tui.requestRender();
+            return;
+        }
+
+        // Slash commands run inline. Handler errors land in chat — otherwise
+        // they die as unhandled rejections nobody sees.
         if (text.startsWith("/")) {
             history.addCommand(text);
             try {
@@ -56,14 +66,6 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             } catch (err) {
                 history.addError(formatError(err));
             }
-            tui.requestRender();
-            return;
-        }
-
-        // Agent busy → queue for after current turn
-        if (state.busy) {
-            queuedMessages.push(text);
-            renderPending();
             tui.requestRender();
             return;
         }
@@ -82,9 +84,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         // SessionStart hook context must persist in the transcript (the model
         // needs it in history on every later turn), but the tag lets the TUI
         // collapse it instead of rendering it as if the user typed it.
-        const finalInput = state.pendingInjection
-            ? `<session-start-hook-context>\n${state.pendingInjection}\n</session-start-hook-context>\n\n${text}`
-            : text;
+        const finalInput = state.pendingInjection ? wrapSessionHookContext(state.pendingInjection, text) : text;
         state.pendingInjection = null;
 
         // One-shot agent (/<agent> <message>) applies to exactly this turn.

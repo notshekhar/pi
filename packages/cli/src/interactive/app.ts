@@ -1,22 +1,22 @@
+/**
+ * Interactive mode orchestrator: builds the TUI layout, wires state + deps
+ * into the input handler / turn runner / command context, and kicks off
+ * startup work. Behavior lives in the wired modules, not here.
+ */
 import {
     CombinedAutocompleteProvider,
     Container,
     Editor,
-    KeybindingsManager,
     Loader,
     ProcessTerminal,
     SelectList,
     type SelectItem,
-    setKeybindings,
     Spacer,
     Text,
     TUI,
-    TUI_KEYBINDINGS,
     type EditorTheme,
     type SlashCommand as TuiSlashCommand,
 } from "@notshekhar/pi-tui";
-import { DynamicBorder } from "./ui/messages";
-import { getSelectListTheme, initTheme } from "./ui/theme";
 import chalk from "chalk";
 import {
     CommandRegistry,
@@ -28,25 +28,18 @@ import {
     getCatalog,
     getModelSync,
     parseModelId,
-    loadWorkspaceContext,
-    loadProjectSkills,
     runHooks,
-    loadHooksConfig,
     hookBus,
     agentExists,
     isBuiltinAgent,
     DEFAULT_AGENT_NAME,
     getProjectModel,
-    hasProjectTrustInputs,
-    getTrustDecision,
-    getTrustOptions,
-    setTrust,
-    trustForSession,
     type ThinkingLevel,
     type ProviderId,
     type Session,
     type UsageBlock,
 } from "@notshekhar/pi-core";
+import { getSelectListTheme, initTheme } from "./ui/theme";
 import { ChatHistory } from "./components/chat-history";
 import { CostFooter } from "./components/cost-footer";
 import {
@@ -57,9 +50,10 @@ import {
 } from "./selectors";
 import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
-import { checkForUpdate } from "../commands";
-import { getNewEntries, loadChangelogEntries } from "../changelog";
 import { createTurnRunner } from "./turn-runner";
+import { registerAppKeybindings } from "./app-keybindings";
+import { installConsoleBridge } from "./console-bridge";
+import { runStartupTrustAndHooks, showWhatsNew, showWorkspaceBanners, startUpdateCheck } from "./startup";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 
@@ -76,25 +70,20 @@ const editorTheme: EditorTheme = {
     selectList: getSelectListTheme(),
 };
 
+const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
+    xai: "xai/grok-build-0.1",
+    anthropic: "anthropic/claude-sonnet-4-6",
+    openai: "openai/gpt-5",
+    google: "google/gemini-3.1-pro",
+    openrouter: "openrouter/anthropic/claude-sonnet-4-6",
+    "github-copilot": "github-copilot/gpt-5",
+};
+
 export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     initTheme((settingsStore.get("theme") as string | undefined) ?? "dark");
-
-    const APP_KEYBINDINGS = {
-        "app.tools.expand": { defaultKeys: "ctrl+e", description: "Toggle tool output" },
-        "app.interrupt": { defaultKeys: "escape", description: "Interrupt agent" },
-        "app.clear": { defaultKeys: "ctrl+c", description: "Clear / exit" },
-    } as const;
-    setKeybindings(new KeybindingsManager({ ...TUI_KEYBINDINGS, ...APP_KEYBINDINGS } as never));
+    registerAppKeybindings();
 
     const initialProvider = (opts.provider ?? getActiveProvider() ?? "xai") as ProviderId;
-    const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
-        xai: "xai/grok-build-0.1",
-        anthropic: "anthropic/claude-sonnet-4-6",
-        openai: "openai/gpt-5",
-        google: "google/gemini-3.1-pro",
-        openrouter: "openrouter/anthropic/claude-sonnet-4-6",
-        "github-copilot": "github-copilot/gpt-5",
-    };
     // Model precedence: CLI flag > this folder's last pick > global default.
     let initialModelId =
         opts.modelId ??
@@ -213,32 +202,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     root.addChild(footer);
     tui.addChild(root);
 
-    // What's-new: show changelog entries the user hasn't seen yet (pi-mono
-    // parity: fresh installs just record the version; resumed sessions skip).
-    if (opts.version && !opts.sessionId) {
-        const lastSeen = settingsStore.get("lastChangelogVersion") as string | undefined;
-        if (!lastSeen) {
-            settingsStore.set("lastChangelogVersion", opts.version);
-        } else if (lastSeen !== opts.version) {
-            const fresh = getNewEntries(loadChangelogEntries(), lastSeen);
-            if (fresh.length > 0) {
-                history.addSystem(chalk.dim(`Updated to v${opts.version} — what's new:`));
-                history.addMarkdown(fresh.map((e) => e.content).join("\n\n"));
-            }
-            settingsStore.set("lastChangelogVersion", opts.version);
-        }
-    }
-
-    // Silent background update check; suggest upgrade if a newer release exists.
-    // Fire-and-forget so startup never blocks on the network.
-    if (opts.version) {
-        void checkForUpdate(opts.version).then((latest) => {
-            if (latest) {
-                history.addSystem(`Update available: v${opts.version} → ${latest}. Run \`pi update\` to upgrade.`);
-                tui.requestRender();
-            }
-        });
-    }
+    showWhatsNew(history, opts.version, Boolean(opts.sessionId));
+    startUpdateCheck(history, tui, opts.version);
 
     // Force a catalog availability refresh on every startup — provider model
     // lists drift (new releases, deprecations, gating) and the cached list is
@@ -365,63 +330,13 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
             (state.agent !== DEFAULT_AGENT_NAME ? ` · agent ${state.agent}` : ""),
     );
     history.addSystem(`Type /help for commands. Shift+Tab cycles agents. Ctrl+C twice to quit.`);
-
-    if ((settingsStore.get("workspaceContext") as boolean) !== false) {
-        const ws = loadWorkspaceContext(state.cwd);
-        if (ws.files.length > 0) {
-            history.addSystem(chalk.dim(`workspace context (${ws.files.length}):`));
-            for (const f of ws.files) {
-                history.addSystem(chalk.dim(`  • ${f.replace(process.env.HOME ?? "", "~")}`));
-            }
-        } else {
-            history.addSystem(chalk.dim("workspace context: none (AGENTS.md, CLAUDE.md not found)"));
-        }
-    }
-    if ((settingsStore.get("skills") as boolean) !== false) {
-        const sk = await loadProjectSkills(state.cwd);
-        if (sk.skills.length > 0) {
-            history.addSystem(chalk.dim(`skills (${sk.skills.length}):`));
-            for (const s of sk.skills) {
-                history.addSystem(chalk.dim(`  • ${s.name} — ${s.description.slice(0, 80)}`));
-            }
-        }
-    }
+    await showWorkspaceBanners(history, state.cwd);
 
     const ctx = createCommandContext(state, deps);
     tui.addInputListener(createInputHandler(state, deps, ctx));
     editor.onSubmit = createTurnRunner(state, deps, ctx);
 
-    // Stray console output from libraries (warnings, deprecation notices)
-    // bypasses the renderer and tears frames. Route it into the chat as
-    // messages instead — errors red, the rest dim. stdout/stderr writes from
-    // native code still bypass this, but console.* covers the practical cases.
-    const origConsole = { log: console.log, warn: console.warn, error: console.error };
-    const fmt = (args: unknown[]) => args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
-    console.log = (...args: unknown[]) => {
-        history.addSystem(fmt(args));
-        tui.requestRender();
-    };
-    console.warn = (...args: unknown[]) => {
-        history.addSystem(fmt(args));
-        tui.requestRender();
-    };
-    console.error = (...args: unknown[]) => {
-        history.addError(fmt(args));
-        tui.requestRender();
-    };
-    const restoreConsole = () => Object.assign(console, origConsole);
-    process.once("exit", restoreConsole);
-
-    // Last-resort error surfacing: anything that escapes a handler renders in
-    // chat instead of tearing the TUI via stderr or killing the process.
-    // Display only — errors are never written to the session transcript.
-    const surfaceError = (prefix: string) => (err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        history.addError(`${prefix}: ${msg}`);
-        tui.requestRender();
-    };
-    process.on("uncaughtException", surfaceError("uncaught"));
-    process.on("unhandledRejection", surfaceError("unhandled"));
+    installConsoleBridge(history, tui);
 
     // Plugin hooks ship statusMessage ("Loading caveman mode…") — transient
     // "while running" text, so it rides the loader, never the chat (a chat line
@@ -445,79 +360,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     tui.start();
     tui.requestRender();
 
-    // Project trust → SessionStart hooks. First open of a folder that ships
-    // .pi/.claude resources prompts before any project hook/skill can run; the
-    // decision gates project resource loading (executable hooks, project skills).
     // Catalog warm-up: models change between releases — kick the
     // stale-while-revalidate refresh now (background; serves cache instantly)
     // so the model list and availability are fresh for this session.
     void getCatalog().catch(() => {});
 
-    state.startupHooksDone = (async () => {
-        if (hasProjectTrustInputs(state.cwd) && getTrustDecision(state.cwd) === null) {
-            const opts = getTrustOptions(state.cwd);
-            history.addSystem(
-                chalk.yellow(`Trust this project folder?\n${state.cwd}`) +
-                    chalk.dim("\nTrusting lets pi load this repo's .pi/.claude settings, hooks, and skills."),
-            );
-            tui.requestRender();
-            const items: SelectItem[] = opts.map((o) => ({ value: o.label, label: o.label, description: "" }));
-            const pick = await selectOnce(items, "Project trust");
-            const chosen = opts.find((o) => o.label === pick?.value);
-            if (chosen) {
-                if (chosen.remember) setTrust(chosen.savePath, chosen.trusted);
-                else if (chosen.trusted) trustForSession(state.cwd); // session-only: in-memory, not persisted
-                history.addSystem(
-                    chalk.dim(
-                        chosen.trusted ? "✓ project trusted" : "✗ project not trusted — project hooks/skills disabled",
-                    ),
-                );
-            } else {
-                history.addSystem(chalk.dim("trust prompt dismissed — treating project as untrusted for now"));
-            }
-            tui.requestRender();
-        }
-
-        // Active hooks summary (after trust is resolved so project hooks count).
-        // Display command shortened to its script basename — full plugin paths
-        // are too long for the startup banner.
-        const shortCmd = (cmd: unknown): string => {
-            // Malformed config entries can lack `command` — banner must not throw.
-            if (typeof cmd !== "string" || !cmd) return "(invalid hook entry)";
-            const script = cmd.match(/[^\s"']+\.(?:sh|js|ts|py|cmd|mjs|cjs)\b/)?.[0];
-            if (script) return script.split("/").pop()!;
-            return cmd.length > 48 ? `${cmd.slice(0, 45)}…` : cmd;
-        };
-        const hooksCfg = loadHooksConfig(state.cwd);
-        const hookEvents = Object.entries(hooksCfg).filter(([, groups]) => groups?.length);
-        if (hookEvents.length > 0) {
-            const total = hookEvents.reduce(
-                (n, [, groups]) => n + groups!.reduce((m, g) => m + (g.hooks?.length ?? 0), 0),
-                0,
-            );
-            history.addHook(`hooks (${total}):`);
-            for (const [ev, groups] of hookEvents) {
-                const cmds = groups!.flatMap((g) => g.hooks ?? []).map((h) => shortCmd(h.command));
-                history.addSystem(chalk.dim(`    • ${ev}: ${cmds.join(", ")}`));
-            }
-            tui.requestRender();
-        }
-
-        // SessionStart hooks (now that trust is resolved): messages render in chat;
-        // additionalContext rides the first user prompt.
-        const h = await runHooks(
-            "SessionStart",
-            "startup",
-            { session_id: state.session?.id, transcript_path: state.session?.path, source: "startup" },
-            state.cwd,
-        );
-        for (const m of h.messages) history.addHook(m);
-        for (const s of h.terminalSequences) process.stdout.write(s);
-        if (h.additionalContext) {
-            state.pendingInjection = state.pendingInjection
-                ? `${state.pendingInjection}\n\n${h.additionalContext}`
-                : h.additionalContext;
-        }
-        if (h.messages.length || h.additionalContext) tui.requestRender();
-    })();
+    // Trust prompt + SessionStart hooks; the first turn awaits this so
+    // hook-injected context isn't lost to a fast first prompt.
+    state.startupHooksDone = runStartupTrustAndHooks(state, deps);
 }

@@ -262,6 +262,7 @@ export class ChatHistory extends Container {
     /** Post-turn recap (data-recap): dim ✻ lines under the response. */
     addRecap(text: string): void {
         const lines = text.split("\n");
+        lines.push("(disable recaps in /settings)");
         const body = lines.map((l, i) => chalk.dim(i === 0 ? `✻ ${l}` : `  ${l}`)).join("\n");
         this.addChild(new Spacer(1));
         this.addChild(new Text(body, 1, 0));

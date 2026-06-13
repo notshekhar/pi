@@ -13,6 +13,9 @@ export interface TurnEvents {
     "reasoning-end": void;
     "tool-call": { toolName?: string; input?: unknown; toolCallId?: string };
     "tool-result": { toolCallId?: string; output?: unknown };
+    /** A tool's execute threw (or timed out). The error rides back to the model
+     * as the tool result, so the agent can recover; the UI renders it red. */
+    "tool-error": { toolCallId?: string; toolName?: string; error: unknown };
     "tool-input-updated": { toolCallId?: string; toolName: string; input: unknown };
     "attached-images": string[];
     "hook-message": string;

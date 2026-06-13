@@ -4,13 +4,63 @@ import { join } from "node:path";
 
 const PI_DIR = join(homedir(), ".pi");
 
-export const authStore = new Configstore(
+type StoreData = Record<string, unknown>;
+
+/**
+ * configstore reads + JSON-parses the whole file from disk on EVERY `.get`/`.all`
+ * and rewrites it on every `.set` — it has no in-memory cache (verified against
+ * configstore@7 source: `get all()` calls `readFileSync` each time). In our hot
+ * paths that synchronous read blocks the event loop: the agent loop reads ~8
+ * settings per turn (plus per subagent), and the footer ticker reads several
+ * every second. That blocking I/O is a prime suspect for the UI freezing.
+ *
+ * CachedStore keeps the parsed object in memory and only touches the disk on a
+ * real write. Reads come from the cache; writes go through to configstore (for
+ * persistence) and refresh the cache. `refresh()` drops the cache so an external
+ * edit to the file is picked up on the next read.
+ */
+export class CachedStore {
+    private readonly store: Configstore;
+    private cache: StoreData | null = null;
+
+    constructor(id: string, defaults: StoreData, options: { configPath: string }) {
+        this.store = new Configstore(id, defaults, options);
+    }
+
+    get all(): StoreData {
+        if (this.cache === null) this.cache = this.store.all as StoreData;
+        return this.cache;
+    }
+
+    set all(value: StoreData) {
+        this.store.all = value;
+        this.cache = value;
+    }
+
+    get(key: string): unknown {
+        return this.all[key];
+    }
+
+    set(key: string, value: unknown): void {
+        this.store.set(key, value);
+        // Keep the cache coherent without a re-read. If nothing is cached yet,
+        // leave it null so the next read pulls the merged-with-defaults file.
+        if (this.cache !== null) this.cache[key] = value;
+    }
+
+    /** Force a re-read on next access — call after an external write to the file. */
+    refresh(): void {
+        this.cache = null;
+    }
+}
+
+export const authStore = new CachedStore(
     "pi-agent-auth",
     { providers: {}, active: null },
     { configPath: join(PI_DIR, "auth.json") },
 );
 
-export const settingsStore = new Configstore(
+export const settingsStore = new CachedStore(
     "pi-agent-settings",
     {
         defaultModel: null,
@@ -23,7 +73,7 @@ export const settingsStore = new Configstore(
     { configPath: join(PI_DIR, "settings.json") },
 );
 
-export const costStore = new Configstore(
+export const costStore = new CachedStore(
     "pi-agent-cost",
     { lifetime: { usd: 0, byProvider: {} } },
     { configPath: join(PI_DIR, "cost.json") },

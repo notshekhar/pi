@@ -6,10 +6,9 @@
  * There is deliberately no seen/missed tracking — reminders fire only while
  * pi is open.
  */
-import Configstore from "configstore";
 import { join } from "node:path";
 import { ulid } from "ulid";
-import { getPiDir } from "./auth/storage";
+import { CachedStore, getPiDir } from "./auth/storage";
 
 export type ReminderSchedule = { kind: "once"; at: number } | { kind: "cron"; expr: string };
 
@@ -19,7 +18,9 @@ export type Reminder = ReminderSchedule & {
     enabled: boolean;
 };
 
-const remindersStore = new Configstore(
+// Cached: the 1s ticker reads this list twice a second (tickerNeeded +
+// checkReminders); without the cache that's two synchronous disk reads/sec.
+const remindersStore = new CachedStore(
     "pi-agent-reminders",
     { reminders: [] },
     { configPath: join(getPiDir(), "reminders.json") },

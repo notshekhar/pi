@@ -104,6 +104,28 @@ export interface RunTurnOptions {
 // to the console, which tears the TUI's differential rendering. Silence them.
 (globalThis as Record<string, unknown>).AI_SDK_LOG_WARNINGS = false;
 
+/**
+ * Hand control back to the event loop's macrotask phases.
+ *
+ * `result.fullStream` parts arrive buffered, so each read resolves as a
+ * microtask. Consuming them in a tight `for await` — each part firing
+ * `emitter.emit(...)` → `tui.requestRender()` (which uses `process.nextTick`) —
+ * keeps the microtask/nextTick queues perpetually non-empty. Those queues drain
+ * *before* the timers phase, so the TUI's `setTimeout` render flush and the
+ * spinner's `setInterval` never get to run: the screen freezes mid-turn even
+ * though the agent keeps working, and only unsticks when real I/O (a keypress)
+ * forces the loop past the timers phase. Awaiting a `setImmediate` makes the
+ * loop complete a full iteration — running timers on the way to the check phase —
+ * so renders flush. Cheap (~microseconds); we call it time-gated, not per part.
+ */
+function yieldToEventLoop(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve));
+}
+
+// How long the stream loop may run without yielding before it must let the
+// render timers fire. ~1 frame at 60fps — bounds freeze to one frame.
+const STREAM_YIELD_INTERVAL_MS = 16;
+
 export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const { session, modelId, userInput, cwd, abortSignal, tracker, emitter } = opts;
     // Step cap is only an upper safety bound — the loop ends naturally when the
@@ -346,6 +368,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     // cost seeding honest (same pattern as the subagent loop).
     let stepUsageSum: UsageBlock | undefined;
 
+    let lastYieldAt = Date.now();
     for await (const part of result.fullStream) {
         if (abortSignal?.aborted) break;
         switch (part.type) {
@@ -369,6 +392,16 @@ Write complete prompts: the subagent knows nothing about this conversation — i
             case "tool-result":
                 emitter.emit("tool-result", part);
                 break;
+            case "tool-error": {
+                // A tool's execute threw (MCP transport failure, timeout, bad
+                // args…). The AI SDK still feeds the error back to the model as
+                // the tool result, so the loop continues and the model can try
+                // another approach — we just surface it in the UI (red) instead
+                // of leaving the tool box spinning forever.
+                const e = part as { toolCallId?: string; toolName?: string; error?: unknown };
+                emitter.emit("tool-error", { toolCallId: e.toolCallId, toolName: e.toolName, error: e.error });
+                break;
+            }
             case "finish-step": {
                 // Cost accrues per step (one API round-trip each), not at turn
                 // end — the footer updates live, and an aborted turn keeps the
@@ -395,6 +428,11 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                 emitter.emit("error", part.error);
                 break;
             }
+        }
+        // Let the TUI's render timers fire between bursts of buffered parts.
+        if (Date.now() - lastYieldAt >= STREAM_YIELD_INTERVAL_MS) {
+            await yieldToEventLoop();
+            lastYieldAt = Date.now();
         }
     }
 

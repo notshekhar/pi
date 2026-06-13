@@ -249,6 +249,7 @@ async function runSubagent(
             if (last && last.type === type) last.text += text;
             else activity.push({ type, text });
         };
+        let lastYieldAt = Date.now();
         for await (const part of result.fullStream) {
             if (ctx.abortSignal?.aborted) break;
             switch (part.type) {
@@ -283,6 +284,13 @@ async function runSubagent(
                     ctx.emitter.emit("subagent-finish", { toolCallId, agent: name, usage: totalUsage });
                     break;
                 }
+            }
+            // Yield to the event loop between buffered parts so the parent TUI's
+            // render timers fire — same starvation fix as the main loop in
+            // index.ts (see yieldToEventLoop there for the full rationale).
+            if (Date.now() - lastYieldAt >= 16) {
+                await new Promise((resolve) => setImmediate(resolve));
+                lastYieldAt = Date.now();
             }
         }
 

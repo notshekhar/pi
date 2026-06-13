@@ -34,10 +34,43 @@ export function namespacedToolName(server: string, tool: string): string {
     return `${serverPrefix(server)}${sanitize(tool)}`;
 }
 
+/**
+ * Hard ceiling on a single MCP tool call. A wedged stdio child or a dropped
+ * HTTP connection can leave `callTool` pending forever — the agent loop then
+ * awaits a result that never arrives and the whole UI appears frozen. Racing
+ * each call against a timeout turns that hang into a normal tool error the
+ * model can recover from. Overridable via PI_MCP_TOOL_TIMEOUT_MS.
+ */
+const MCP_TOOL_TIMEOUT_MS = Number(process.env.PI_MCP_TOOL_TIMEOUT_MS) || 120_000;
+
+type ExecutableTool = { execute?: (input: unknown, options: unknown) => Promise<unknown> };
+
+/** Wrap a tool's execute so a call that never settles rejects instead of hanging. */
+function withTimeout(name: string, tool: ExecutableTool): ExecutableTool {
+    if (typeof tool.execute !== "function") return tool;
+    const original = tool.execute.bind(tool);
+    return {
+        ...tool,
+        execute: (input: unknown, options: unknown) => {
+            let timer: ReturnType<typeof setTimeout>;
+            const timeout = new Promise<never>((_, reject) => {
+                timer = setTimeout(
+                    () => reject(new Error(`MCP tool ${name} timed out after ${MCP_TOOL_TIMEOUT_MS}ms`)),
+                    MCP_TOOL_TIMEOUT_MS,
+                );
+            });
+            return Promise.race([original(input, options), timeout]).finally(() => clearTimeout(timer));
+        },
+    };
+}
+
 function namespaceTools(server: string, tools: McpToolSet): McpToolSet {
     const namespaced: McpToolSet = {};
     for (const [toolName, tool] of Object.entries(tools)) {
-        namespaced[namespacedToolName(server, toolName)] = tool;
+        namespaced[namespacedToolName(server, toolName)] = withTimeout(
+            namespacedToolName(server, toolName),
+            tool as ExecutableTool,
+        );
     }
     return namespaced;
 }

@@ -164,6 +164,18 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             showWorking("Generating");
             tui.requestRender();
         });
+        // Tool failed: resolve its box in red with the error text (instead of
+        // leaving it spinning), then keep working — the model already received
+        // the error and may try something else.
+        emitter.on("tool-error", (e: { toolCallId?: string; error: unknown }) => {
+            const id = e.toolCallId ?? "";
+            subagentBuf.delete(id);
+            subagentStatus.delete(id);
+            dirtySubagents.delete(id);
+            history.addToolResult(id, formatError(e.error), true);
+            showWorking("Generating");
+            tui.requestRender();
+        });
         emitter.on("subagent-tool", (e: { toolCallId: string; agent: string; toolName?: string; input?: unknown }) => {
             const prev = subagentBuf.get(e.toolCallId) ?? "";
             const line = `> ${e.toolName ?? "tool"}${subagentArgSummary(e.input)}\n`;

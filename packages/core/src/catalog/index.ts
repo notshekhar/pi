@@ -286,8 +286,10 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
     // Gate non-public providers by auth presence.
     const authed = new Set(listAuthorizedProviders());
     const hasCopilot = authed.has("github-copilot");
+    const hasChatgpt = authed.has("openai-chatgpt");
     for (const m of Object.values(out)) {
         if (m.provider === "github-copilot") m.available = hasCopilot;
+        if (m.provider === "openai-chatgpt") m.available = hasChatgpt;
     }
 
     // Note: we do NOT downmark fallback models based on /v1/models availability.

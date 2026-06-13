@@ -132,6 +132,30 @@ export async function resolveAuthToken(provider: ProviderId): Promise<string | n
     return process.env[envKey] ?? null;
 }
 
+/**
+ * Like resolveAuthToken but returns the whole credentials object (refreshed +
+ * persisted). Needed by providers that send more than a bearer token — e.g.
+ * ChatGPT/Codex also needs the account id from the stored creds.
+ */
+export async function resolveOAuthCreds(provider: ProviderId): Promise<GenericOAuthCredentials | null> {
+    const providers = readProviders();
+    const entry = providers[provider];
+    if (entry?.mode !== "oauth" || !("creds" in entry)) return null;
+    const impl = getOAuthProvider(provider);
+    if (!impl) return null;
+    let creds = entry.creds;
+    if (Date.now() >= creds.expires) {
+        try {
+            creds = await impl.refreshToken(creds);
+            providers[provider] = { mode: "oauth", provider, creds };
+            writeProviders(providers);
+        } catch {
+            return null;
+        }
+    }
+    return creds;
+}
+
 export function logout(provider?: ProviderId): void {
     if (!provider) {
         writeProviders({});

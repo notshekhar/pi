@@ -1,10 +1,19 @@
-export type BuiltinProviderId = "xai" | "anthropic" | "openai" | "google" | "openrouter" | "github-copilot" | "ollama";
+export type BuiltinProviderId =
+    | "xai"
+    | "anthropic"
+    | "openai"
+    | "openai-chatgpt"
+    | "google"
+    | "openrouter"
+    | "github-copilot"
+    | "ollama";
 export type ProviderId = BuiltinProviderId | (string & {});
 
 export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
     "xai",
     "anthropic",
     "openai",
+    "openai-chatgpt",
     "google",
     "openrouter",
     "github-copilot",

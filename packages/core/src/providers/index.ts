@@ -6,8 +6,14 @@ import {
     isCustomProvider,
     parseCustomProviderId,
     resolveAuthToken,
+    resolveOAuthCreds,
 } from "../auth";
 import { COPILOT_HEADERS, getCopilotBaseUrl } from "../auth/oauth/github-copilot";
+import {
+    accountIdFromIdToken,
+    CODEX_BASE_URL,
+    OPENAI_CHATGPT_HEADERS,
+} from "../auth/oauth/openai-chatgpt";
 import type { CustomProviderConfig, ProviderId } from "../types";
 
 type FetchInput = Parameters<typeof fetch>[0];
@@ -29,6 +35,45 @@ function copilotAuthFetch(): typeof fetch {
         headers.set("X-Initiator", "user");
         headers.set("Openai-Intent", "conversation-edits");
         return fetch(input, { ...(init as RequestInit), headers });
+    });
+}
+
+/**
+ * Auth + request shaping for the ChatGPT/Codex backend. Beyond the bearer
+ * token it needs the `chatgpt-account-id` header, and the backend only accepts
+ * stateless Responses calls — so we force `store:false` and ask for encrypted
+ * reasoning so multi-step turns keep their reasoning context. The system prompt
+ * (pi's instructions) is left intact; set PI_CODEX_INSTRUCTIONS to override it
+ * if the backend rejects a request for non-Codex instructions.
+ */
+function openaiChatgptAuthFetch(): typeof fetch {
+    const overrideInstructions = process.env.PI_CODEX_INSTRUCTIONS;
+    return withPreconnect(async (input, init) => {
+        const creds = await resolveOAuthCreds("openai-chatgpt");
+        if (!creds) throw new Error("No ChatGPT credentials. Run: /login openai-chatgpt");
+        const accountId = (creds.accountId as string | undefined) ?? accountIdFromIdToken(creds.idToken as string);
+
+        const headers = new Headers(init?.headers);
+        headers.delete("x-api-key");
+        headers.set("authorization", `Bearer ${creds.access}`);
+        if (accountId) headers.set("chatgpt-account-id", accountId);
+        for (const [k, v] of Object.entries(OPENAI_CHATGPT_HEADERS)) headers.set(k, v);
+
+        let body = init?.body;
+        if (typeof body === "string") {
+            try {
+                const json = JSON.parse(body) as Record<string, unknown>;
+                json.store = false; // backend only accepts stateless calls
+                if (overrideInstructions) json.instructions = overrideInstructions;
+                const include = new Set<string>(Array.isArray(json.include) ? (json.include as string[]) : []);
+                include.add("reasoning.encrypted_content"); // required when store:false
+                json.include = [...include];
+                body = JSON.stringify(json);
+            } catch {
+                // not JSON (shouldn't happen for the Responses API) — leave as-is
+            }
+        }
+        return fetch(input, { ...(init as RequestInit), headers, body });
     });
 }
 
@@ -302,6 +347,18 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             const baseURL = getCopilotBaseUrl(token);
             const { createOpenAI } = await import("@ai-sdk/openai");
             return createOpenAI({ apiKey: "placeholder", baseURL, fetch: copilotAuthFetch() })(model);
+        }
+        case "openai-chatgpt": {
+            // ChatGPT subscription via the Codex backend. It speaks the Responses
+            // API (POST <baseURL>/responses), so use the SDK's .responses() model.
+            const creds = await resolveOAuthCreds("openai-chatgpt");
+            if (!creds) throw new Error("No ChatGPT credentials. Run: /login openai-chatgpt");
+            const { createOpenAI } = await import("@ai-sdk/openai");
+            return createOpenAI({
+                apiKey: "placeholder",
+                baseURL: CODEX_BASE_URL,
+                fetch: openaiChatgptAuthFetch(),
+            }).responses(model);
         }
         case "ollama": {
             // Local daemon — no auth. createOllama wants the /api root.

@@ -212,6 +212,34 @@ async function loginCopilot(deps: LoginDeps): Promise<StepResult> {
     return "done";
 }
 
+async function loginChatgpt(deps: LoginDeps): Promise<StepResult> {
+    const { tui, history, promptOnce } = deps;
+    history.addSystem("ChatGPT (Codex): opening browser for sign-in…");
+    tui.requestRender();
+    try {
+        await loginOAuth("openai-chatgpt", {
+            onAuth: ({ url, instructions }) => presentAuth(deps, "ChatGPT", url, instructions),
+            onPrompt: async ({ message }) => {
+                history.addSystem(message);
+                tui.requestRender();
+                return promptOnce("");
+            },
+            onProgress: (msg) => {
+                history.addSystem(msg);
+                tui.requestRender();
+            },
+        });
+        setActiveProvider("openai-chatgpt");
+        bustCatalogCache();
+        history.addSystem(chalk.green("✓ ChatGPT (Codex) connected."));
+        history.addSystem(chalk.dim("Personal/local use only — usage is billed to your ChatGPT subscription."));
+    } catch (err) {
+        history.addError(`ChatGPT login failed: ${(err as Error).message}`);
+    }
+    tui.requestRender();
+    return "done";
+}
+
 async function loginOllama(deps: LoginDeps): Promise<StepResult> {
     const { tui, history } = deps;
     history.addSystem("Ollama: checking local daemon…");
@@ -270,6 +298,8 @@ async function loginForProvider(deps: LoginDeps, p: ProviderId): Promise<StepRes
             return loginXai(deps);
         case "github-copilot":
             return loginCopilot(deps);
+        case "openai-chatgpt":
+            return loginChatgpt(deps);
         case "ollama":
             return loginOllama(deps);
         default:

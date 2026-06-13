@@ -286,10 +286,34 @@ const GITHUB_COPILOT: ModelInfo[] = [
     ),
 ];
 
+// ChatGPT subscription via the Codex backend (subscription-billed, cost 0).
+// Models are account-dependent; these are the current Codex-accessible ones
+// (gpt-5.5 is the default for ChatGPT-authenticated sessions). The catalog is
+// only a seed — pick whatever your subscription actually exposes.
+const OPENAI_CHATGPT: ModelInfo[] = [
+    m("openai-chatgpt", "gpt-5.5", "ChatGPT · GPT-5.5", 1_000_000, 128_000, { input: 0, output: 0 }, true, [
+        "text",
+        "image",
+    ]),
+    m("openai-chatgpt", "gpt-5.5-codex", "ChatGPT · GPT-5.5 Codex", 1_000_000, 128_000, { input: 0, output: 0 }, true, [
+        "text",
+        "image",
+    ]),
+    m("openai-chatgpt", "gpt-5.4", "ChatGPT · GPT-5.4", 1_000_000, 128_000, { input: 0, output: 0 }, true, [
+        "text",
+        "image",
+    ]),
+    m("openai-chatgpt", "gpt-5.3-codex", "ChatGPT · GPT-5.3 Codex", 200_000, 64_000, { input: 0, output: 0 }, true, [
+        "text",
+        "image",
+    ]),
+];
+
 export const FALLBACK_MODELS: ModelInfo[] = [
     ...XAI,
     ...ANTHROPIC,
     ...OPENAI,
+    ...OPENAI_CHATGPT,
     ...GOOGLE,
     ...OPENROUTER,
     ...GITHUB_COPILOT,

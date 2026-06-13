@@ -169,7 +169,8 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
  */
 export function startMcpServers(state: AppState, deps: AppDeps): void {
     const { tui, history } = deps;
-    if (getSetting("mcp") === false || !isTrusted(state.cwd)) return;
+    // MCP is opt-in (default off) — only auto-connect when explicitly enabled.
+    if (getSetting("mcp") !== true || !isTrusted(state.cwd)) return;
     if (Object.keys(loadMcpServers(state.cwd)).length === 0) return;
 
     const manager = getMcpManager();

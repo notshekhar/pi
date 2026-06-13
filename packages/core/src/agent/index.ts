@@ -245,7 +245,9 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // explicit allowlist. Gated by the master `mcp` setting + project trust,
     // mirroring skills/subagents. The manager was connected once at startup;
     // here we just read its aggregated tool set.
-    const mcpEnabled = getSetting("mcp") !== false && isTrusted(cwd);
+    // MCP is opt-in (default off): only enabled when the setting is explicitly
+    // true. Temporarily disabled by default while the MCP path is stabilized.
+    const mcpEnabled = getSetting("mcp") === true && isTrusted(cwd);
     if (mcpEnabled && !allowedTools?.length) {
         Object.assign(toolsForTurn, getMcpManager().getTools());
     }

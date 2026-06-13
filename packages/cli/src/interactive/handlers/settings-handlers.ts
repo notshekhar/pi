@@ -28,7 +28,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         subagents: true,
         recap: false,
         clock: false,
-        mcp: true,
         reminders: true,
     };
     const boolSetting = (key: string): boolean =>
@@ -68,11 +67,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         value: "clock",
                         label: `clock: ${boolSetting("clock") ? "on" : "off"}`,
                         description: "live date + hh:mm:ss in the footer",
-                    },
-                    {
-                        value: "mcp",
-                        label: `mcp: ${boolSetting("mcp") ? "on" : "off"}`,
-                        description: "connect MCP servers from mcpServers (needs project trust)",
                     },
                     {
                         value: "reminders",

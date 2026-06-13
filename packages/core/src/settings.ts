@@ -34,7 +34,8 @@ export interface PiSettings {
     importClaudeHooks?: boolean;
     claudeHooksFilter?: string[];
     hooks?: HooksConfig;
-    /** Master switch for MCP servers. Default on. */
+    /** Master switch for MCP servers. Default OFF (opt-in) — set true to enable;
+     * the /settings toggle is hidden while the MCP path is being stabilized. */
     mcp?: boolean;
     /** Connected MCP servers, keyed by display name. */
     mcpServers?: Record<string, McpServerConfig>;

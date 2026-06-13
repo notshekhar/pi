@@ -29,5 +29,13 @@ export function buildTransport(cfg: McpServerConfig, authProvider?: OAuthClientP
         command: cfg.command,
         args: cfg.args,
         env: resolveSecretMap(cfg.env),
+        // The AI SDK defaults a stdio server's stderr to "inherit", which wires
+        // the child's stderr straight to our process's terminal. MCP servers are
+        // chatty there (startup banners, logs), and those raw writes land in the
+        // middle of the TUI — desyncing the differential renderer's cursor/line
+        // model so the screen appears frozen until a full redraw. Discard it so
+        // the child can never write to our terminal. PI_MCP_STDERR=inherit
+        // restores the old behavior for debugging a server outside the TUI.
+        stderr: (process.env.PI_MCP_STDERR as "inherit" | "ignore") || "ignore",
     });
 }

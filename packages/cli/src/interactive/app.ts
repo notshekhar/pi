@@ -334,7 +334,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     function tickerNeeded(): boolean {
         const clockOn = settingsStore.get("clock") === true;
         const remindersPending = !remindersMuted() && listReminders().some((r) => r.enabled);
-        return clockOn || state.timerEndsAt !== null || remindersPending;
+        // Keep ticking while notices are queued: a reminder/timer that fired
+        // during a turn is held until !busy, and a one-shot reminder deletes
+        // itself when it fires — without this the ticker could stop before the
+        // turn ends, stranding the notice so it never shows.
+        return clockOn || state.timerEndsAt !== null || remindersPending || notices.length > 0;
     }
 
     function syncTicker(): void {

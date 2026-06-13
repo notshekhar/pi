@@ -57,6 +57,7 @@ import { createTurnRunner } from "./turn-runner";
 import { registerAppKeybindings } from "./app-keybindings";
 import { installConsoleBridge } from "./console-bridge";
 import { runStartupTrustAndHooks, showWhatsNew, showWorkspaceBanners, startUpdateCheck } from "./startup";
+import { listUsableProviders } from "./provider-availability";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 
@@ -73,37 +74,52 @@ const editorTheme: EditorTheme = {
     selectList: getSelectListTheme(),
 };
 
-const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
-    xai: "xai/grok-build-0.1",
-    anthropic: "anthropic/claude-sonnet-4-6",
-    openai: "openai/gpt-5",
-    google: "google/gemini-3.1-pro",
-    openrouter: "openrouter/anthropic/claude-sonnet-4-6",
-    "github-copilot": "github-copilot/gpt-5",
-};
+/**
+ * No model is selected at startup. Point the user at the right next step: if
+ * they have no usable provider at all, they must /login; if a provider is
+ * available (logged in or a detected ollama) they just need to pick one with
+ * /provider (or /login into another).
+ */
+async function showNoModelGuidance(history: ChatHistory, tui: TUI): Promise<void> {
+    const providers = await listUsableProviders();
+    if (providers.length === 0) {
+        history.addSystem(chalk.yellow("No model selected and no provider available. Run /login to get started."));
+    } else {
+        history.addSystem(
+            chalk.yellow(
+                `No model selected. Run /provider to pick one (${providers.join(", ")}), or /login to add another.`,
+            ),
+        );
+    }
+    tui.requestRender();
+}
 
 export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     initTheme((settingsStore.get("theme") as string | undefined) ?? "dark");
     registerAppKeybindings();
 
-    const initialProvider = (opts.provider ?? getActiveProvider() ?? "xai") as ProviderId;
     // Model precedence: CLI flag > this folder's last pick > global default.
+    // No silent provider fallback — if the user never picked a model we leave
+    // it empty and guide them to /login or /provider instead of defaulting to
+    // some provider they may not even be authenticated for.
     let initialModelId =
         opts.modelId ??
         getProjectModel(opts.cwd) ??
-        (settingsStore.get("defaultModel") as string) ??
-        PROVIDER_DEFAULT_MODEL[initialProvider] ??
-        `${initialProvider}/grok-build-0.1`;
+        (settingsStore.get("defaultModel") as string | undefined) ??
+        "";
 
     const manager = new SessionManager();
     const initialSession: Session | null = opts.sessionId ? await manager.open(opts.sessionId) : null;
     if (initialSession?.info.model) initialModelId = initialSession.info.model;
-    // Provider follows the restored model (project/session picks carry it).
-    let effectiveProvider = initialProvider;
-    try {
-        effectiveProvider = parseModelId(initialModelId).provider as ProviderId;
-    } catch {
-        // unparseable id — keep the active provider
+    // Provider follows the restored model (project/session picks carry it);
+    // otherwise the active provider, if any.
+    let effectiveProvider = (opts.provider ?? getActiveProvider() ?? "") as ProviderId;
+    if (initialModelId) {
+        try {
+            effectiveProvider = parseModelId(initialModelId).provider as ProviderId;
+        } catch {
+            // unparseable id — keep the active provider
+        }
     }
 
     const tracker = new CostTracker();
@@ -437,11 +453,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     syncTicker();
 
     history.addSystem(
-        `pi · ${state.modelId} · session ${state.session?.id ?? "unsaved"}` +
+        `pi · ${state.modelId || "no model"} · session ${state.session?.id ?? "unsaved"}` +
             (state.agent !== DEFAULT_AGENT_NAME ? ` · agent ${state.agent}` : ""),
     );
     history.addSystem(`Type /help for commands. Shift+Tab cycles agents. Ctrl+C twice to quit.`);
     await showWorkspaceBanners(history, state.cwd);
+    if (!state.modelId) await showNoModelGuidance(history, tui);
 
     const ctx = createCommandContext(state, deps);
     tui.addInputListener(createInputHandler(state, deps, ctx));

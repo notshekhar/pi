@@ -13,6 +13,7 @@ import {
     addReminder,
     deleteReminder,
     listReminders,
+    MAX_REMINDERS,
     updateReminder,
     type CommandContext,
     type Reminder,
@@ -118,6 +119,10 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
                 if (!pick) return;
 
                 if (pick.value === ADD) {
+                    if (reminders.length >= MAX_REMINDERS) {
+                        say(chalk.yellow(`reminder limit reached (max ${MAX_REMINDERS}) — delete one first`));
+                        continue;
+                    }
                     const text = (await promptOnce("reminder text")).trim();
                     if (!text) continue;
                     const schedule = await promptSchedule();

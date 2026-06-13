@@ -70,6 +70,14 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             return;
         }
 
+        // No model picked yet — a chat turn can't run. Guide instead of crashing
+        // on parseModelId(""); /provider and /login stay reachable above.
+        if (!state.modelId) {
+            history.addSystem("No model selected. Run /provider to pick one, or /login to add a provider.");
+            tui.requestRender();
+            return;
+        }
+
         // First turn may race SessionStart hooks — wait so their injected
         // context (pendingInjection) isn't silently dropped.
         if (state.startupHooksDone) {

@@ -8,9 +8,7 @@ import {
     getActiveProvider,
     getCatalog,
     getProjectProviderModel,
-    listAuthorizedProviders,
     listCustomModelIds,
-    listCustomProviders,
     removeCustomModel,
     setActiveProvider,
     setProjectModel,
@@ -23,6 +21,7 @@ import {
 } from "@notshekhar/pi-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
+import { listUsableProviders } from "../provider-availability";
 
 type ModelHandlers = Pick<CommandContext, "setModel" | "setProvider" | "openModelPicker" | "setThinking">;
 
@@ -50,27 +49,16 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
             refreshFooter();
         },
         async setProvider(p) {
-            // auth'd providers + zero-login ollama (daemon detected via the catalog)
-            // + saved custom providers (gateways like bifrost)
-            const authed = listAuthorizedProviders();
-            const detectedCat = await getCatalog();
-            for (const m of Object.values(detectedCat)) {
-                if (m.available && m.provider === "ollama" && !authed.includes(m.provider)) {
-                    authed.push(m.provider);
-                }
-            }
-            for (const c of listCustomProviders()) {
-                const id = `custom:${c.name}` as ProviderId;
-                if (!authed.includes(id)) authed.push(id);
-            }
-            if (authed.length === 0) {
-                history.addSystem(chalk.yellow("no providers authenticated. /login first."));
+            // logged-in providers + zero-login ollama + saved custom gateways
+            const usable = await listUsableProviders();
+            if (usable.length === 0) {
+                history.addSystem(chalk.yellow("no providers available. /login first."));
                 tui.requestRender();
                 return;
             }
             let target = p;
             if (!target) {
-                const items: SelectItem[] = authed.map((id) => ({
+                const items: SelectItem[] = usable.map((id) => ({
                     value: id,
                     label: id,
                     description: id === getActiveProvider() ? "(active)" : "",
@@ -79,7 +67,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                 if (!pick) return;
                 target = pick.value;
             }
-            if (!authed.includes(target as ProviderId)) {
+            if (!usable.includes(target as ProviderId)) {
                 history.addSystem(chalk.red(`not authorized: ${target}. /login ${target} first.`));
                 tui.requestRender();
                 return;

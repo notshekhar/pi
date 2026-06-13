@@ -25,13 +25,25 @@ const remindersStore = new Configstore(
     { configPath: join(getPiDir(), "reminders.json") },
 );
 
+/** Hard cap on stored reminders — keeps the manager list and ticker scan small. */
+export const MAX_REMINDERS = 10;
+
 export function listReminders(): Reminder[] {
     return (remindersStore.get("reminders") as Reminder[] | undefined) ?? [];
 }
 
+export class ReminderLimitError extends Error {
+    constructor() {
+        super(`reminder limit reached (max ${MAX_REMINDERS})`);
+        this.name = "ReminderLimitError";
+    }
+}
+
 export function addReminder(text: string, schedule: ReminderSchedule): Reminder {
+    const existing = listReminders();
+    if (existing.length >= MAX_REMINDERS) throw new ReminderLimitError();
     const reminder: Reminder = { id: ulid(), text, enabled: true, ...schedule };
-    remindersStore.set("reminders", [...listReminders(), reminder]);
+    remindersStore.set("reminders", [...existing, reminder]);
     return reminder;
 }
 

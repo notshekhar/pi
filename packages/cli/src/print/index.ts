@@ -7,6 +7,7 @@ import {
     runHooks,
     getActiveProvider,
     getProjectModel,
+    parseModelId,
     settingsStore,
 } from "@notshekhar/pi-core";
 import type { ProviderId } from "@notshekhar/pi-core";
@@ -18,12 +19,16 @@ export interface PrintOptions {
 }
 
 export async function runPrint(opts: PrintOptions): Promise<void> {
-    const provider = (getActiveProvider() ?? "xai") as ProviderId;
+    // No silent provider fallback — require an explicitly selected model.
     const modelId =
-        opts.modelId ??
-        getProjectModel(opts.cwd) ??
-        (settingsStore.get("defaultModel") as string) ??
-        `${provider}/grok-build-0.1`;
+        opts.modelId ?? getProjectModel(opts.cwd) ?? (settingsStore.get("defaultModel") as string | undefined);
+    if (!modelId) {
+        process.stderr.write(
+            "No model selected. Pass --model <provider/model>, or run pi interactively and use /login + /provider first.\n",
+        );
+        process.exit(1);
+    }
+    const provider = (getActiveProvider() ?? parseModelId(modelId).provider) as ProviderId;
     const manager = new SessionManager();
     const session = await manager.create({ cwd: opts.cwd, provider, model: modelId });
     const tracker = new CostTracker();

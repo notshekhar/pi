@@ -2310,24 +2310,6 @@
     ],
     "available": true
   },
-  "openrouter/meta-llama/llama-guard-3-8b": {
-    "id": "openrouter/meta-llama/llama-guard-3-8b",
-    "provider": "openrouter",
-    "name": "Llama Guard 3 8B",
-    "contextWindow": 131072,
-    "maxOutput": 131072,
-    "cost": {
-      "input": 0.484,
-      "output": 0.03,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "openrouter/meta-llama/llama-3.2-3b-instruct:free": {
     "id": "openrouter/meta-llama/llama-3.2-3b-instruct:free",
     "provider": "openrouter",
@@ -2518,6 +2500,26 @@
     ],
     "available": true
   },
+  "openrouter/moonshotai/kimi-k2.7-code": {
+    "id": "openrouter/moonshotai/kimi-k2.7-code",
+    "provider": "openrouter",
+    "name": "Kimi K2.7 Code",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.95,
+      "output": 4,
+      "cacheRead": 0.19,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "available": true
+  },
   "openrouter/moonshotai/kimi-k2-thinking": {
     "id": "openrouter/moonshotai/kimi-k2-thinking",
     "provider": "openrouter",
@@ -2559,12 +2561,12 @@
     "id": "openrouter/moonshotai/kimi-k2.6",
     "provider": "openrouter",
     "name": "Kimi K2.6",
-    "contextWindow": 262144,
-    "maxOutput": 262144,
+    "contextWindow": 262142,
+    "maxOutput": 262142,
     "cost": {
-      "input": 0.67,
-      "output": 3.39,
-      "cacheRead": 0.14,
+      "input": 0.68,
+      "output": 3.41,
+      "cacheRead": 0.34,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6356,12 +6358,12 @@
     "id": "openrouter/~moonshotai/kimi-latest",
     "provider": "openrouter",
     "name": "MoonshotAI Kimi Latest",
-    "contextWindow": 262144,
-    "maxOutput": 262144,
+    "contextWindow": 262142,
+    "maxOutput": 262142,
     "cost": {
-      "input": 0.67,
-      "output": 3.39,
-      "cacheRead": 0.14,
+      "input": 0.68,
+      "output": 3.41,
+      "cacheRead": 0.34,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7300,12 +7302,12 @@
     "id": "openrouter/qwen/qwen2.5-vl-72b-instruct",
     "provider": "openrouter",
     "name": "Qwen2.5 VL 72B Instruct",
-    "contextWindow": 32000,
-    "maxOutput": 8192,
+    "contextWindow": 128000,
+    "maxOutput": 128000,
     "cost": {
-      "input": 0.25,
-      "output": 0.75,
-      "cacheRead": 0,
+      "input": 0.8,
+      "output": 1,
+      "cacheRead": 0.4,
       "cacheWrite": 0
     },
     "reasoning": false,
@@ -7411,11 +7413,11 @@
     "id": "openrouter/qwen/qwen3.6-27b",
     "provider": "openrouter",
     "name": "Qwen3.6 27B",
-    "contextWindow": 131072,
-    "maxOutput": 131072,
+    "contextWindow": 262140,
+    "maxOutput": 262140,
     "cost": {
-      "input": 0.289,
-      "output": 2.4,
+      "input": 0.2885,
+      "output": 3.17,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -8007,12 +8009,12 @@
     "id": "openrouter/deepseek/deepseek-v4-flash",
     "provider": "openrouter",
     "name": "DeepSeek V4 Flash",
-    "contextWindow": 1048576,
+    "contextWindow": 1048575,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.0983,
-      "output": 0.1966,
-      "cacheRead": 0.0197,
+      "input": 0.098,
+      "output": 0.196,
+      "cacheRead": 0.02,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -8115,7 +8117,7 @@
     "id": "openrouter/deepseek/deepseek-chat-v3-0324",
     "provider": "openrouter",
     "name": "DeepSeek V3 0324",
-    "contextWindow": 32768,
+    "contextWindow": 163840,
     "maxOutput": 16384,
     "cost": {
       "input": 0.2,

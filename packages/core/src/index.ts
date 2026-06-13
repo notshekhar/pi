@@ -17,3 +17,4 @@ export * from "./commands";
 export * from "./rpc";
 export * from "./settings";
 export * from "./reminders";
+export * from "./mcp";

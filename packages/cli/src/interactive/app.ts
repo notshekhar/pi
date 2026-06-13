@@ -30,6 +30,7 @@ import {
     parseModelId,
     runHooks,
     hookBus,
+    getMcpManager,
     agentExists,
     isBuiltinAgent,
     DEFAULT_AGENT_NAME,
@@ -328,9 +329,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const notices: string[] = [];
     let noticeShowing = false;
 
+    const remindersMuted = () => settingsStore.get("reminders") === false;
+
     function tickerNeeded(): boolean {
         const clockOn = settingsStore.get("clock") === true;
-        return clockOn || state.timerEndsAt !== null || listReminders().some((r) => r.enabled);
+        const remindersPending = !remindersMuted() && listReminders().some((r) => r.enabled);
+        return clockOn || state.timerEndsAt !== null || remindersPending;
     }
 
     function syncTicker(): void {
@@ -365,6 +369,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     }
 
     function checkReminders(now: number): void {
+        if (remindersMuted()) return; // muted: nothing fires, reminders stay stored
         for (const r of listReminders()) {
             if (!r.enabled) continue;
             if (r.kind === "once") {
@@ -411,6 +416,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const cleanExit = (code = 0) => {
         if (ticker !== null) clearInterval(ticker);
         tui.stop();
+        // Tear down MCP transports (stdio subprocesses, sockets) on the way out.
+        void getMcpManager().close();
         // SessionEnd hooks: give them a moment, then exit regardless.
         void Promise.race([
             runHooks(

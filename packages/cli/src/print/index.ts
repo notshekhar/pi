@@ -6,7 +6,10 @@ import {
     runTurn,
     runHooks,
     getActiveProvider,
+    getMcpManager,
     getProjectModel,
+    getSetting,
+    isTrusted,
     parseModelId,
     settingsStore,
 } from "@notshekhar/pi-core";
@@ -75,6 +78,11 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     for (const s of startHooks.terminalSequences) process.stdout.write(s);
     const userInput = startHooks.additionalContext ? `${startHooks.additionalContext}\n\n${opts.prompt}` : opts.prompt;
 
+    // Connect MCP servers before the turn (same gate as the agent loop) so
+    // their tools are available headlessly. Closed after the turn finishes.
+    const mcpEnabled = getSetting("mcp") !== false && isTrusted(opts.cwd);
+    if (mcpEnabled) await getMcpManager().init(opts.cwd);
+
     await runTurn({
         session,
         modelId,
@@ -87,6 +95,8 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         // One-shot mode prints nothing after the response — skip the recap pass.
         recap: false,
     });
+
+    if (mcpEnabled) await getMcpManager().close();
 
     // SessionEnd hooks: give them a moment, then finish regardless.
     await Promise.race([

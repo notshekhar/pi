@@ -24,7 +24,13 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
     const { tui, history, footer, commands, showWorking, hideWorking, selectOnce, promptOnce, refreshCommands } = deps;
 
     // Boolean settings toggle in place; unset falls back to the default here.
-    const BOOLEAN_DEFAULTS: Record<string, boolean> = { subagents: true, recap: false, clock: false };
+    const BOOLEAN_DEFAULTS: Record<string, boolean> = {
+        subagents: true,
+        recap: false,
+        clock: false,
+        mcp: true,
+        reminders: true,
+    };
     const boolSetting = (key: string): boolean =>
         (settingsStore.get(key) as boolean | undefined) ?? BOOLEAN_DEFAULTS[key];
 
@@ -62,6 +68,16 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         value: "clock",
                         label: `clock: ${boolSetting("clock") ? "on" : "off"}`,
                         description: "live date + hh:mm:ss in the footer",
+                    },
+                    {
+                        value: "mcp",
+                        label: `mcp: ${boolSetting("mcp") ? "on" : "off"}`,
+                        description: "connect MCP servers from mcpServers (needs project trust)",
+                    },
+                    {
+                        value: "reminders",
+                        label: `reminders: ${boolSetting("reminders") ? "on" : "off"}`,
+                        description: "fire /reminder alerts; off mutes them without deleting any",
                     },
                 ];
                 const pick = await selectOnce(items, "Settings (Esc to close)");

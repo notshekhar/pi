@@ -31,6 +31,8 @@ export interface CommandContext {
     showChangelog(): void;
     manageAgents(): Promise<void>;
     manageHooks(): Promise<void>;
+    /** /mcp — list servers, or `reconnect [name]` to (re)connect. */
+    manageMcp(args: string): Promise<void> | void;
     /** With message: run that one message under this agent's prompt (one-shot). */
     useAgent(name: string, message?: string): Promise<void> | void;
     stub(name: string): void;
@@ -292,6 +294,11 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             handler: async (ctx) => {
                 await ctx.manageHooks();
             },
+        },
+        {
+            name: "mcp",
+            description: "List MCP servers and their tools (mcp reconnect [name])",
+            handler: (ctx, args) => ctx.manageMcp(args.trim()),
         },
         {
             name: "fork",

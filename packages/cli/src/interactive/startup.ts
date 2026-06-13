@@ -5,10 +5,14 @@
 import type { SelectItem, TUI } from "@notshekhar/pi-tui";
 import chalk from "chalk";
 import {
+    getMcpManager,
+    getSetting,
     getTrustDecision,
     getTrustOptions,
     hasProjectTrustInputs,
+    isTrusted,
     loadHooksConfig,
+    loadMcpServers,
     loadProjectSkills,
     loadWorkspaceContext,
     runHooks,
@@ -154,4 +158,31 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
             : h.additionalContext;
     }
     if (h.messages.length || h.additionalContext) tui.requestRender();
+
+    startMcpServers(state, deps);
+}
+
+/**
+ * Connect MCP servers in the background so a slow server never blocks startup.
+ * Gated by the master `mcp` setting + project trust, mirroring skills/hooks.
+ * Renders a one-line-per-server banner once connections settle.
+ */
+export function startMcpServers(state: AppState, deps: AppDeps): void {
+    const { tui, history } = deps;
+    if (getSetting("mcp") === false || !isTrusted(state.cwd)) return;
+    if (Object.keys(loadMcpServers(state.cwd)).length === 0) return;
+
+    const manager = getMcpManager();
+    void manager.init(state.cwd).then(() => {
+        const servers = manager.listServers();
+        if (servers.length === 0) return;
+        const summary = servers
+            .map((s) => (s.status === "ready" ? `${s.name} (${s.toolCount})` : `${s.name}: ${s.status}`))
+            .join(", ");
+        history.addHook(`MCP: ${summary}`);
+        for (const s of servers) {
+            if (s.status === "error" && s.error) history.addSystem(chalk.dim(`    • ${s.name}: ${s.error}`));
+        }
+        tui.requestRender();
+    });
 }

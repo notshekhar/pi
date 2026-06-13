@@ -8,6 +8,7 @@ import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { createAgentHandlers } from "./handlers/agent-handlers";
 import { createHookHandlers } from "./handlers/hook-handlers";
+import { createMcpHandlers } from "./handlers/mcp-handlers";
 import { createMiscHandlers } from "./handlers/misc-handlers";
 import { createModelHandlers } from "./handlers/model-handlers";
 import { createSessionHandlers } from "./handlers/session-handlers";
@@ -26,6 +27,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         ...createSessionTreeHandlers(state, deps),
         ...createAgentHandlers(state, deps),
         ...createHookHandlers(state, deps),
+        ...createMcpHandlers(state, deps),
         ...createSettingsHandlers(state, deps),
         ...createTimerHandlers(state, deps),
     };

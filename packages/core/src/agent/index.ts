@@ -20,6 +20,7 @@ import { buildProviderOptions, type ThinkingLevel } from "./thinking";
 import { estimateContextTokens, moveAnthropicCacheTail, toModelMessages, withAnthropicCaching } from "./model-messages";
 import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
+import { getMcpManager } from "../mcp";
 import type { Session } from "../sessions";
 import type { UsageBlock } from "../types";
 
@@ -216,6 +217,15 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             workspaceContext: workspaceContext.text,
             skillsPrompt: skills.promptBlock,
         });
+    }
+    // MCP tools (already namespaced mcp__server__tool) join the turn for
+    // unrestricted agents only — a restricted agent (e.g. plan) keeps its
+    // explicit allowlist. Gated by the master `mcp` setting + project trust,
+    // mirroring skills/subagents. The manager was connected once at startup;
+    // here we just read its aggregated tool set.
+    const mcpEnabled = getSetting("mcp") !== false && isTrusted(cwd);
+    if (mcpEnabled && !allowedTools?.length) {
+        Object.assign(toolsForTurn, getMcpManager().getTools());
     }
     // System prompt is built AFTER the task tool decision so the model's tool
     // list matches reality, plus explicit delegation guidance when present.

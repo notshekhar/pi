@@ -212,6 +212,24 @@ async function loginCopilot(deps: LoginDeps): Promise<StepResult> {
     return "done";
 }
 
+async function loginOpenAI(deps: LoginDeps): Promise<StepResult> {
+    const { promptOnce } = deps;
+    const mode = await deps.selectOnce(
+        [
+            {
+                value: "oauth",
+                label: "Sign in with ChatGPT (subscription · Codex)",
+                description: "OAuth, opens browser — billed to your ChatGPT plan",
+            },
+            { value: "apikey", label: "Use API key", description: "Paste your OPENAI_API_KEY (pay-as-you-go)" },
+        ],
+        "OpenAI — authentication method (Esc to go back)",
+    );
+    if (!mode) return "back";
+    if (mode.value === "oauth") return loginChatgpt(deps);
+    return apiKeyLogin(deps, "openai", promptOnce);
+}
+
 async function loginChatgpt(deps: LoginDeps): Promise<StepResult> {
     const { tui, history, promptOnce } = deps;
     history.addSystem("ChatGPT (Codex): opening browser for sign-in…");
@@ -296,10 +314,10 @@ async function loginForProvider(deps: LoginDeps, p: ProviderId): Promise<StepRes
             return loginCustom(deps);
         case "xai":
             return loginXai(deps);
+        case "openai":
+            return loginOpenAI(deps);
         case "github-copilot":
             return loginCopilot(deps);
-        case "openai-chatgpt":
-            return loginChatgpt(deps);
         case "ollama":
             return loginOllama(deps);
         default:

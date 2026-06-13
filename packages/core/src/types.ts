@@ -9,11 +9,14 @@ export type BuiltinProviderId =
     | "ollama";
 export type ProviderId = BuiltinProviderId | (string & {});
 
+// Note: "openai-chatgpt" is intentionally NOT listed — it's not a standalone
+// entry in the /login picker. The single "openai" entry asks API-key vs ChatGPT
+// subscription, and the subscription path stores creds under "openai-chatgpt"
+// (used for model routing + catalog), mirroring how xAI offers OAuth-or-key.
 export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
     "xai",
     "anthropic",
     "openai",
-    "openai-chatgpt",
     "google",
     "openrouter",
     "github-copilot",

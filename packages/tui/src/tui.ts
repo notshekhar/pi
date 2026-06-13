@@ -285,6 +285,12 @@ export class TUI extends Container {
     private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
     private fullRedrawCount = 0;
     private stopped = false;
+    // Guards a one-shot recovery redraw after a render throws, so a persistently
+    // failing render can't spin in a tight requestRender→throw loop.
+    private recovering = false;
+    private static readonly DEBUG_RENDER = !!process.env.PI_DEBUG_RENDER;
+    private renderSeq = 0;
+    private reqSeq = 0;
 
     // Overlay stack for modal components rendered on top of base content
     private focusOrderCounter = 0;
@@ -653,6 +659,16 @@ export class TUI extends Container {
     }
 
     requestRender(force = false): void {
+        if (TUI.DEBUG_RENDER && ++this.reqSeq % 40 === 0) {
+            // Count-throttled (not time-throttled, so it logs even when timers
+            // are starved): if these keep advancing while "render # start" stops,
+            // renders are being requested but never flushed → event-loop / timer
+            // starvation. If renders execute but the screen is stale → a write or
+            // diff problem.
+            this.debugRender(
+                `requestRender #${this.reqSeq} force=${force} renderRequested=${this.renderRequested} timerPending=${this.renderTimer !== undefined}`,
+            );
+        }
         if (force) {
             this.previousLines = [];
             this.previousWidth = -1; // -1 triggers widthChanged, forcing a full clear
@@ -672,7 +688,7 @@ export class TUI extends Container {
                 }
                 this.renderRequested = false;
                 this.lastRenderAt = performance.now();
-                this.doRender();
+                this.renderNow();
             });
             return;
         }
@@ -694,11 +710,52 @@ export class TUI extends Container {
             }
             this.renderRequested = false;
             this.lastRenderAt = performance.now();
-            this.doRender();
+            this.renderNow();
             if (this.renderRequested) {
                 this.scheduleRender();
             }
         }, delay);
+    }
+
+    /**
+     * doRender, made fail-safe. A render must never wedge the loop: if doRender
+     * throws (e.g. malformed content from a tool result), letting it escape
+     * turns into an uncaughtException whose handler calls requestRender →
+     * doRender → throws again on the same content, freezing the screen in a
+     * silent loop. Here we swallow the error and schedule ONE forced full redraw
+     * to recover from any half-written escape sequence.
+     */
+    private renderNow(): void {
+        const t0 = TUI.DEBUG_RENDER ? performance.now() : 0;
+        const seq = TUI.DEBUG_RENDER ? ++this.renderSeq : 0;
+        if (TUI.DEBUG_RENDER) this.debugRender(`render #${seq} start`);
+        try {
+            this.doRender();
+            if (TUI.DEBUG_RENDER) this.debugRender(`render #${seq} ok ${(performance.now() - t0).toFixed(1)}ms`);
+        } catch (err) {
+            if (TUI.DEBUG_RENDER) {
+                this.debugRender(`render #${seq} THREW: ${err instanceof Error ? err.stack : String(err)}`);
+            }
+            if (!this.recovering && !this.stopped) {
+                this.recovering = true;
+                process.nextTick(() => {
+                    this.recovering = false;
+                    this.requestRender(true);
+                });
+            }
+        }
+    }
+
+    /** Append-only render trace, enabled with PI_DEBUG_RENDER=1. */
+    private debugRender(msg: string): void {
+        try {
+            fs.appendFileSync(
+                path.join(os.homedir(), ".pi", "render-debug.log"),
+                `[${new Date().toISOString()}] ${msg}\n`,
+            );
+        } catch {
+            // diagnostics must never break rendering
+        }
     }
 
     private handleInput(data: string): void {

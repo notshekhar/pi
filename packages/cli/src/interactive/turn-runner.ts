@@ -47,11 +47,19 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
 
         // Agent busy → queue for after the current turn. Slash commands queue
         // too: most mutate session/model state and would race the running turn.
+        // Exception: /new and /clear are meant to drop the current turn, so they
+        // run inline (their handlers abort the in-flight turn) instead of waiting
+        // for it to finish — otherwise the agent keeps going after the user
+        // explicitly cleared.
         if (state.busy) {
-            queuedMessages.push(text);
-            renderPending();
-            tui.requestRender();
-            return;
+            const cmd = text.startsWith("/") ? text.slice(1).split(/\s+/)[0] : null;
+            const preempts = cmd === "new" || cmd === "clear";
+            if (!preempts) {
+                queuedMessages.push(text);
+                renderPending();
+                tui.requestRender();
+                return;
+            }
         }
 
         // Slash commands run inline. Handler errors land in chat — otherwise

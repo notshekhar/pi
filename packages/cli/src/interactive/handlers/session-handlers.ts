@@ -58,8 +58,20 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
         return d.toLocaleString(undefined, { month: "numeric", day: "numeric", year: "numeric" }) + ` ${time}`;
     };
 
+    // Abort a turn still streaming so /new and /clear don't leave it running
+    // against the old session — the agent would keep appending to the cleared
+    // session and burning tokens. Mirrors the Esc/Ctrl+C abort in input-handler.
+    const abortActiveTurn = () => {
+        if (!state.busy) return;
+        state.abort.abort();
+        state.abort = new AbortController();
+        state.busy = false;
+        hideWorking();
+    };
+
     return {
         async newSession() {
+            abortActiveTurn();
             state.session = null;
             footer.setSession("unsaved");
             tracker.reset();
@@ -73,6 +85,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             tui.requestRender();
         },
         clearScreen() {
+            abortActiveTurn();
             process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
             tracker.reset();
             state.latestContextTokens = 0;

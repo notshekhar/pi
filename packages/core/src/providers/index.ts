@@ -46,6 +46,17 @@ function copilotAuthFetch(): typeof fetch {
  * (pi's instructions) is left intact; set PI_CODEX_INSTRUCTIONS to override it
  * if the backend rejects a request for non-Codex instructions.
  */
+/** Responses API message content is a string or an array of text parts. */
+function messageContentToText(content: unknown): string {
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+        return content
+            .map((p) => (p && typeof p === "object" && "text" in p ? String((p as { text: unknown }).text) : ""))
+            .join("");
+    }
+    return "";
+}
+
 function openaiChatgptAuthFetch(): typeof fetch {
     const overrideInstructions = process.env.PI_CODEX_INSTRUCTIONS;
     return withPreconnect(async (input, init) => {
@@ -64,10 +75,27 @@ function openaiChatgptAuthFetch(): typeof fetch {
             try {
                 const json = JSON.parse(body) as Record<string, unknown>;
                 json.store = false; // backend only accepts stateless calls
-                if (overrideInstructions) json.instructions = overrideInstructions;
                 const include = new Set<string>(Array.isArray(json.include) ? (json.include as string[]) : []);
                 include.add("reasoning.encrypted_content"); // required when store:false
                 json.include = [...include];
+                // The Codex backend rejects requests without a top-level
+                // `instructions` ("Instructions are required"). The SDK encodes
+                // pi's system prompt as a developer message in `input`, so lift
+                // that out into `instructions` (removing the duplicate) unless an
+                // override is supplied.
+                if (!json.instructions) {
+                    if (overrideInstructions) {
+                        json.instructions = overrideInstructions;
+                    } else if (Array.isArray(json.input)) {
+                        const input = json.input as Array<{ role?: string; content?: unknown }>;
+                        const idx = input.findIndex((m) => m?.role === "developer" || m?.role === "system");
+                        if (idx >= 0) {
+                            json.instructions = messageContentToText(input[idx].content);
+                            input.splice(idx, 1);
+                        }
+                    }
+                    if (!json.instructions) json.instructions = "You are a helpful coding assistant.";
+                }
                 body = JSON.stringify(json);
             } catch {
                 // not JSON (shouldn't happen for the Responses API) — leave as-is

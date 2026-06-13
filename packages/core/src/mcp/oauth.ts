@@ -83,7 +83,18 @@ export class PiOAuthProvider implements OAuthClientProvider {
     }
 
     saveTokens(tokens: OAuthTokens): void {
-        write(this.server, { tokens });
+        // RFC 6749 §6: a token-refresh response MAY omit refresh_token, which
+        // means "keep using the existing one". Saving the response verbatim
+        // would drop the stored refresh_token, so the *next* restart has nothing
+        // to refresh with — the SDK then wipes the session (invalidateCredentials),
+        // which is why MCP auth "expires" on every relaunch. Carry the previous
+        // refresh_token forward whenever the new payload doesn't include one.
+        const previous = read(this.server).tokens;
+        const merged: OAuthTokens = {
+            ...tokens,
+            refresh_token: tokens.refresh_token ?? previous?.refresh_token,
+        };
+        write(this.server, { tokens: merged });
     }
 
     saveCodeVerifier(codeVerifier: string): void {

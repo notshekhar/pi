@@ -2542,12 +2542,12 @@
     "id": "openrouter/moonshotai/kimi-k2.5",
     "provider": "openrouter",
     "name": "Kimi K2.5",
-    "contextWindow": 262144,
+    "contextWindow": 256000,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.4,
-      "output": 1.9,
-      "cacheRead": 0.09,
+      "input": 0.375,
+      "output": 2.025,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,

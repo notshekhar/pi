@@ -332,6 +332,7 @@ async function runSubagent(
             result: report || formatSubagentActivity(activity) || "(subagent produced no output)",
             activity: activity.length ? activity : undefined,
             usage: totalUsage ?? stepUsageSum,
+            model: ctx.modelId,
         });
 
         // The history is the tool output (saved + rendered); toModelOutput

@@ -404,22 +404,41 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     const anthropicCaching = effectiveProvider === "anthropic";
     // Incremental persistence (pi-mono parity): each completed step's messages
     // are written as they finish, so tool calls/results survive turn boundaries
-    // and aborts. Tracks whether anything was persisted for the abort fallback.
+    // and aborts. `step.response.messages` is CUMULATIVE (it regrows the whole
+    // turn each step), so we persist only the new tail — otherwise messages and
+    // their usage would be saved repeatedly, doubling resumed cost.
     let persistedAnyMessage = false;
-    const persistStep = async (step: {
+    let persistedMsgCount = 0;
+    // Serialize appends so cumulative-tail slices land in order even if
+    // onStepFinish callbacks overlap.
+    let persistChain: Promise<void> = Promise.resolve();
+    const persistStep = (step: {
         response: { messages: ReadonlyArray<{ role: string; content: unknown }> };
         usage?: UsageBlock;
     }): Promise<void> => {
-        for (const entry of stepMessagesToEntries(step.response.messages, step.usage)) {
-            await session.append({
-                type: "message",
-                ts: Date.now(),
-                role: entry.role,
-                content: entry.content,
-                ...(entry.usage ? { usage: entry.usage } : {}),
-            });
-            persistedAnyMessage = true;
-        }
+        // Slice + counter update happen synchronously, before any await, so each
+        // call sees the correct boundary regardless of overlap.
+        const all = step.response.messages;
+        const newMessages = all.slice(persistedMsgCount);
+        persistedMsgCount = all.length;
+        const entries = stepMessagesToEntries(newMessages, step.usage);
+        if (entries.length > 0) persistedAnyMessage = true;
+        persistChain = persistChain
+            .then(async () => {
+                for (const entry of entries) {
+                    await session.append({
+                        type: "message",
+                        ts: Date.now(),
+                        role: entry.role,
+                        content: entry.content,
+                        // Stamp the model on usage-bearing (assistant) entries so
+                        // cost seeding prices them correctly after a model switch.
+                        ...(entry.usage ? { usage: entry.usage, model: modelId } : {}),
+                    });
+                }
+            })
+            .catch(() => {}); // persistence must never break a turn
+        return persistChain;
     };
     const result = streamText({
         model,
@@ -442,7 +461,9 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         abortSignal,
         // Persist each step's messages as it finishes (mirrors pi-mono's
         // per-message persistence). Errors here must not break the turn.
-        onStepFinish: (step) => persistStep(step as never).catch(() => {}),
+        onStepFinish: (step) => {
+            void persistStep(step as never);
+        },
         // smoothStream removed: it re-buffers tokens and releases them on its
         // own 20ms timers, coupling stream delivery to the timer phase — the
         // same phase that starves during a turn, which can deadlock delivery
@@ -527,6 +548,10 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         }
     }
 
+    // Flush any in-flight step persistence before deciding on the fallback /
+    // returning, so the session file is complete and ordered.
+    await persistChain;
+
     // Steps persist incrementally via onStepFinish (above). Fallback: if a turn
     // was aborted before any step finished but produced partial text or usage,
     // keep it so resume isn't empty and cost seeding stays honest. Anthropic
@@ -538,6 +563,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
             role: "assistant",
             content: assistantText,
             usage: lastUsage ?? stepUsageSum,
+            model: modelId,
         });
     }
 

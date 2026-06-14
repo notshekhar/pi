@@ -142,21 +142,33 @@ export class CostTracker {
      * for the ctx meter.
      */
     seedFromSession(session: Session): { ctxTokens: number } {
-        const usages: UsageBlock[] = [];
+        // Each usage is priced with the model that produced it (stamped on the
+        // entry), falling back to the session model for older/unstamped entries.
+        // This keeps cost correct across a mid-session model switch.
+        const usages: { usage: UsageBlock; model: string }[] = [];
         for (const e of session.entries()) {
-            if (e.type === "message" && e.role === "assistant" && e.usage) usages.push(e.usage);
-            else if (e.type === "subagent" && e.usage) usages.push(e.usage);
+            if (e.type === "message" && e.role === "assistant" && e.usage) {
+                usages.push({ usage: e.usage, model: e.model ?? session.info.model });
+            } else if (e.type === "subagent" && e.usage) {
+                usages.push({ usage: e.usage, model: e.model ?? session.info.model });
+            }
         }
         return this.seedFromEntries(session.info.model, usages);
     }
 
-    seedFromEntries(modelId: string, usages: UsageBlock[]): { ctxTokens: number } {
+    seedFromEntries(
+        fallbackModelId: string,
+        usages: UsageBlock[] | { usage: UsageBlock; model: string }[],
+    ): { ctxTokens: number } {
         this.reset();
-        const { provider } = parseModelId(modelId);
         let last: UsageBlock | undefined;
-        for (const u of usages) {
-            this.accumulateSession(modelId, provider, u);
-            last = u;
+        for (const item of usages) {
+            // Accept either a bare usage (legacy callers) or { usage, model }.
+            const usage = "usage" in item ? item.usage : item;
+            const modelId = "usage" in item ? item.model : fallbackModelId;
+            const { provider } = parseModelId(modelId);
+            this.accumulateSession(modelId, provider, usage);
+            last = usage;
         }
         const ctxTokens = last
             ? typeof last.totalTokens === "number" && last.totalTokens > 0

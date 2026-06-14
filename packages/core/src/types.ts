@@ -130,7 +130,16 @@ export interface EntryTreeFields {
 export type Entry = EntryTreeFields &
     (
         | ({ type: "session-info"; ts: number } & SessionInfoData)
-        | { type: "message"; role: "user" | "assistant" | "tool"; content: unknown; ts: number; usage?: UsageBlock }
+        | {
+              type: "message";
+              role: "user" | "assistant" | "tool";
+              content: unknown;
+              ts: number;
+              usage?: UsageBlock;
+              /** Model that produced this message — pins cost to the right pricing
+               * even after a mid-session model switch. */
+              model?: string;
+          }
         | {
               type: "subagent";
               ts: number;
@@ -140,6 +149,8 @@ export type Entry = EntryTreeFields &
               /** Ordered run log (text/reasoning/tool parts, stream order). */
               activity?: SubagentActivityPart[];
               usage?: UsageBlock;
+              /** Model that ran the subagent — pins its cost to the right pricing. */
+              model?: string;
           }
         | { type: "model-change"; from: string; to: string; ts: number }
         | { type: "compact"; summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number }

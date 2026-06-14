@@ -47,4 +47,26 @@ describe("CostTracker.seedFromSession", () => {
         expect(s.outputTokens).toBe(43);
         expect(ctxTokens).toBe(48); // last assistant turn
     });
+
+    // Regression: tool entries carry no usage, so they must never be counted —
+    // and each assistant usage is counted exactly once (the persistence bug
+    // that re-saved cumulative messages doubled resumed cost).
+    test("counts each assistant usage once; ignores tool messages", () => {
+        const entries: Entry[] = [
+            { type: "message", role: "user", content: "q", ts: 0 },
+            { type: "message", role: "assistant", content: [{ type: "text", text: "a" }], ts: 0, usage: usage(100, 10) },
+            { type: "message", role: "tool", content: [{ type: "tool-result" }], ts: 0 },
+            { type: "message", role: "assistant", content: [{ type: "text", text: "b" }], ts: 0, usage: usage(120, 12) },
+        ];
+        const session = new Session(
+            { id: "t", createdAt: 0, cwd: "/tmp", provider: "xai", model: "xai/grok-build-0.1" },
+            "/tmp/fake.jsonl",
+            entries,
+        );
+        const t = new CostTracker();
+        t.seedFromSession(session);
+        const s = t.sessionBreakdown();
+        expect(s.inputTokens).toBe(220);
+        expect(s.outputTokens).toBe(22);
+    });
 });

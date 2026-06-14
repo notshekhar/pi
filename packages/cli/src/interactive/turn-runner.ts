@@ -41,25 +41,35 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         tracker,
     } = deps;
 
+    // Pull the next queued input and resubmit it, whatever its type (chat or
+    // command). Called after every item finishes so the FIFO queue keeps
+    // draining — chat turns drain from their finally, commands/guards from
+    // their return paths.
+    const drainNext = (): void => {
+        const next = queuedMessages.shift();
+        if (next === undefined) return;
+        renderPending();
+        if (editor.onSubmit) void editor.onSubmit(next);
+    };
+
     const onSubmit = async (raw: string) => {
         const text = raw.trim();
-        if (!text) return;
+        if (!text) {
+            drainNext();
+            return;
+        }
 
-        // Agent busy → queue for after the current turn. Slash commands queue
-        // too: most mutate session/model state and would race the running turn.
-        // Exception: /new and /clear are meant to drop the current turn, so they
-        // run inline (their handlers abort the in-flight turn) instead of waiting
-        // for it to finish — otherwise the agent keeps going after the user
-        // explicitly cleared.
+        // Agent busy → queue every input for after the current turn, FIFO.
+        // Everything queues uniformly: chat messages AND slash commands
+        // (including /new and /clear). They mutate session/model state and would
+        // race the running turn, so they run in order when their turn comes up
+        // rather than preempting. The queue drains after each item via
+        // drainNext(), whatever its type.
         if (state.busy) {
-            const cmd = text.startsWith("/") ? text.slice(1).split(/\s+/)[0] : null;
-            const preempts = cmd === "new" || cmd === "clear";
-            if (!preempts) {
-                queuedMessages.push(text);
-                renderPending();
-                tui.requestRender();
-                return;
-            }
+            queuedMessages.push(text);
+            renderPending();
+            tui.requestRender();
+            return;
         }
 
         // Slash commands run inline. Handler errors land in chat — otherwise
@@ -75,6 +85,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
                 history.addError(formatError(err));
             }
             tui.requestRender();
+            drainNext();
             return;
         }
 
@@ -83,6 +94,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         if (!state.modelId) {
             history.addSystem("No model selected. Run /provider to pick one, or /login to add a provider.");
             tui.requestRender();
+            drainNext();
             return;
         }
 
@@ -274,12 +286,9 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             history.finishAssistant();
             hideWorking();
             tui.requestRender();
-            // Drain queued follow-up messages (FIFO). Each fresh turn re-reads state.
-            const next = queuedMessages.shift();
-            if (next !== undefined) {
-                renderPending();
-                if (editor.onSubmit) void editor.onSubmit(next);
-            }
+            // Drain the next queued input (FIFO), whatever its type. Each fresh
+            // turn/command re-reads state.
+            drainNext();
         }
     };
 

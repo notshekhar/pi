@@ -85,6 +85,14 @@ export class ToolExecutionComponent extends Container {
         this.box.clear();
         this.box.addChild(new Text(this.titleLine(), 0, 0));
 
+        // sql: render the query as a highlighted SQL block instead of leaving it
+        // as a raw JSON arg blob.
+        const inputLines = this.inputPreview();
+        if (inputLines) {
+            this.box.addChild(new Spacer(1));
+            this.box.addChild(new Text(inputLines.join("\n"), 0, 0));
+        }
+
         const output = this.outputText();
         if (!output) return;
 
@@ -149,11 +157,25 @@ export class ToolExecutionComponent extends Container {
                 return [a.pattern, rel(a.path)].filter(Boolean).join(" in ");
             case "find":
                 return typeof a.pattern === "string" ? a.pattern : "";
+            case "sql": {
+                const conn = typeof a.connectionId === "string" ? a.connectionId : "";
+                const q = typeof a.query === "string" ? a.query.replace(/\s+/g, " ").trim() : "";
+                const qShort = q.length > 60 ? `${q.slice(0, 57)}…` : q;
+                return [conn, qShort].filter(Boolean).join(" · ");
+            }
             default: {
                 const json = JSON.stringify(a);
                 return json.length > 80 ? `${json.slice(0, 77)}…` : json;
             }
         }
+    }
+
+    /** sql: the query, highlighted as a SQL block under the title. */
+    private inputPreview(): string[] | null {
+        if (this.toolName !== "sql") return null;
+        const query = typeof this.args.query === "string" ? this.args.query.trim() : "";
+        if (!query) return null;
+        return highlightCode(query, "sql");
     }
 
     private outputText(): string {

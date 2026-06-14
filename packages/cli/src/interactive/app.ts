@@ -30,9 +30,11 @@ import {
     parseModelId,
     runHooks,
     hookBus,
+    closeAllPools,
     getMcpManager,
     agentExists,
     isBuiltinAgent,
+    isHiddenAgent,
     DEFAULT_AGENT_NAME,
     getProjectModel,
     deleteReminder,
@@ -152,7 +154,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         thinkingLevel: initialThinking,
         agent: agentExists(savedAgent) ? savedAgent : DEFAULT_AGENT_NAME,
         oneShotAgent: null,
-        cycleCustomAgent: agentExists(savedAgent) && !isBuiltinAgent(savedAgent) ? savedAgent : null,
+        cycleCustomAgent:
+            agentExists(savedAgent) && (!isBuiltinAgent(savedAgent) || isHiddenAgent(savedAgent))
+                ? savedAgent
+                : null,
         session: initialSession,
         latestContextTokens: seededCtxTokens,
         busy: false,
@@ -422,6 +427,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.stop();
         // Tear down MCP transports (stdio subprocesses, sockets) on the way out.
         void getMcpManager().close();
+        // Close any open datasource connection pools.
+        void closeAllPools();
         // SessionEnd hooks: give them a moment, then exit regardless.
         void Promise.race([
             runHooks(

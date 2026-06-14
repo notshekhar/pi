@@ -79,6 +79,14 @@ export const costStore = new CachedStore(
     { configPath: join(PI_DIR, "cost.json") },
 );
 
+// Datasources for the data-analyst agent's `sql` tool. Kept in its own file
+// (not settings.json) so connection configs stay isolated from app settings.
+export const datasourcesStore = new CachedStore(
+    "pi-agent-datasources",
+    { connections: {} },
+    { configPath: join(PI_DIR, "datasources.json") },
+);
+
 export function getPiDir(): string {
     return PI_DIR;
 }

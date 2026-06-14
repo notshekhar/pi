@@ -22,10 +22,13 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         // selected via /agents) plus all built-ins.
         const wantsAgentCycle = isShiftTab(data) || (isTab(data) && !editor.isShowingAutocomplete());
         if (wantsAgentCycle && editorFocused) {
+            // Cycle = visible built-ins, plus the one extra agent the user has
+            // opted into (a custom agent or a revealed hidden built-in like
+            // data-analyst). Hidden built-ins stay out until selected.
             const cycle = [
                 ...(state.cycleCustomAgent && agentExists(state.cycleCustomAgent) ? [state.cycleCustomAgent] : []),
                 ...listAgents()
-                    .filter((a) => a.builtin)
+                    .filter((a) => a.builtin && !a.hidden)
                     .map((a) => a.name),
             ];
             const next = cycle[(cycle.indexOf(state.agent) + 1) % cycle.length];

@@ -40,12 +40,41 @@ Hard rules:
 
 const READONLY_TOOLS = ["read", "ls", "grep", "find"];
 
+export const ANALYST_BASE_PROMPT = `You are pi-data-analyst, a precise data assistant. Correctness over completeness — if a table, column, value, or range is missing or ambiguous, ASK the user instead of guessing.
+
+Default to the sql tool — it is your primary instrument. Reach for read/ls/grep/find only when you actually need to inspect project files (migrations, models, docs); answer data questions with sql, not by reading files.
+
+Method:
+1. Map the schema before writing real queries. Use the sql tool against information_schema (tables, columns, constraints) or the dialect's catalog to learn structure — never plan a query against imagined tables or columns.
+2. The user works through named connections. Every sql call needs a connectionId; if you don't know which connection to use, ask.
+3. Use read/ls/grep/find to inspect the project (migrations, models, SQL files, docs) for schema and business logic before querying.
+
+Hard rules:
+- Never guess table names, columns, joins, enums, statuses, or business logic.
+- Never assume a data point — dates, time ranges, thresholds, IDs, metric definitions, filter values. If it isn't explicitly given and the result depends on it, ASK first.
+- You are read-only: you have no write/edit/bash, and the sql tool rejects anything but SELECT/WITH/EXPLAIN/SHOW/DESCRIBE. Never attempt to mutate data.
+- Always add a LIMIT (default LIMIT 100) to exploratory queries.
+- Never expose raw PII unless explicitly asked; mask otherwise.
+
+Output:
+- Summarize results concisely — counts, totals, trends — don't dump raw rows as text.
+- State the SQL you ran and which connection, so the user can verify.
+- Surface query errors plainly with the failing SQL.
+
+Correct > Fast · Ask > Assume · Silence > Hallucination`;
+
+export const DATA_ANALYST_AGENT_NAME = "data-analyst";
+
 /** Built-in agents: fixed tool sets, prompt overridable via ~/.pi/agents/<name>.md. */
-const BUILTINS: Record<string, { prompt: string; tools?: string[] }> = {
+const BUILTINS: Record<string, { prompt: string; tools?: string[]; hidden?: boolean }> = {
     [DEFAULT_AGENT_NAME]: { prompt: DEFAULT_BASE_PROMPT },
     // plan may delegate (task); its subagents fork plan (or are capped to its
     // tools), so everything it spawns stays read-only with no extra config.
     plan: { prompt: PLAN_BASE_PROMPT, tools: [...READONLY_TOOLS, "task"] },
+    // data-analyst: read-only file tools + the `sql` tool (exclusive to it —
+    // `sql` is not in createTools/AGENT_TOOL_NAMES, so no other agent can get
+    // it). `hidden` keeps it out of the Tab cycle until the user selects it.
+    [DATA_ANALYST_AGENT_NAME]: { prompt: ANALYST_BASE_PROMPT, tools: [...READONLY_TOOLS, "sql"], hidden: true },
 };
 
 export interface AgentInfo {
@@ -55,6 +84,8 @@ export interface AgentInfo {
     builtin: boolean;
     /** Allowed tool names (may include "task"); undefined = all tools. */
     tools?: string[];
+    /** Built-in kept out of the Tab cycle until the user selects it. */
+    hidden?: boolean;
 }
 
 function agentsDir(): string {
@@ -108,6 +139,7 @@ export function listAgents(): AgentInfo[] {
         prompt: readAgentFile(name)?.prompt ?? b.prompt,
         builtin: true,
         tools: b.tools,
+        hidden: b.hidden,
     }));
     const dir = agentsDir();
     if (!existsSync(dir)) return agents;
@@ -139,6 +171,11 @@ export function agentExists(name: string): boolean {
 
 export function isBuiltinAgent(name: string): boolean {
     return name in BUILTINS;
+}
+
+/** A built-in that stays out of the Tab cycle until explicitly selected. */
+export function isHiddenAgent(name: string): boolean {
+    return BUILTINS[name]?.hidden === true;
 }
 
 /** True when a built-in has a prompt override file (i.e. can be reset). */

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { getPiDir } from "../auth/storage";
 import { getSetting } from "../settings";
 import { loadProjectSkills } from "../agent/skills";
-import { listAgents } from "../agent/agents";
+import { DATA_ANALYST_AGENT_NAME, listAgents } from "../agent/agents";
 
 export interface CommandContext {
     emit(event: string, data?: unknown): void;
@@ -34,6 +34,8 @@ export interface CommandContext {
     manageHooks(): Promise<void>;
     /** /mcp — list servers, or `reconnect [name]` to (re)connect. */
     manageMcp(args: string): Promise<void> | void;
+    /** /datasource — manage database connections for the data-analyst agent. */
+    manageDatasources(): Promise<void> | void;
     /** With message: run that one message under this agent's prompt (one-shot). */
     useAgent(name: string, message?: string): Promise<void> | void;
     stub(name: string): void;
@@ -302,6 +304,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             handler: (ctx, args) => ctx.manageMcp(args.trim()),
         },
         {
+            name: "datasource",
+            description: "Manage database connections for the data-analyst agent",
+            handler: async (ctx) => {
+                await ctx.manageDatasources();
+            },
+        },
+        {
             name: "fork",
             description: "Create a new fork from a previous user message",
             handler: (ctx) => ctx.forkFromMessage(),
@@ -380,6 +389,16 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
     for (const agent of listAgents()) {
         if (agent.name === "default") continue;
         registerAgentCommand(reg, agent.name);
+    }
+
+    // Short aliases for the data-analyst agent: /da and /data.
+    for (const alias of ["da", "data"]) {
+        if (reg.has(alias)) continue;
+        reg.register({
+            name: alias,
+            description: `Run one message with the data-analyst agent: /${alias} <message>`,
+            handler: (ctx, args) => ctx.useAgent(DATA_ANALYST_AGENT_NAME, args || undefined),
+        });
     }
 }
 

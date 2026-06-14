@@ -14,6 +14,8 @@ const externals = [
     // vendored cli.js relative to its own package dir — bundling breaks the spawn.
     ...Object.keys(pkg.optionalDependencies ?? {}),
     "node:*",
+    // `bun` builtin (Bun.SQL for datasources) — resolved at runtime under Bun.
+    "bun",
 ];
 
 const result = await Bun.build({

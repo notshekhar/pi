@@ -18,3 +18,4 @@ export * from "./rpc";
 export * from "./settings";
 export * from "./reminders";
 export * from "./mcp";
+export * from "./datasources";

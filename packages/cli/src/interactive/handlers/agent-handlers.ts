@@ -12,6 +12,7 @@ import {
     getAgentPrompt,
     getAgentTools,
     hasBuiltinOverride,
+    isHiddenAgent,
     isValidAgentName,
     listAgents,
     registerAgentCommand,
@@ -153,8 +154,9 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                     state.agent = name;
                     settingsStore.set("agent", name);
                     footer.setAgent(name);
-                    // Custom agents join the Tab cycle alongside built-ins.
-                    if (!isBuiltin) state.cycleCustomAgent = name;
+                    // Custom agents — and hidden built-ins like data-analyst —
+                    // join the Tab cycle once explicitly selected.
+                    if (!isBuiltin || isHiddenAgent(name)) state.cycleCustomAgent = name;
                     history.addSystem(`agent → ${name}`);
                     tui.requestRender();
                     return;
@@ -191,7 +193,9 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                 }
                 if (action.value === "delete") {
                     deleteAgent(name);
-                    if (state.cycleCustomAgent === name) state.cycleCustomAgent = null;
+                    // Resetting a hidden built-in's prompt override leaves the
+                    // agent itself intact, so keep it revealed in the cycle.
+                    if (state.cycleCustomAgent === name && !isHiddenAgent(name)) state.cycleCustomAgent = null;
                     if (state.agent === name && !isBuiltin) {
                         state.agent = DEFAULT_AGENT_NAME;
                         settingsStore.set("agent", DEFAULT_AGENT_NAME);

@@ -273,6 +273,19 @@ function stringifyResult(output: unknown): string {
     if (output == null) return "";
     if (typeof output === "string") return output;
     const o = output as Record<string, unknown>;
+    // AI-SDK tool-result output shape { type, value } — used by replayed
+    // (persisted) tool results. Unwrap to the underlying text/JSON.
+    if (typeof o.type === "string" && "value" in o) {
+        const v = o.value;
+        if (o.type === "text" || o.type === "error-text") return typeof v === "string" ? v : String(v ?? "");
+        if (o.type === "json" || o.type === "error-json") return JSON.stringify(v, null, 2);
+        if (o.type === "content" && Array.isArray(v)) {
+            return v
+                .map((part) => (part?.type === "text" ? part.text : ""))
+                .filter(Boolean)
+                .join("\n");
+        }
+    }
     // Task (subagent) output: structured run log; flatten for display. The
     // last text part is the final report, so nothing is appended twice.
     if (Array.isArray(o.history)) {

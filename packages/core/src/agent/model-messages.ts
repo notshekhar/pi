@@ -91,13 +91,26 @@ export function toModelMessages(session: Session): ModelMessage[] {
             out.push({ role: "assistant", content: `[subagent ${m.agent} report]\n${m.result}` });
             continue;
         }
-        if (m.role === "tool") continue;
-        const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-        // Anthropic rejects empty text blocks ("text content blocks must be
-        // non-empty") — aborted turns left empty assistant entries in older
-        // transcripts, so filter on read, not just on write.
-        if (content.trim() === "") continue;
-        out.push({ role: m.role as "user" | "assistant", content });
+        // Tool results: structured AI-SDK content, passed back in full.
+        if (m.role === "tool") {
+            if (Array.isArray(m.content) && m.content.length > 0) {
+                out.push({ role: "tool", content: m.content } as ModelMessage);
+            }
+            continue;
+        }
+        // Assistant/user with structured content (text + tool-call parts) pass
+        // through as real parts; legacy string content stays a string. Anthropic
+        // rejects empty text blocks, so drop empty string entries (older aborted
+        // turns left these).
+        if (typeof m.content === "string") {
+            if (m.content.trim() === "") continue;
+            out.push({ role: m.role as "user" | "assistant", content: m.content });
+        } else if (Array.isArray(m.content) && m.content.length > 0) {
+            // Pass structured content through verbatim — text, reasoning (with
+            // its preserved provider signature), and tool-call parts. Nothing
+            // stripped; the SDK round-trips its own response messages.
+            out.push({ role: m.role as "user" | "assistant", content: m.content } as ModelMessage);
+        }
     }
     return out;
 }

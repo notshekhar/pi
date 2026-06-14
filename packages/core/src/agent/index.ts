@@ -1,4 +1,4 @@
-import { streamText, stepCountIs, smoothStream } from "ai";
+import { streamText, stepCountIs } from "ai";
 import type { ModelMessage } from "ai";
 import type { TurnEmitter } from "./events";
 import { getModel, parseModelId } from "../providers";
@@ -129,6 +129,59 @@ function yieldToEventLoop(): Promise<void> {
 // How long the stream loop may run without yielding before it must let the
 // render timers fire. ~1 frame at 60fps — bounds freeze to one frame.
 const STREAM_YIELD_INTERVAL_MS = 16;
+
+interface PersistedTurnMessage {
+    role: "assistant" | "tool";
+    content: unknown;
+    usage?: UsageBlock;
+}
+
+/**
+ * Turn one completed step's messages into session entries — assistant text +
+ * tool calls, and the tool results — in canonical AI-SDK shape (so they replay
+ * and feed straight back to the model). Mirrors pi-mono: one entry per message,
+ * persisted as the step finishes (abort-safe — completed steps survive).
+ *
+ * Task (subagent) tool calls/results are filtered out: they persist separately
+ * as `subagent` entries (with their activity log), and keeping them here too
+ * would double them on resume and in the model context.
+ *
+ * Per-step usage rides the step's assistant message: resume seeding sums
+ * assistant usages (= turn total) and reads the last for context size.
+ */
+function stepMessagesToEntries(
+    messages: ReadonlyArray<{ role: string; content: unknown }>,
+    stepUsage: UsageBlock | undefined,
+): PersistedTurnMessage[] {
+    // The ONLY thing held back is the `task` (subagent) call/result — and not
+    // to drop data: the subagent is persisted MORE completely as its own
+    // `subagent` entry (prompt + full internal activity log + report), so
+    // letting it through here too would duplicate the box on resume. Every
+    // other part — text, reasoning, tool calls, tool results — is persisted
+    // exactly as it streamed.
+    const taskCallIds = new Set<string>();
+    const out: PersistedTurnMessage[] = [];
+    for (const m of messages) {
+        if (m.role === "assistant") {
+            const parts = Array.isArray(m.content) ? m.content : [{ type: "text", text: String(m.content) }];
+            const kept = parts.filter((p: { type?: string; toolName?: string; toolCallId?: string }) => {
+                if (p?.type === "tool-call" && p.toolName === "task") {
+                    if (p.toolCallId) taskCallIds.add(p.toolCallId);
+                    return false;
+                }
+                return true;
+            });
+            if (kept.length > 0) out.push({ role: "assistant", content: kept, usage: stepUsage });
+        } else if (m.role === "tool") {
+            const parts = Array.isArray(m.content) ? m.content : [];
+            const kept = parts.filter(
+                (p: { toolCallId?: string }) => !(p?.toolCallId && taskCallIds.has(p.toolCallId)),
+            );
+            if (kept.length > 0) out.push({ role: "tool", content: kept });
+        }
+    }
+    return out;
+}
 
 export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const { session, modelId, userInput, cwd, abortSignal, tracker, emitter } = opts;
@@ -349,6 +402,25 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     }
 
     const anthropicCaching = effectiveProvider === "anthropic";
+    // Incremental persistence (pi-mono parity): each completed step's messages
+    // are written as they finish, so tool calls/results survive turn boundaries
+    // and aborts. Tracks whether anything was persisted for the abort fallback.
+    let persistedAnyMessage = false;
+    const persistStep = async (step: {
+        response: { messages: ReadonlyArray<{ role: string; content: unknown }> };
+        usage?: UsageBlock;
+    }): Promise<void> => {
+        for (const entry of stepMessagesToEntries(step.response.messages, step.usage)) {
+            await session.append({
+                type: "message",
+                ts: Date.now(),
+                role: entry.role,
+                content: entry.content,
+                ...(entry.usage ? { usage: entry.usage } : {}),
+            });
+            persistedAnyMessage = true;
+        }
+    };
     const result = streamText({
         model,
         ...(anthropicCaching
@@ -368,7 +440,13 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         tools,
         stopWhen: stepCountIs(maxSteps),
         abortSignal,
-        experimental_transform: smoothStream({ delayInMs: 20, chunking: "word" }),
+        // Persist each step's messages as it finishes (mirrors pi-mono's
+        // per-message persistence). Errors here must not break the turn.
+        onStepFinish: (step) => persistStep(step as never).catch(() => {}),
+        // smoothStream removed: it re-buffers tokens and releases them on its
+        // own 20ms timers, coupling stream delivery to the timer phase — the
+        // same phase that starves during a turn, which can deadlock delivery
+        // and freeze the TUI. pi-mono doesn't use it; we stream parts raw.
         ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
     });
 
@@ -449,12 +527,11 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         }
     }
 
-    // Aborted/tool-only turns can end with no text — don't persist an empty
-    // assistant message (Anthropic rejects empty text blocks on later turns;
-    // toModelMessages also filters empty content on read). But DO persist when
-    // steps completed before an abort: their usage is real spend and resume
-    // seeding reads it from here.
-    if (assistantText.trim() !== "" || lastUsage || stepUsageSum) {
+    // Steps persist incrementally via onStepFinish (above). Fallback: if a turn
+    // was aborted before any step finished but produced partial text or usage,
+    // keep it so resume isn't empty and cost seeding stays honest. Anthropic
+    // rejects empty text blocks, so only persist when there's text or usage.
+    if (!persistedAnyMessage && (assistantText.trim() !== "" || lastUsage || stepUsageSum)) {
         await session.append({
             type: "message",
             ts: Date.now(),

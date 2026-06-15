@@ -13,7 +13,9 @@ import {
     type SelectItem,
     Spacer,
     Text,
+    truncateToWidth,
     TUI,
+    type Component,
     type EditorTheme,
     type SlashCommand as TuiSlashCommand,
 } from "@notshekhar/pi-tui";
@@ -70,6 +72,25 @@ export interface InteractiveOptions {
     cwd: string;
     sessionId?: string;
     version?: string;
+}
+
+/**
+ * A single queued user message, rendered on exactly one line: newlines are
+ * collapsed to spaces and anything past the viewport width is cut to a trailing
+ * "…" (matching the user-message selector). Keeps the pending list compact no
+ * matter how long or multi-line the queued input was.
+ */
+class PendingMessageLine implements Component {
+    constructor(
+        private readonly prefix: string,
+        private readonly message: string,
+    ) {}
+    invalidate(): void {}
+    render(width: number): string[] {
+        const singleLine = this.message.replace(/\s+/g, " ").trim();
+        const avail = Math.max(1, width - this.prefix.length);
+        return [chalk.dim(this.prefix) + chalk.gray(truncateToWidth(singleLine, avail))];
+    }
 }
 
 const editorTheme: EditorTheme = {
@@ -217,11 +238,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         pendingContainer.clear();
         for (let i = 0; i < queuedMessages.length; i++) {
             pendingContainer.addChild(
-                new Text(
-                    chalk.dim(` queued ${i + 1}/${queuedMessages.length}: `) + chalk.gray(queuedMessages[i]),
-                    0,
-                    0,
-                ),
+                new PendingMessageLine(` queued ${i + 1}/${queuedMessages.length}: `, queuedMessages[i]),
             );
         }
     }

@@ -34,7 +34,9 @@ describe("parseAgentFile", () => {
     });
 
     test("full tool list (incl. task) normalizes to undefined (= all)", () => {
-        const parsed = parseAgentFile("---\ntools: read, write, edit, bash, ls, grep, find, task\n---\n\nBody.");
+        const parsed = parseAgentFile(
+            "---\ntools: read, write, edit, bash, ls, grep, find, sql, task\n---\n\nBody.",
+        );
         expect(parsed.tools).toBeUndefined();
     });
 

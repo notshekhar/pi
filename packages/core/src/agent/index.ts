@@ -72,6 +72,7 @@ export {
 } from "./agents";
 export { DEFAULT_BASE_PROMPT } from "./system-prompt";
 export { subagentArgSummary, formatSubagentActivity, type SubagentOutput } from "./subagent";
+export { extractImagesFromInput, type ExtractedImages } from "./images";
 export { asTurnEmitter, type TurnEmitter, type TurnEvents } from "./events";
 export {
     hasProjectTrustInputs,
@@ -344,10 +345,13 @@ Write complete prompts: the subagent knows nothing about this conversation — i
             return -1;
         })();
         if (lastUserIdx >= 0) {
-            const parts: Array<{ type: "text"; text: string } | { type: "image"; image: Buffer; mediaType: string }> =
+            // AI SDK v6 user-content attachment shape: a `file` part with the
+            // bytes as `data` and an IANA `mediaType`. (The older `image` part is
+            // deprecated in favor of this for all attachment kinds.)
+            const parts: Array<{ type: "text"; text: string } | { type: "file"; data: Buffer; mediaType: string }> =
                 [];
             if (textWithoutPaths) parts.push({ type: "text", text: textWithoutPaths });
-            for (const img of images) parts.push({ type: "image", image: img.data, mediaType: img.mediaType });
+            for (const img of images) parts.push({ type: "file", data: img.data, mediaType: img.mediaType });
             messages[lastUserIdx] = { role: "user", content: parts as never };
         }
     }

@@ -38,7 +38,10 @@ Hard rules:
 - Your write access does not exist; your subagents' write access does not exist. Investigation only.
 - A plan is done when another agent could execute it without re-discovering anything.`;
 
-const READONLY_TOOLS = ["read", "ls", "grep", "find"];
+// `sql` is read-only by enforcement (only SELECT/WITH/EXPLAIN/SHOW/DESCRIBE), so
+// it rides along with the read-only file tools — every agent that gets those
+// gets it too.
+const READONLY_TOOLS = ["read", "ls", "grep", "find", "sql"];
 
 export const ANALYST_BASE_PROMPT = `You are pi-data-analyst, a precise data assistant. Correctness over completeness — if a table, column, value, or range is missing or ambiguous, ASK the user instead of guessing.
 
@@ -67,14 +70,15 @@ export const DATA_ANALYST_AGENT_NAME = "data-analyst";
 
 /** Built-in agents: fixed tool sets, prompt overridable via ~/.pi/agents/<name>.md. */
 const BUILTINS: Record<string, { prompt: string; tools?: string[]; hidden?: boolean }> = {
+    // default is unrestricted, so it gets every tool including sql.
     [DEFAULT_AGENT_NAME]: { prompt: DEFAULT_BASE_PROMPT },
-    // plan may delegate (task); its subagents fork plan (or are capped to its
-    // tools), so everything it spawns stays read-only with no extra config.
+    // plan may delegate (task) and query data (sql, via READONLY_TOOLS); its
+    // subagents fork plan (or are capped to its tools), so everything it spawns
+    // stays read-only.
     plan: { prompt: PLAN_BASE_PROMPT, tools: [...READONLY_TOOLS, "task"] },
-    // data-analyst: read-only file tools + the `sql` tool (exclusive to it —
-    // `sql` is not in createTools/AGENT_TOOL_NAMES, so no other agent can get
-    // it). `hidden` keeps it out of the Tab cycle until the user selects it.
-    [DATA_ANALYST_AGENT_NAME]: { prompt: ANALYST_BASE_PROMPT, tools: [...READONLY_TOOLS, "sql"], hidden: true },
+    // data-analyst: identical tool set to plan — the only difference is the
+    // prompt. `hidden` keeps it out of the Tab cycle until the user selects it.
+    [DATA_ANALYST_AGENT_NAME]: { prompt: ANALYST_BASE_PROMPT, tools: [...READONLY_TOOLS, "task"], hidden: true },
 };
 
 export interface AgentInfo {

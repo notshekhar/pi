@@ -6,7 +6,6 @@ import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
 import { effectiveSdkProvider } from "../auth";
 import { createTools } from "../tools";
-import { createSqlTool } from "../tools/sql";
 import { buildSystemPrompt } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
@@ -281,13 +280,6 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // access. Subagents never get task themselves (no nesting).
     const subagentsEnabled = getSetting("subagents") !== false;
     const toolsForTurn: Record<string, unknown> = { ...toolSet };
-    // `sql` lives outside the file toolset (createTools) and AGENT_TOOL_NAMES,
-    // so it can never reach the default agent or any custom agent. It joins the
-    // turn only for an agent whose fixed tool set opts in (the data-analyst
-    // built-in).
-    if (allowedTools?.includes("sql")) {
-        toolsForTurn.sql = createSqlTool({ abortSignal });
-    }
     if (subagentsEnabled && (!allowedTools?.length || allowedTools.includes("task"))) {
         toolsForTurn.task = createTaskTool({
             modelId,

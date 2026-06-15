@@ -3,11 +3,11 @@
  * datasource connectionId and a query, runs it through the two-layer read-only
  * guard (see datasources/validate.ts + client.ts), and returns the rows.
  *
- * Not part of createTools()/TOOL_NAMES and not in AGENT_TOOL_NAMES: it is wired
- * into a turn only for an agent whose fixed tool set opts in (the data-analyst
- * built-in), so no other agent can ever reach it. Any failure (a rejected
- * mutation, an unknown connection, a database error) throws, surfacing as a
- * tool-error.
+ * Part of the main toolset (createTools/TOOL_NAMES): the unrestricted default
+ * agent gets it automatically, and restricted agents keep it only if their
+ * allowlist names it (plan/data-analyst do, via READONLY_TOOLS). Any failure (a
+ * rejected mutation, an unknown connection, a database error) throws, surfacing
+ * as a tool-error.
  */
 import { tool } from "ai";
 import { z } from "zod";

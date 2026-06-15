@@ -37,6 +37,9 @@ export type ToolSet = ReturnType<typeof createTools>;
 export const TOOL_NAMES = ["read", "write", "edit", "bash", "ls", "grep", "find", "sql"] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 export { clearReadRegistry } from "./utils/read-registry";
+// Resolves the bundled/downloaded `fd` & `rg` binaries — also used by the CLI to
+// power @-mention fuzzy file search in the editor's autocomplete.
+export { ensureTool, getToolPath } from "./utils/tools-manager";
 
 export {
     createBashTool,

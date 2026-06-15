@@ -30,6 +30,7 @@ import {
     getCatalog,
     getModelSync,
     parseModelId,
+    ensureTool,
     runHooks,
     hookBus,
     closeAllPools,
@@ -211,14 +212,24 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     const editor = new Editor(tui, editorTheme, { paddingX: 1 });
 
+    // @-mention fuzzy file search needs the `fd` binary; without it the provider
+    // silently returns no file suggestions. Resolve it once (from PATH, else
+    // download) and rebuild the provider when ready. `null` until then — slash
+    // commands and explicit path completion still work in the meantime.
+    let fdPath: string | null = null;
     const refreshCommands = () => {
         const slashItems: TuiSlashCommand[] = commands.list().map((c) => ({
             name: c.name,
             description: c.description,
         }));
-        editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashItems, state.cwd));
+        editor.setAutocompleteProvider(new CombinedAutocompleteProvider(slashItems, state.cwd, fdPath));
     };
     refreshCommands();
+    void ensureTool("fd", true).then((path) => {
+        if (!path) return;
+        fdPath = path;
+        refreshCommands();
+    });
 
     // pi pattern: editor lives in its own container so we can swap it out for selectors
     const editorContainer = new Container();

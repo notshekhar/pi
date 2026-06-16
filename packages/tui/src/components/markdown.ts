@@ -510,7 +510,12 @@ export class Markdown implements Component {
                 case "link": {
                     const linkText = this.renderInlineTokens(token.tokens || [], resolvedStyleContext);
                     const styledLink = this.theme.link(this.theme.underline(linkText));
-                    if (getCapabilities().hyperlinks) {
+                    // Internal anchor links (e.g. [x](#heading)) have no clickable target in the
+                    // terminal: the emulator would try to "open" the fragment as a URL, and our TUI
+                    // has no app-owned viewport to scroll. Render them as styled text only.
+                    if (token.href.startsWith("#")) {
+                        result += styledLink + stylePrefix;
+                    } else if (getCapabilities().hyperlinks) {
                         // OSC 8: render as a clickable hyperlink. The URL is not printed inline,
                         // so we always show only the link text regardless of whether it matches href.
                         result += hyperlink(styledLink, token.href) + stylePrefix;

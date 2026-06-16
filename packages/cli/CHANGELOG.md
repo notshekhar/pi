@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.46] - 2026-06-16
+
+### Fixed
+
+- Internal anchor links in rendered markdown (e.g. `[Section](#heading)`) no longer render as broken clickable links. The terminal has no way to act on a `#fragment` target — it would try to "open" it as a URL — and the TUI has no app-owned viewport to scroll, so these now render as plain styled text. External `http(s)`/`mailto:` links are unchanged and still open from hyperlink-capable terminals.
+
 ## [0.3.26] - 2026-06-12
 
 ### Added

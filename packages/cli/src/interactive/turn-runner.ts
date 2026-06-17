@@ -15,6 +15,16 @@ function pickContextUsage(event: { usage?: UsageBlock; lastStepUsage?: UsageBloc
     return event.lastStepUsage ?? event.usage;
 }
 
+/**
+ * Whether the leading /token of an input maps to a registered slash command.
+ * Mirrors how CommandRegistry.run parses the name so the two stay in sync.
+ */
+function commandExists(commands: { has(name: string): boolean }, input: string): boolean {
+    const space = input.indexOf(" ");
+    const name = (space < 0 ? input.slice(1) : input.slice(1, space)).trim();
+    return commands.has(name);
+}
+
 /** Errors render in chat, never persist to the session — make them readable. */
 export function formatError(err: unknown): string {
     if (err instanceof Error) return err.message;
@@ -73,14 +83,13 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         }
 
         // Slash commands run inline. Handler errors land in chat — otherwise
-        // they die as unhandled rejections nobody sees.
-        if (text.startsWith("/")) {
+        // they die as unhandled rejections nobody sees. An unrecognized /name
+        // isn't an error: the user may just be talking about a path or option,
+        // so we fall through and send it to the model as a normal message.
+        if (text.startsWith("/") && commandExists(commands, text)) {
             history.addCommand(text);
             try {
-                const handled = await commands.run(text, ctx);
-                if (!handled) {
-                    history.addSystem(`unknown command: ${text}`);
-                }
+                await commands.run(text, ctx);
             } catch (err) {
                 history.addError(formatError(err));
             }

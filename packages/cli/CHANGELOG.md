@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.47] - 2026-06-17
+
+### Changed
+
+- An unrecognized `/command` is no longer rejected with `unknown command`. If the leading `/token` doesn't match a registered slash command, the input falls through and is sent to the model as a normal message — so messages that merely start with a slash (paths, options, off-hand `/notes`) just work. Registered commands, including one-shot `/<agent> <message>`, still run inline as before.
+
 ## [0.3.46] - 2026-06-16
 
 ### Fixed

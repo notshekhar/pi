@@ -269,7 +269,7 @@ export class ChatHistory extends Container {
     }
 }
 
-function stringifyResult(output: unknown): string {
+export function stringifyResult(output: unknown): string {
     if (output == null) return "";
     if (typeof output === "string") return output;
     const o = output as Record<string, unknown>;
@@ -298,6 +298,20 @@ function stringifyResult(output: unknown): string {
         return `${o.stdout ?? ""}${o.stderr ? `\n[stderr]\n${o.stderr}` : ""}`.trim();
     }
     if (typeof o.content === "string") return o.content;
+    // Raw MCP CallToolResult shape — the LIVE tool-result event carries this
+    // ({ content: [{type:"text", text}], structuredContent?, isError? }), while
+    // the persisted entry carries the toModelOutput shape ({type:"content",
+    // value}). Unwrap the text blocks the same way so runtime and resume render
+    // identically instead of the live view dumping a raw JSON blob. Fall back to
+    // structuredContent if the server sent no text content.
+    if (Array.isArray(o.content)) {
+        const text = (o.content as Array<{ type?: string; text?: string }>)
+            .filter((p) => p?.type === "text" && p.text)
+            .map((p) => p.text)
+            .join("\n");
+        if (text) return text;
+        if (o.structuredContent != null) return JSON.stringify(o.structuredContent, null, 2);
+    }
     if (typeof o.matches === "string") return o.matches;
     if (Array.isArray((o as { paths?: unknown }).paths)) return (o as { paths: string[] }).paths.join("\n");
     if (Array.isArray((o as { entries?: unknown }).entries)) {

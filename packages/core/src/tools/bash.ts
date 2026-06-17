@@ -12,6 +12,8 @@ import {
 } from "./utils/shell";
 import { OutputAccumulator } from "./utils/output-accumulator";
 import { DEFAULT_MAX_BYTES, formatSize } from "./utils/truncate";
+import { DEFAULT_BASH_DENY, findDeniedCommand, formatDenyRefusal } from "./utils/command-deny";
+import { getSetting } from "../settings";
 
 export interface BashToolContext {
     cwd: string;
@@ -96,6 +98,13 @@ export function createBashTool(ctx: BashToolContext) {
             timeout: z.number().positive().optional().describe("Timeout in seconds (optional, no default timeout)"),
         }),
         execute: async ({ command, timeout }, options) => {
+            // Denylist guardrail: refuse blocked commands before anything runs.
+            // Read live so settings edits apply without a restart; an unset
+            // bashDeny falls back to the seeded defaults. Checked against the
+            // raw command (before commandPrefix) so the user's text is judged.
+            const denied = findDeniedCommand(command, getSetting("bashDeny") ?? DEFAULT_BASH_DENY);
+            if (denied) throw new Error(formatDenyRefusal(denied));
+
             const signal = options?.abortSignal ?? ctx.abortSignal;
             const output = new OutputAccumulator({ tempFilePrefix: "pi-bash" });
             const finalCommand = ctx.commandPrefix ? `${ctx.commandPrefix}\n${command}` : command;

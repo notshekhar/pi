@@ -7,6 +7,7 @@ import { settingsStore } from "./auth/storage";
 import type { ThinkingLevel } from "./agent/thinking";
 import type { HooksConfig } from "./agent/hooks";
 import type { McpServerConfig } from "./mcp/config";
+import type { BashDenyEntry } from "./tools/utils/command-deny";
 
 export interface PiSettings {
     defaultModel?: string;
@@ -39,6 +40,12 @@ export interface PiSettings {
     mcp?: boolean;
     /** Connected MCP servers, keyed by display name. */
     mcpServers?: Record<string, McpServerConfig>;
+    /**
+     * Bash commands the agent is refused (a guardrail, not a sandbox). Entries
+     * match by command name, optionally + subcommand ("git commit"). Omit the
+     * key to use DEFAULT_BASH_DENY; set it (even to []) to take full control.
+     */
+    bashDeny?: BashDenyEntry[];
 }
 
 export function getSetting<K extends keyof PiSettings>(key: K): PiSettings[K] {

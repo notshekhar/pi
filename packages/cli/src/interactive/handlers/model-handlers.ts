@@ -7,6 +7,7 @@ import {
     addCustomModel,
     getActiveProvider,
     getCatalog,
+    getModelSync,
     getProjectProviderModel,
     listCustomModelIds,
     removeCustomModel,
@@ -147,6 +148,14 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
             }
         },
         async setThinking(level) {
+            // Models that don't reason (e.g. composer-2.5, grok-3) have no
+            // thinking levels — pi-mono shows "does not support thinking" and
+            // skips the selector entirely.
+            if (!getModelSync(state.modelId)?.reasoning) {
+                history.addSystem("current model does not support thinking");
+                tui.requestRender();
+                return;
+            }
             let target = level as ThinkingLevel | undefined;
             if (!target) {
                 const items: SelectItem[] = THINKING_LEVELS.map((lv) => ({

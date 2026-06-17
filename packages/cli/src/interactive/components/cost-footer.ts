@@ -1,3 +1,4 @@
+import { getModelSync } from "@notshekhar/pi-core";
 import type { Component } from "@notshekhar/pi-tui";
 import chalk from "chalk";
 import { formatClock, formatCountdown } from "../time";
@@ -50,12 +51,16 @@ export class CostFooter implements Component {
     private ctxUsed = 0;
     private ctxMax = 0;
     private thinking = "off";
+    // Whether the current model reasons. Mirrors pi-mono's footer, which only
+    // shows the thinking level when state.model?.reasoning is truthy.
+    private modelReasoning = true;
     private agent = "default";
     private timerEndsAt: number | null = null;
     private clockEnabled = false;
 
     setModel(id: string) {
         this.modelId = id;
+        this.modelReasoning = Boolean(getModelSync(id)?.reasoning);
     }
     setAgent(name: string) {
         this.agent = name;
@@ -92,10 +97,10 @@ export class CostFooter implements Component {
             ctxStr = chalk.dim(`ctx ${fmtTokens(this.ctxUsed)}`);
         }
         const sid = this.sessionId ? this.sessionId.slice(0, 8) : "unsaved";
-        const modelLabel =
-            this.thinking && this.thinking !== "off"
-                ? `${this.modelId || "no-model"} • ${this.thinking}`
-                : this.modelId || "no-model";
+        const showThinking = this.modelReasoning && this.thinking && this.thinking !== "off";
+        const modelLabel = showThinking
+            ? `${this.modelId || "no-model"} • ${this.thinking}`
+            : this.modelId || "no-model";
         // Two rows: agent/model identity on top, usage below.
         const agentStr =
             (this.agent && this.agent !== "default"

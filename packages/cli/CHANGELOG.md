@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.4] - 2026-06-18
+
+### Added
+
+- xAI **Composer 2.5** (`xai/composer-2.5`) is now in the model catalog — xAI's agentic coding model. It's callable via the xAI API even though it isn't listed by `/v1/models` (subscription/preview).
+
+### Changed
+
+- The thinking level is now hidden for models that don't reason. composer-2.5 reasons internally but rejects the `reasoningEffort` parameter, so the footer no longer shows a thinking level and `/thinking` reports "current model does not support thinking" — matching pi-mono, which gates both on the model's `reasoning` capability. (Also applies to other non-reasoning models like grok-3.)
+
 ## [0.3.51] - 2026-06-17
 
 ### Added

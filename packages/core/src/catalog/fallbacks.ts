@@ -36,6 +36,12 @@ function m(
 
 // xAI — pi-grok subscription + public API
 const XAI: ModelInfo[] = [
+    // Composer 2.5: xAI's agentic coding model. Not listed by /v1/models but
+    // callable (subscription/preview — see catalog/index.ts note). It reasons
+    // internally but rejects reasoningEffort with a 400, so reasoning:false here
+    // forces providerOptions=undefined (no effort param is ever sent).
+    // Pricing reverse-engineered from cost_in_usd_ticks, calibrated vs grok-4.3.
+    m("xai", "composer-2.5", "Composer 2.5", 256_000, 30_000, { input: 0.9, output: 1.8, cacheRead: 0.2 }, false),
     m("xai", "grok-build-0.1", "Grok Build 0.1", 256_000, 256_000, { input: 1, output: 2, cacheRead: 0.2 }, true, [
         "text",
         "image",

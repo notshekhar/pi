@@ -27,6 +27,20 @@ describe("CostTracker.seedFromEntries", () => {
     });
 });
 
+describe("CostTracker.add", () => {
+    // The subagent loop bills each step with tracker.add(modelId, usage) on
+    // finish-step (including MCP-tool steps); this locks that those calls
+    // accumulate into the session total rather than overwriting.
+    test("accumulates usage across calls (per-step billing)", () => {
+        const t = new CostTracker();
+        t.add("xai/grok-build-0.1", usage(100, 20));
+        t.add("xai/grok-build-0.1", usage(300, 50));
+        const s = t.sessionBreakdown();
+        expect(s.inputTokens).toBe(400);
+        expect(s.outputTokens).toBe(70);
+    });
+});
+
 describe("CostTracker.seedFromSession", () => {
     test("includes assistant turns and subagent runs, skips others", () => {
         const entries: Entry[] = [

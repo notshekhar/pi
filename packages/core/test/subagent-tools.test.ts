@@ -37,3 +37,30 @@ describe("resolveSubagentTools — delegation never widens access (cap = parent'
         expect(resolveSubagentTools(ALL, ["write"], READONLY)).toEqual([]);
     });
 });
+
+// MCP tool names join the universe (allTools) and the parent's cap when the
+// parent turn exposed them. The same widen/narrow rule then governs whether a
+// subagent inherits them — no MCP-specific branching.
+describe("resolveSubagentTools — MCP inheritance follows the same cap rule", () => {
+    const MCP = "mcp__search__query";
+    const UNIVERSE = [...ALL, MCP];
+
+    test("a fork inherits the parent's MCP tools (cap includes them)", () => {
+        // Fork = no target restriction; parent (cap) had the MCP tool.
+        const eff = resolveSubagentTools(UNIVERSE, undefined, [...ALL, MCP]);
+        expect(eff).toContain(MCP);
+    });
+
+    test("a named agent that doesn't list the MCP tool drops it (narrow only)", () => {
+        const eff = resolveSubagentTools(UNIVERSE, ["read", "grep"], [...ALL, MCP]);
+        expect(eff).not.toContain(MCP);
+        expect(eff.sort()).toEqual(["grep", "read"]);
+    });
+
+    test("a named agent cannot gain an MCP tool the parent never had (no widening)", () => {
+        // Target lists the MCP tool, but the parent's cap doesn't include it.
+        const eff = resolveSubagentTools(UNIVERSE, ["read", MCP], ALL);
+        expect(eff).not.toContain(MCP);
+        expect(eff).toEqual(["read"]);
+    });
+});

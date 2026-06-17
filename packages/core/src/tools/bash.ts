@@ -14,6 +14,7 @@ import { OutputAccumulator } from "./utils/output-accumulator";
 import { DEFAULT_MAX_BYTES, formatSize } from "./utils/truncate";
 import { DEFAULT_BASH_DENY, findDeniedCommand, formatDenyRefusal } from "./utils/command-deny";
 import { getSetting } from "../settings";
+import { sandbox, type SandboxConfig } from "@notshekhar/pi-sandbox";
 
 export interface BashToolContext {
     cwd: string;
@@ -22,6 +23,12 @@ export interface BashToolContext {
     shellPath?: string;
     /** Optional command prefix prepended to every command (e.g. shell setup) */
     commandPrefix?: string;
+    /**
+     * Force a fail-closed, kernel-enforced read-only sandbox (no writable cwd),
+     * regardless of user sandbox settings. Set for read-only agents (plan): if
+     * the sandbox can't be enforced, the command is REFUSED rather than run.
+     */
+    readOnlyFs?: boolean;
 }
 
 function execBash(
@@ -33,15 +40,28 @@ function execBash(
         timeout?: number;
         env?: NodeJS.ProcessEnv;
         shellPath?: string;
+        /** Pre-built spawn argv (sandbox wrapper). When set, `command` is ignored. */
+        argv?: string[];
     },
 ): Promise<{ exitCode: number | null }> {
     return new Promise((resolve, reject) => {
-        const { shell, args } = getShellConfig(opts.shellPath);
         if (!existsSync(cwd)) {
             reject(new Error(`Working directory does not exist: ${cwd}\nCannot execute bash commands.`));
             return;
         }
-        const child = spawn(shell, [...args, command], {
+        // Sandbox path: spawn the wrapper argv directly (no host shell layer).
+        // Otherwise spawn the command through the configured shell as before.
+        let file: string;
+        let spawnArgs: string[];
+        if (opts.argv && opts.argv.length > 0) {
+            file = opts.argv[0];
+            spawnArgs = opts.argv.slice(1);
+        } else {
+            const { shell, args } = getShellConfig(opts.shellPath);
+            file = shell;
+            spawnArgs = [...args, command];
+        }
+        const child = spawn(file, spawnArgs, {
             cwd,
             detached: process.platform !== "win32",
             env: opts.env ?? getShellEnv(),
@@ -89,6 +109,78 @@ function execBash(
     });
 }
 
+/**
+ * Decide how to run a command under the sandbox. Returns a spawn argv when the
+ * sandbox is active, or a warning when it's enabled but can't be enforced.
+ *
+ * Fail-open by design (the user's configured behavior): if the boundary can't
+ * be applied we still run the command, but surface a warning so it's never a
+ * silent downgrade. `command` is the final command (after commandPrefix).
+ */
+async function resolveSandbox(command: string, ctx: BashToolContext): Promise<{ argv?: string[]; warning?: string }> {
+    // Read-only agents (e.g. plan): bash MUST be kernel-enforced read-only, and
+    // fail CLOSED — if the sandbox can't be applied, refuse rather than run
+    // unsandboxed. (Plan only gets bash on sandbox-capable platforms, so the
+    // unsupported branch is defensive.)
+    if (ctx.readOnlyFs) {
+        if (!sandbox.isSupported()) {
+            throw new Error(
+                "This agent runs bash in a read-only OS sandbox, which isn't available on this platform — bash is disabled here. Investigate with read/ls/grep/find instead.",
+            );
+        }
+        const deps = sandbox.checkDependencies();
+        if (deps.errors.length > 0) {
+            throw new Error(
+                `This agent runs bash in a read-only OS sandbox, but it's unavailable (${deps.errors.join(", ")}). Refusing to run bash unsandboxed. Use read/ls/grep/find, or install the missing dependency.`,
+            );
+        }
+        const { shell } = getShellConfig(ctx.shellPath);
+        const config: SandboxConfig = {
+            filesystem: { allowWrite: [], denyWrite: [], denyRead: [], allowRead: [], readOnly: true },
+            network: "deny",
+        };
+        try {
+            const wrapped = await sandbox.wrap({ command, shell, cwd: ctx.cwd, config });
+            if (!wrapped) throw new Error("sandbox could not wrap the command");
+            return { argv: wrapped.argv };
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new Error(`Read-only sandbox failed to start (${msg}). Refusing to run bash unsandboxed.`);
+        }
+    }
+
+    const s = getSetting("sandbox");
+    if (!s?.enabled) return {};
+
+    if (!sandbox.isSupported()) {
+        return { warning: "sandbox is enabled but not supported on this platform — ran WITHOUT isolation." };
+    }
+    const deps = sandbox.checkDependencies();
+    if (deps.errors.length > 0) {
+        return { warning: `sandbox is enabled but unavailable (${deps.errors.join(", ")}) — ran WITHOUT isolation.` };
+    }
+
+    const { shell } = getShellConfig(ctx.shellPath);
+    const config: SandboxConfig = {
+        filesystem: {
+            allowWrite: s.allowWrite ?? [],
+            denyWrite: s.denyWrite ?? [],
+            denyRead: s.denyRead ?? [],
+            allowRead: s.allowRead ?? [],
+            allowGitConfig: s.allowGitConfig,
+        },
+        network: s.network ?? "deny",
+    };
+    try {
+        const wrapped = await sandbox.wrap({ command, shell, cwd: ctx.cwd, config });
+        if (!wrapped) return { warning: "sandbox could not wrap the command — ran WITHOUT isolation." };
+        return { argv: wrapped.argv };
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { warning: `sandbox failed to start (${msg}) — ran WITHOUT isolation.` };
+    }
+}
+
 export function createBashTool(ctx: BashToolContext) {
     return tool({
         description:
@@ -108,6 +200,11 @@ export function createBashTool(ctx: BashToolContext) {
             const signal = options?.abortSignal ?? ctx.abortSignal;
             const output = new OutputAccumulator({ tempFilePrefix: "pi-bash" });
             const finalCommand = ctx.commandPrefix ? `${ctx.commandPrefix}\n${command}` : command;
+
+            // Resolve the sandbox against the final command (commandPrefix included).
+            const sandboxRun = await resolveSandbox(finalCommand, ctx);
+            const withSandboxWarning = (text: string): string =>
+                sandboxRun.warning ? appendStatus(`[pi sandbox] ${sandboxRun.warning}`, text) : text;
 
             const formatOutput = async (emptyText = "(no output)"): Promise<{ text: string; truncated: boolean }> => {
                 output.finish();
@@ -137,21 +234,22 @@ export function createBashTool(ctx: BashToolContext) {
                     signal,
                     timeout,
                     shellPath: ctx.shellPath,
+                    argv: sandboxRun.argv,
                 });
                 const { text } = await formatOutput();
                 if (exitCode !== 0 && exitCode !== null) {
-                    throw new Error(appendStatus(text, `Command exited with code ${exitCode}`));
+                    throw new Error(withSandboxWarning(appendStatus(text, `Command exited with code ${exitCode}`)));
                 }
-                return text;
+                return withSandboxWarning(text);
             } catch (err) {
                 if (err instanceof Error && err.message === "aborted") {
                     const { text } = await formatOutput("");
-                    throw new Error(appendStatus(text, "Command aborted"));
+                    throw new Error(withSandboxWarning(appendStatus(text, "Command aborted")));
                 }
                 if (err instanceof Error && err.message.startsWith("timeout:")) {
                     const secs = err.message.split(":")[1];
                     const { text } = await formatOutput("");
-                    throw new Error(appendStatus(text, `Command timed out after ${secs} seconds`));
+                    throw new Error(withSandboxWarning(appendStatus(text, `Command timed out after ${secs} seconds`)));
                 }
                 throw err;
             }

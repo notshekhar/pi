@@ -1,5 +1,30 @@
 import { describe, expect, test } from "bun:test";
-import { isValidAgentName, parseAgentFile } from "../src/agent/agents";
+import { getAgentTools, isReadOnlyBashAgent, isValidAgentName, parseAgentFile } from "../src/agent/agents";
+import { isSandboxSupported } from "@notshekhar/pi-sandbox";
+
+describe("plan agent tools", () => {
+    test("includes bash only where the OS sandbox can enforce read-only", () => {
+        const tools = getAgentTools("plan")!;
+        expect(tools).toContain("read");
+        expect(tools).not.toContain("write");
+        expect(tools).not.toContain("edit");
+        expect(tools.includes("bash")).toBe(isSandboxSupported());
+    });
+});
+
+describe("isReadOnlyBashAgent", () => {
+    test("true when bash is allowed but write/edit are not", () => {
+        expect(isReadOnlyBashAgent(["read", "bash"])).toBe(true);
+    });
+    test("false when write or edit is allowed", () => {
+        expect(isReadOnlyBashAgent(["bash", "write"])).toBe(false);
+        expect(isReadOnlyBashAgent(["bash", "edit"])).toBe(false);
+    });
+    test("false without bash, and false for all-tools (undefined)", () => {
+        expect(isReadOnlyBashAgent(["read", "grep"])).toBe(false);
+        expect(isReadOnlyBashAgent(undefined)).toBe(false);
+    });
+});
 
 describe("isValidAgentName", () => {
     test("accepts slash-command-safe names", () => {

@@ -18,7 +18,7 @@ import { createTools } from "../tools";
 import type { Session } from "../sessions";
 import type { SubagentActivityPart, UsageBlock } from "../types";
 import { buildSystemPrompt } from "./system-prompt";
-import { agentExists, DEFAULT_AGENT_NAME, getAgentPrompt, getAgentTools, listAgents } from "./agents";
+import { agentExists, DEFAULT_AGENT_NAME, getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { runHooks } from "./hooks";
 import { withToolHooks } from "./tool-hooks";
 import { sumUsage, type CostTracker } from "./cost";
@@ -185,8 +185,15 @@ async function runSubagent(
     const fork = ctx.turnAgent && agentExists(ctx.turnAgent) ? ctx.turnAgent : DEFAULT_AGENT_NAME;
     const name = agentName && agentExists(agentName) ? agentName : fork;
     try {
-        const full = createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal });
-        const effective = resolveSubagentTools(Object.keys(full), getAgentTools(name), ctx.parentTools);
+        const effective = resolveSubagentTools(
+            Object.keys(createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal })),
+            getAgentTools(name),
+            ctx.parentTools,
+        );
+        // A subagent allowed bash but not write/edit (e.g. a plan fork) gets the
+        // same fail-closed read-only sandbox guarantee as the top-level agent.
+        const readOnlyFs = isReadOnlyBashAgent(effective);
+        const full = createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal, readOnlyFs });
         const subTools = Object.fromEntries(Object.entries(full).filter(([n]) => effective.includes(n))) as typeof full;
         // Subagent tool calls run the same PreToolUse/PostToolUse hooks,
         // tagged with agent_id so watchers can tell them apart.

@@ -1,13 +1,10 @@
 {
+    // Typecheck-only project. core is bundled via build.ts (esbuild/bun) and
+    // ships no .d.ts (package.json has no "types"), so it doesn't emit
+    // declarations. Keeping noEmit (inherited from base) lets it import sibling
+    // workspace packages (e.g. @notshekhar/pi-sandbox, resolved to src via base
+    // paths) without rootDir/composite constraints.
     "extends": "../../tsconfig.base.json",
-    "compilerOptions": {
-        "outDir": "./dist",
-        "rootDir": "./src",
-        "composite": true,
-        "declaration": true,
-        "noEmit": false,
-        "emitDeclarationOnly": true
-    },
     "include": ["src/**/*", "src/catalog/generated/*.json"],
     "exclude": ["src/catalog/scripts/**"]
 }

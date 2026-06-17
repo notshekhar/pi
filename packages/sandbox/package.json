@@ -1,0 +1,42 @@
+{
+    "name": "@notshekhar/pi-sandbox",
+    "version": "0.0.2",
+    "description": "OS-level sandbox for pi's bash tool — Seatbelt (macOS) and bubblewrap (Linux) filesystem/network isolation. Ported from anthropic-experimental/sandbox-runtime (Apache-2.0).",
+    "license": "Apache-2.0",
+    "type": "module",
+    "homepage": "https://github.com/notshekhar/pi#readme",
+    "bugs": {
+        "url": "https://github.com/notshekhar/pi/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/notshekhar/pi.git",
+        "directory": "packages/sandbox"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "vendor",
+        "NOTICE.md",
+        "LICENSE"
+    ],
+    "scripts": {
+        "build": "bun build.ts && tsc -p tsconfig.json",
+        "build:seccomp": "bun vendor/seccomp/build.ts",
+        "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "@pondwader/socks5-server": "^1.0.10",
+        "shell-quote": "^1.8.1"
+    },
+    "devDependencies": {
+        "@types/shell-quote": "^1.7.5"
+    }
+}

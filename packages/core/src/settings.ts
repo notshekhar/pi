@@ -46,6 +46,31 @@ export interface PiSettings {
      * key to use DEFAULT_BASH_DENY; set it (even to []) to take full control.
      */
     bashDeny?: BashDenyEntry[];
+    /**
+     * OS-level sandbox for the bash tool (Seatbelt on macOS, bubblewrap on
+     * Linux). Off unless `enabled`. Fail-open: if it can't be enforced the
+     * command still runs, with a warning. Network is "deny" by default; the
+     * per-domain allowlist is not wired yet.
+     */
+    sandbox?: {
+        enabled?: boolean;
+        /**
+         * Network policy. "allow" = full network, "deny" = none (default when
+         * enabled), or a per-domain allowlist: `{ allow: ["*.github.com"],
+         * deny?: ["*"] }` enforced by host-side proxies.
+         */
+        network?: "allow" | "deny" | { allow: string[]; deny?: string[] };
+        /** Extra writable paths beyond defaults + the command's cwd. */
+        allowWrite?: string[];
+        /** Paths to deny writing even within writable regions. */
+        denyWrite?: string[];
+        /** Broad regions to deny reading. */
+        denyRead?: string[];
+        /** Re-allow reads within denied regions. */
+        allowRead?: string[];
+        /** Allow writes to .git/config (default false; .git/hooks always denied). */
+        allowGitConfig?: boolean;
+    };
 }
 
 export function getSetting<K extends keyof PiSettings>(key: K): PiSettings[K] {

@@ -32,6 +32,8 @@ export interface CommandContext {
     showChangelog(): void;
     manageAgents(): Promise<void>;
     manageHooks(): Promise<void>;
+    /** /bashdeny — add/remove bash commands the agent is refused. */
+    manageBashDeny(): Promise<void>;
     /** /mcp — list servers, or `reconnect [name]` to (re)connect. */
     manageMcp(args: string): Promise<void> | void;
     /** /datasource — manage database connections for the data-analyst agent. */
@@ -296,6 +298,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             description: "List, add, and remove lifecycle hooks (pi-owned and imported)",
             handler: async (ctx) => {
                 await ctx.manageHooks();
+            },
+        },
+        {
+            name: "bashdeny",
+            description: "Add or remove bash commands the agent is refused (denylist guardrail)",
+            handler: async (ctx) => {
+                await ctx.manageBashDeny();
             },
         },
         {

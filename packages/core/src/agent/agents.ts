@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { getPiDir } from "../auth/storage";
 import { TOOL_NAMES } from "../tools";
 import { DEFAULT_BASE_PROMPT } from "./system-prompt";
+import { isSandboxSupported } from "@notshekhar/pi-sandbox";
 
 export const DEFAULT_AGENT_NAME = "default";
 
@@ -26,8 +27,9 @@ export const PLAN_BASE_PROMPT = `You are pi-plan, a planning assistant for codin
 
 Method:
 1. Map the territory first — ls/find for structure, grep for the patterns and call sites involved, read the files that matter. Never plan against imagined code.
-2. For broad exploration (several directories, many candidate files), delegate to subagents with the task tool — they run read-only and return focused reports, keeping your context lean.
-3. Produce the plan.
+2. Use bash for read-only investigation only: inspect state and gather facts (git log/status/diff, ls, cat, build/test/type-check output, dependency versions, which/--version). Never use it to change anything.
+3. For broad exploration (several directories, many candidate files), delegate to subagents with the task tool — they run read-only and return focused reports, keeping your context lean.
+4. Produce the plan.
 
 The plan must contain:
 - Ordered steps: which file changes, what goes where, and why that order.
@@ -35,13 +37,20 @@ The plan must contain:
 - Risks, unknowns, and any decision the user still has to make — flagged, not silently assumed.
 
 Hard rules:
-- Your write access does not exist; your subagents' write access does not exist. Investigation only.
+- You have no write or edit tools — you cannot create or modify files. bash is for inspection ONLY: never run commands that mutate the filesystem, repo, or environment (no \`>\`/\`>>\` redirects into files, \`sed -i\`, \`rm\`, \`mv\`, \`git commit\`/\`checkout\`/\`apply\`, \`npm install\`, etc.). The same restriction binds your subagents.
 - A plan is done when another agent could execute it without re-discovering anything.`;
 
 // `sql` is read-only by enforcement (only SELECT/WITH/EXPLAIN/SHOW/DESCRIBE), so
 // it rides along with the read-only file tools — every agent that gets those
 // gets it too.
 const READONLY_TOOLS = ["read", "ls", "grep", "find", "sql"];
+
+// plan's tools. bash is included only when the OS sandbox can enforce read-only
+// on this platform (see the plan BUILTINS comment). isSandboxSupported() is a
+// cheap, deterministic platform check, so resolving once at module load is fine.
+const PLAN_TOOLS = isSandboxSupported()
+    ? [...READONLY_TOOLS, "bash", "task"]
+    : [...READONLY_TOOLS, "task"];
 
 export const ANALYST_BASE_PROMPT = `You are pi-data-analyst, a precise data assistant. Correctness over completeness — if a table, column, value, or range is missing or ambiguous, ASK the user instead of guessing.
 
@@ -72,10 +81,14 @@ export const DATA_ANALYST_AGENT_NAME = "data-analyst";
 const BUILTINS: Record<string, { prompt: string; tools?: string[]; hidden?: boolean }> = {
     // default is unrestricted, so it gets every tool including sql.
     [DEFAULT_AGENT_NAME]: { prompt: DEFAULT_BASE_PROMPT },
-    // plan may delegate (task) and query data (sql, via READONLY_TOOLS); its
-    // subagents fork plan (or are capped to its tools), so everything it spawns
-    // stays read-only.
-    plan: { prompt: PLAN_BASE_PROMPT, tools: [...READONLY_TOOLS, "task"] },
+    // plan may delegate (task) and query data (sql, via READONLY_TOOLS); it has
+    // NO write/edit tools. It also gets bash for inspection — but ONLY where the
+    // OS sandbox can enforce read-only (macOS/Linux): the agent loop forces
+    // plan's bash into a fail-closed read-only sandbox (no writable cwd), so the
+    // kernel — not just the prompt — guarantees it can't mutate anything. On
+    // platforms without sandbox support (e.g. Windows) bash is withheld entirely
+    // rather than handed over with only a prompt-level restriction.
+    plan: { prompt: PLAN_BASE_PROMPT, tools: PLAN_TOOLS },
     // data-analyst: identical tool set to plan — the only difference is the
     // prompt. `hidden` keeps it out of the Tab cycle until the user selects it.
     [DATA_ANALYST_AGENT_NAME]: { prompt: ANALYST_BASE_PROMPT, tools: [...READONLY_TOOLS, "task"], hidden: true },
@@ -171,6 +184,17 @@ export function getAgentTools(name: string): string[] | undefined {
 
 export function agentExists(name: string): boolean {
     return name in BUILTINS || existsSync(agentPath(name));
+}
+
+/**
+ * Whether an agent's effective tool list means its bash must run read-only:
+ * bash is allowed but neither write nor edit is. Such agents (e.g. plan) can
+ * inspect via bash but must not mutate, so the bash tool forces a fail-closed
+ * read-only OS sandbox. `undefined` (all tools) is NOT read-only.
+ */
+export function isReadOnlyBashAgent(tools: string[] | undefined): boolean {
+    if (!tools) return false;
+    return tools.includes("bash") && !tools.includes("write") && !tools.includes("edit");
 }
 
 export function isBuiltinAgent(name: string): boolean {

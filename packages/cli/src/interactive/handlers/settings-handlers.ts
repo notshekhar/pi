@@ -17,6 +17,7 @@ import {
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { initTheme } from "../ui/theme";
+import { currentBashDeny, runBashDenyManager } from "./bashdeny-handlers";
 
 type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload">;
 
@@ -73,9 +74,19 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: `reminders: ${boolSetting("reminders") ? "on" : "off"}`,
                         description: "fire /reminder alerts; off mutes them without deleting any",
                     },
+                    {
+                        value: "bashDeny",
+                        label: `bash denylist: ${currentBashDeny().length} blocked`,
+                        description: "add/remove bash commands the agent is refused (guardrail)",
+                    },
                 ];
                 const pick = await selectOnce(items, "Settings (Esc to close)");
                 if (!pick) return;
+                // Sub-flow: open the denylist manager, then return to settings.
+                if (pick.value === "bashDeny") {
+                    await runBashDenyManager(deps);
+                    continue;
+                }
                 if (pick.value in BOOLEAN_DEFAULTS) {
                     const next = !boolSetting(pick.value);
                     settingsStore.set(pick.value, next);

@@ -9,18 +9,28 @@
  * deliberately deferring that. Keep this in mind before trusting it as a jail.
  */
 
-/** A denied command: a bare string, or one with a custom reason for the model. */
-export type BashDenyEntry = string | { pattern: string; reason?: string };
+/** A denied command — a command name, optionally + subcommand ("git commit"). */
+export type BashDenyEntry = string;
 
 /**
- * Seeded when the user hasn't configured `bashDeny`. Commit/push are agent
- * decisions that should stay with the human (see project convention: commit or
- * push only when explicitly asked). Users override the whole list via settings.
+ * Coerce a stored entry to its pattern string. Tolerates the legacy
+ * `{ pattern, reason }` object form that older builds persisted to settings, so
+ * an existing ~/.pi/settings.json doesn't crash after the type changed.
  */
-export const DEFAULT_BASH_DENY: BashDenyEntry[] = [
-    { pattern: "git commit", reason: "committing is the user's call — let them commit, or ask them to." },
-    { pattern: "git push", reason: "pushing is the user's call — ask the user to push." },
-];
+export function denyPattern(entry: unknown): string {
+    if (typeof entry === "string") return entry;
+    if (entry && typeof entry === "object" && typeof (entry as { pattern?: unknown }).pattern === "string") {
+        return (entry as { pattern: string }).pattern;
+    }
+    return "";
+}
+
+/**
+ * Seeded when the user hasn't configured `bashDeny`. Commit/push stay with the
+ * human (commit or push only when explicitly asked). Users override the whole
+ * list via settings.
+ */
+export const DEFAULT_BASH_DENY: BashDenyEntry[] = ["git commit", "git push"];
 
 /**
  * Commands that run another command; we look past them to the real one so
@@ -36,17 +46,6 @@ const SEGMENT_SEPARATORS = /\|\||&&|[;|&\n]/;
 
 /** `sh -c "<script>"` (and bash/zsh/…) runs an inline script — pull it out. */
 const SHELL_DASH_C = /\b(?:sh|bash|zsh|dash|ksh)\s+-c\s+(['"])([\s\S]*?)\1/g;
-
-export interface DeniedMatch {
-    /** The denylist pattern that matched (e.g. "git commit"). */
-    pattern: string;
-    /** Optional human-authored reason to relay to the model. */
-    reason?: string;
-}
-
-function normalizeEntry(entry: BashDenyEntry): { pattern: string; reason?: string } {
-    return typeof entry === "string" ? { pattern: entry } : entry;
-}
 
 /** Strip surrounding quotes, then reduce a path to its basename (/bin/rm → rm). */
 function normalizeToken(token: string): string {
@@ -117,41 +116,33 @@ function segmentMatchesPattern(resolved: { command: string; rest: string[] }, pa
 }
 
 /**
- * Return the first denylist entry the command would trigger, or null if none.
+ * Return the first denylist pattern the command would trigger, or null if none.
  * The first matching entry wins, in denylist order.
  */
-export function findDeniedCommand(command: string, denylist: BashDenyEntry[]): DeniedMatch | null {
+export function findDeniedCommand(command: string, denylist: BashDenyEntry[]): string | null {
     if (denylist.length === 0) return null;
     const segments = splitSegments(command);
     const resolved = segments.map(resolveSegment).filter((s): s is { command: string; rest: string[] } => s !== null);
 
     for (const entry of denylist) {
-        const { pattern, reason } = normalizeEntry(entry);
+        const pattern = denyPattern(entry);
+        if (!pattern) continue;
         if (resolved.some((segment) => segmentMatchesPattern(segment, pattern))) {
-            return { pattern, reason };
+            return pattern;
         }
     }
     return null;
 }
 
 /**
- * The refusal handed back to the model. Tone is deliberate: this reads as a
- * settled decision by the user (an authority above the model), not an error or
- * a transient failure — so the model stops and redirects instead of hunting for
- * a workaround. It names the specific evasions models tend to reach for and
- * shuts them down, then offers the sanctioned exits (ask the user / move on).
+ * The refusal handed back to the model. Kept to 2-3 lines but deliberately
+ * framed as the user's settled decision (not an error) and ruling out
+ * equivalents, so the model redirects instead of hunting for a workaround.
  */
-export function formatDenyRefusal(match: DeniedMatch): string {
-    const lines = [
-        `\`${match.pattern}\` is blocked by the user's bash policy (configured in ~/.pi/settings.json).`,
-        `This is an intentional restriction chosen by the user — not an error, a sandbox glitch, or something to work around.`,
-        ``,
-        `Do not retry this, rewrite it, or run an equivalent command (different flags, a full path, piping through another tool, or writing a script) to achieve the same effect — equivalent forms are refused too, by design.`,
-        ``,
-        `If \`${match.pattern}\` is genuinely required to finish the task, stop and ask the user to run it themselves or to update their denylist. Otherwise, continue with an approach that doesn't use it.`,
-    ];
-    if (match.reason) {
-        lines.push(``, `Reason: ${match.reason}`);
-    }
-    return lines.join("\n");
+export function formatDenyRefusal(pattern: string): string {
+    return (
+        `\`${pattern}\` is blocked by the user's bash policy — intentional, not an error. ` +
+        `Don't retry it or run an equivalent (different flags, full path, piping, a script). ` +
+        `If it's truly required, ask the user to run it or to remove it from their denylist; otherwise continue without it.`
+    );
 }

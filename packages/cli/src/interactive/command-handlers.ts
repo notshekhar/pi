@@ -7,6 +7,7 @@ import type { CommandContext } from "@notshekhar/pi-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { createAgentHandlers } from "./handlers/agent-handlers";
+import { createBashDenyHandlers } from "./handlers/bashdeny-handlers";
 import { createDatasourceHandlers } from "./handlers/datasource-handlers";
 import { createHookHandlers } from "./handlers/hook-handlers";
 import { createMcpHandlers } from "./handlers/mcp-handlers";
@@ -27,6 +28,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         ...createSessionHandlers(state, deps),
         ...createSessionTreeHandlers(state, deps),
         ...createAgentHandlers(state, deps),
+        ...createBashDenyHandlers(state, deps),
         ...createHookHandlers(state, deps),
         ...createMcpHandlers(state, deps),
         ...createDatasourceHandlers(state, deps),

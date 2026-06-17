@@ -27,6 +27,7 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
+        "@notshekhar/pi-sandbox": "*",
         "@ai-sdk/anthropic": "^3.0.0",
         "@ai-sdk/google": "^3.0.0",
         "@ai-sdk/mcp": "^2.0.0-beta.10",

@@ -7,7 +7,7 @@ import { getSetting } from "../settings";
 import { effectiveSdkProvider } from "../auth";
 import { createTools } from "../tools";
 import { buildSystemPrompt } from "./system-prompt";
-import { getAgentPrompt, getAgentTools, listAgents } from "./agents";
+import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
@@ -267,7 +267,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const agentPrompt = opts.agent ? getAgentPrompt(opts.agent) : undefined;
     // Per-agent tool restriction (e.g. plan = read-only). undefined = all tools.
     const allowedTools = opts.agent ? getAgentTools(opts.agent) : undefined;
-    const fullToolSet = createTools({ cwd, abortSignal });
+    // An agent allowed bash but NOT write/edit (e.g. plan) gets bash forced into
+    // a fail-closed read-only sandbox, so the kernel guarantees no mutation.
+    const readOnlyFs = isReadOnlyBashAgent(allowedTools);
+    const fullToolSet = createTools({ cwd, abortSignal, readOnlyFs });
     const toolSet = (
         allowedTools?.length
             ? Object.fromEntries(Object.entries(fullToolSet).filter(([name]) => allowedTools.includes(name)))

@@ -14,7 +14,8 @@
         "types": ["bun", "node"],
         "paths": {
             "@notshekhar/pi-core": ["./packages/core/src/index.ts"],
-            "@notshekhar/pi-tui": ["./packages/tui/src/index.ts"]
+            "@notshekhar/pi-tui": ["./packages/tui/src/index.ts"],
+            "@notshekhar/pi-sandbox": ["./packages/sandbox/src/index.ts"]
         }
     }
 }

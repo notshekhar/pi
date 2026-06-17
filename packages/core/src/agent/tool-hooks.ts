@@ -8,6 +8,22 @@ import { runHooks } from "./hooks";
 
 type AnyTool = { execute?: (input: unknown, options: unknown) => Promise<unknown> };
 
+/** A plain `{}` object — the only output shape we can safely merge a field into. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Attach hook feedback without mutating or corrupting the tool's output. Only a
+ * plain object can take an extra field; arrays (e.g. MCP content blocks) and
+ * primitives would be wrecked by a spread, so they're nested under `result`
+ * instead. Keeps any tool's output shape intact for persistence + replay.
+ */
+export function attachHookFeedback(output: unknown, feedback: string): unknown {
+    if (isPlainObject(output)) return { ...output, hook_feedback: feedback };
+    return { result: output, hook_feedback: feedback };
+}
+
 export interface ToolHookCtx {
     cwd: string;
     sessionId: string;
@@ -97,10 +113,7 @@ export function withToolHooks<T extends object>(tools: T, ctx: ToolHookCtx): T {
                 const feedback = [post.block ? `BLOCKED: ${post.reason}` : null, post.additionalContext]
                     .filter(Boolean)
                     .join("\n");
-                if (feedback) {
-                    if (output && typeof output === "object") return { ...(output as object), hook_feedback: feedback };
-                    return { result: output, hook_feedback: feedback };
-                }
+                if (feedback) return attachHookFeedback(output, feedback);
                 return output;
             },
         };

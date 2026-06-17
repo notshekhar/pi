@@ -15,6 +15,7 @@ import { getModel, parseModelId } from "../providers";
 import { anthropicCachedSystem, moveAnthropicCacheTail } from "./model-messages";
 import { getSetting } from "../settings";
 import { createTools } from "../tools";
+import { getMcpManager } from "../mcp";
 import type { Session } from "../sessions";
 import type { SubagentActivityPart, UsageBlock } from "../types";
 import { buildSystemPrompt } from "./system-prompt";
@@ -185,16 +186,30 @@ async function runSubagent(
     const fork = ctx.turnAgent && agentExists(ctx.turnAgent) ? ctx.turnAgent : DEFAULT_AGENT_NAME;
     const name = agentName && agentExists(agentName) ? agentName : fork;
     try {
+        // MCP tools the parent exposed are inheritable: they're already in
+        // ctx.parentTools, so the resolver's cap keeps them for a fork and drops
+        // them for a named agent that doesn't list them — the same widen/narrow
+        // rule files get. They already carry per-call timeouts (set when the
+        // manager built them) and run the same hooks below.
+        const mcpTools = getMcpManager().getTools();
+        const fileToolNames = Object.keys(createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal }));
         const effective = resolveSubagentTools(
-            Object.keys(createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal })),
+            [...fileToolNames, ...Object.keys(mcpTools)],
             getAgentTools(name),
             ctx.parentTools,
         );
         // A subagent allowed bash but not write/edit (e.g. a plan fork) gets the
         // same fail-closed read-only sandbox guarantee as the top-level agent.
         const readOnlyFs = isReadOnlyBashAgent(effective);
-        const full = createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal, readOnlyFs });
-        const subTools = Object.fromEntries(Object.entries(full).filter(([n]) => effective.includes(n))) as typeof full;
+        const full: Record<string, unknown> = {
+            ...createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal, readOnlyFs }),
+            ...mcpTools,
+        };
+        // Cast mirrors the main turn (toolsForTurn → fullToolSet): the merged
+        // map is structurally a ToolSet; MCP entries are AI-SDK tools too.
+        const subTools = Object.fromEntries(
+            Object.entries(full).filter(([n]) => effective.includes(n)),
+        ) as unknown as ReturnType<typeof createTools>;
         // Subagent tool calls run the same PreToolUse/PostToolUse hooks,
         // tagged with agent_id so watchers can tell them apart.
         const hooked = withToolHooks(subTools, {

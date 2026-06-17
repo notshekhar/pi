@@ -6,7 +6,7 @@ import type { SelectItem, TUI } from "@notshekhar/pi-tui";
 import chalk from "chalk";
 import {
     getMcpManager,
-    getSetting,
+    isMcpEnabled,
     getTrustDecision,
     getTrustOptions,
     hasProjectTrustInputs,
@@ -169,8 +169,9 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
  */
 export function startMcpServers(state: AppState, deps: AppDeps): void {
     const { tui, history } = deps;
-    // MCP is opt-in (default off) — only auto-connect when explicitly enabled.
-    if (getSetting("mcp") !== true || !isTrusted(state.cwd)) return;
+    // MCP is on by default — only an explicit `mcp: false` (or an untrusted
+    // project) skips auto-connect.
+    if (!isMcpEnabled() || !isTrusted(state.cwd)) return;
     if (Object.keys(loadMcpServers(state.cwd)).length === 0) return;
 
     const manager = getMcpManager();

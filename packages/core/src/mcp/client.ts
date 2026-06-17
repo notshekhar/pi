@@ -2,12 +2,12 @@
  * Connects to a single MCP server and returns its tools, namespaced so they
  * never collide with pi's built-ins or another server's tools.
  */
-import { experimental_createMCPClient } from "@ai-sdk/mcp";
+import { createMCPClient } from "@ai-sdk/mcp";
 import { isHttpServer, type McpServerConfig } from "./config";
 import { buildTransport } from "./transport";
 import { PiOAuthProvider } from "./oauth";
 
-export type McpClient = Awaited<ReturnType<typeof experimental_createMCPClient>>;
+export type McpClient = Awaited<ReturnType<typeof createMCPClient>>;
 export type McpToolSet = Record<string, unknown>;
 
 export interface ConnectResult {
@@ -88,7 +88,7 @@ export async function connectServer(name: string, cfg: McpServerConfig): Promise
             ? new PiOAuthProvider(name, oauthRefreshRedirectUri())
             : undefined;
     const transport = buildTransport(cfg, authProvider);
-    const client = await experimental_createMCPClient({
+    const client = await createMCPClient({
         name: `pi-mcp-${name}`,
         transport,
         // Surface async transport errors instead of letting them crash the

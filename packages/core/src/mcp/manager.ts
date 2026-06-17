@@ -6,11 +6,44 @@
  */
 import { UnauthorizedError } from "@ai-sdk/mcp";
 import { connectServer, serverPrefix, type McpClient, type McpToolSet } from "./client";
-import { isServerEnabled, loadMcpServers, removeServer, setServerEnabled, type McpServerConfig } from "./config";
+import {
+    addServer,
+    isServerEnabled,
+    loadMcpServers,
+    removeServer,
+    setServerEnabled,
+    type McpServerConfig,
+} from "./config";
 import { authorizeServer } from "./authorize";
 import { clearMcpAuth, McpAuthRequiredError } from "./oauth";
 
 export type ServerStatus = "disabled" | "connecting" | "ready" | "error" | "needs-auth";
+
+/**
+ * Hard ceiling on a single server's connect (spawn + handshake + tools/list). A
+ * stdio child that wedges on startup, or an HTTP server that accepts the socket
+ * but never replies, would otherwise leave `connectServer` pending forever —
+ * the status stays "connecting" and, in print mode (which awaits init), the
+ * whole run hangs. Racing against a timeout turns that into a normal `error`
+ * status the user can see and retry. Overridable via PI_MCP_CONNECT_TIMEOUT_MS.
+ */
+const CONNECT_TIMEOUT_MS = Number(process.env.PI_MCP_CONNECT_TIMEOUT_MS) || 30_000;
+
+/**
+ * A rejecting timer plus a `clear()` so a fast connect doesn't leave the
+ * 30s timer pinning the event loop open (which would hang a CLI exit or a test
+ * run). Caller clears it in a `finally`.
+ */
+function connectTimeout(name: string): { promise: Promise<never>; clear: () => void } {
+    let timer: ReturnType<typeof setTimeout>;
+    const promise = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+            () => reject(new Error(`connection to "${name}" timed out after ${CONNECT_TIMEOUT_MS}ms`)),
+            CONNECT_TIMEOUT_MS,
+        );
+    });
+    return { promise, clear: () => clearTimeout(timer) };
+}
 
 export interface ServerState {
     name: string;
@@ -45,14 +78,21 @@ export class McpManager {
             return;
         }
         this.servers.set(name, { name, status: "connecting", toolCount: 0, config: cfg });
+        const connecting = connectServer(name, cfg);
+        const timeout = connectTimeout(name);
         try {
-            const { client, tools, toolCount } = await connectServer(name, cfg);
+            const { client, tools, toolCount } = await Promise.race([connecting, timeout.promise]);
             // Tool keys are already namespaced with this server's prefix by
             // connectServer, so a plain merge can't clobber another server.
             Object.assign(this.tools, tools);
             this.servers.set(name, { name, status: "ready", toolCount, config: cfg, client });
         } catch (err) {
             this.setFailed(name, cfg, err);
+            // If the timer won the race, the connect may still resolve later with
+            // a live subprocess/socket — close it so the timeout doesn't leak it.
+            void connecting.then(({ client }) => client.close()).catch(() => {});
+        } finally {
+            timeout.clear();
         }
     }
 
@@ -86,6 +126,14 @@ export class McpManager {
 
     hasServers(): boolean {
         return this.servers.size > 0;
+    }
+
+    /** Persist a new global server, then connect it. Used by the /mcp add flow. */
+    async add(name: string, cfg: McpServerConfig): Promise<void> {
+        addServer(name, cfg);
+        const existing = this.servers.get(name);
+        if (existing) await this.closeOne(existing);
+        await this.connectOne(name, cfg);
     }
 
     /** Reconnect one server (or all). Used by /mcp reconnect. */

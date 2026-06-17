@@ -8,7 +8,7 @@ import {
     getActiveProvider,
     getMcpManager,
     getProjectModel,
-    getSetting,
+    isMcpEnabled,
     isTrusted,
     parseModelId,
     settingsStore,
@@ -80,7 +80,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
 
     // Connect MCP servers before the turn (same gate as the agent loop) so
     // their tools are available headlessly. Closed after the turn finishes.
-    const mcpEnabled = getSetting("mcp") === true && isTrusted(opts.cwd);
+    const mcpEnabled = isMcpEnabled() && isTrusted(opts.cwd);
     if (mcpEnabled) await getMcpManager().init(opts.cwd);
 
     await runTurn({

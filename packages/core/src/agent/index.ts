@@ -20,7 +20,7 @@ import { buildProviderOptions, type ThinkingLevel } from "./thinking";
 import { estimateContextTokens, moveAnthropicCacheTail, toModelMessages, withAnthropicCaching } from "./model-messages";
 import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
-import { getMcpManager } from "../mcp";
+import { getMcpManager, isMcpEnabled } from "../mcp";
 import type { Session } from "../sessions";
 import type { UsageBlock } from "../types";
 
@@ -284,6 +284,21 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // access. Subagents never get task themselves (no nesting).
     const subagentsEnabled = getSetting("subagents") !== false;
     const toolsForTurn: Record<string, unknown> = { ...toolSet };
+
+    // MCP tools (already namespaced mcp__server__tool) join the turn for
+    // unrestricted agents only — a restricted agent (e.g. plan) keeps its
+    // explicit allowlist. Gated by the master `mcp` setting (default on) +
+    // project trust, mirroring skills/subagents. The manager was connected once
+    // at startup; here we just read its aggregated tool set.
+    //
+    // Added BEFORE the task tool so MCP names land in `parentTools` — a subagent
+    // fork then inherits the same MCP tools, while the resolver's cap still lets
+    // a named subagent only narrow, never widen.
+    const mcpEnabled = isMcpEnabled() && isTrusted(cwd);
+    if (mcpEnabled && !allowedTools?.length) {
+        Object.assign(toolsForTurn, getMcpManager().getTools());
+    }
+
     if (subagentsEnabled && (!allowedTools?.length || allowedTools.includes("task"))) {
         toolsForTurn.task = createTaskTool({
             modelId,
@@ -295,21 +310,12 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             sessionId: session.id,
             transcriptPath: session.path,
             turnAgent: opts.agent,
-            parentTools: Object.keys(toolSet),
+            // Everything the parent can call (incl. MCP); task isn't added yet,
+            // so it can't recurse into itself.
+            parentTools: Object.keys(toolsForTurn),
             workspaceContext: workspaceContext.text,
             skillsPrompt: skills.promptBlock,
         });
-    }
-    // MCP tools (already namespaced mcp__server__tool) join the turn for
-    // unrestricted agents only — a restricted agent (e.g. plan) keeps its
-    // explicit allowlist. Gated by the master `mcp` setting + project trust,
-    // mirroring skills/subagents. The manager was connected once at startup;
-    // here we just read its aggregated tool set.
-    // MCP is opt-in (default off): only enabled when the setting is explicitly
-    // true. Temporarily disabled by default while the MCP path is stabilized.
-    const mcpEnabled = getSetting("mcp") === true && isTrusted(cwd);
-    if (mcpEnabled && !allowedTools?.length) {
-        Object.assign(toolsForTurn, getMcpManager().getTools());
     }
     // System prompt is built AFTER the task tool decision so the model's tool
     // list matches reality, plus explicit delegation guidance when present.

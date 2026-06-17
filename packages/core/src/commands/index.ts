@@ -1,7 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getPiDir } from "../auth/storage";
-import { getSetting } from "../settings";
 import { loadProjectSkills } from "../agent/skills";
 import { DATA_ANALYST_AGENT_NAME, listAgents } from "../agent/agents";
 
@@ -342,12 +341,10 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         { name: "exit", description: "Alias for /quit", handler: (ctx) => ctx.exit() },
     ];
 
-    // MCP is opt-in (default off): hide /mcp entirely unless explicitly enabled.
-    const mcpOn = getSetting("mcp") === true;
-    for (const c of cmds) {
-        if (c.name === "mcp" && !mcpOn) continue;
-        reg.register(c);
-    }
+    // /mcp is always available — the panel handles the disabled/no-servers case
+    // itself, and registering it unconditionally means toggling `mcp` in
+    // /settings takes effect without rebuilding the command list or restarting.
+    for (const c of cmds) reg.register(c);
 
     // skills as /skill:name commands (pi-mono parity)
     try {

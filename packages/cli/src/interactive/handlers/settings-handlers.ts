@@ -10,19 +10,21 @@ import {
     agentExists,
     bustCatalogCache,
     getCatalog,
+    getMcpManager,
     registerBuiltins,
     settingsStore,
     type CommandContext,
 } from "@notshekhar/pi-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
+import { startMcpServers } from "../startup";
 import { initTheme } from "../ui/theme";
 import { currentBashDeny, runBashDenyManager } from "./bashdeny-handlers";
 
 type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload">;
 
 export function createSettingsHandlers(state: AppState, deps: AppDeps): SettingsHandlers {
-    const { tui, history, footer, commands, showWorking, hideWorking, selectOnce, promptOnce, refreshCommands } = deps;
+    const { tui, history, footer, commands, showWorking, hideWorking, searchOnce, promptOnce, refreshCommands } = deps;
 
     // Boolean settings toggle in place; unset falls back to the default here.
     const BOOLEAN_DEFAULTS: Record<string, boolean> = {
@@ -30,6 +32,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         recap: false,
         clock: false,
         reminders: true,
+        mcp: true,
     };
     const boolSetting = (key: string): boolean =>
         (settingsStore.get(key) as boolean | undefined) ?? BOOLEAN_DEFAULTS[key];
@@ -75,12 +78,17 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         description: "fire /reminder alerts; off mutes them without deleting any",
                     },
                     {
+                        value: "mcp",
+                        label: `mcp servers: ${boolSetting("mcp") ? "on" : "off"}`,
+                        description: "connect configured MCP servers and expose their tools (/mcp to manage)",
+                    },
+                    {
                         value: "bashDeny",
                         label: `bash denylist: ${currentBashDeny().length} blocked`,
                         description: "add/remove bash commands the agent is refused (guardrail)",
                     },
                 ];
-                const pick = await selectOnce(items, "Settings (Esc to close)");
+                const pick = await searchOnce(items, "Settings (type to filter, Esc to close)");
                 if (!pick) return;
                 // Sub-flow: open the denylist manager, then return to settings.
                 if (pick.value === "bashDeny") {
@@ -92,6 +100,13 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     settingsStore.set(pick.value, next);
                     deps.syncTicker(); // clock toggle starts/stops the 1s footer pulse
                     history.addSystem(`${pick.value} → ${next ? "on" : "off"}`);
+                    // MCP toggle connects/tears down servers live so the change
+                    // takes effect this session without a /reload. startMcpServers
+                    // re-checks the (now-updated) setting + trust itself.
+                    if (pick.value === "mcp") {
+                        if (next) startMcpServers(state, deps);
+                        else void getMcpManager().close();
+                    }
                     tui.requestRender();
                     continue;
                 }
@@ -111,7 +126,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: n,
                         description: n === cur ? "(current)" : "",
                     }));
-                    const tPick = await selectOnce(themeItems, "Theme");
+                    const tPick = await searchOnce(themeItems, "Theme (type to filter)");
                     if (!tPick) continue;
                     settingsStore.set("theme", tPick.value);
                     initTheme(tPick.value);

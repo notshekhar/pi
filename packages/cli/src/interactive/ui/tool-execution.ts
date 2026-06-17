@@ -10,6 +10,11 @@ import { Box, Container, Spacer, Text, type TUI } from "@notshekhar/pi-tui";
 import { getLanguageFromPath, highlightCode, theme } from "./theme";
 
 const COLLAPSED_LINES = 6;
+// Hard ceiling on output height even when expanded — a single 2000-line bash
+// dump or subagent report would otherwise push the whole conversation off
+// screen. Expanding lifts the 6-line preview to this, not to "everything".
+// Overridable via PI_TOOL_MAX_LINES.
+const MAX_EXPANDED_LINES = Number(process.env.PI_TOOL_MAX_LINES) || 40;
 const EXPAND_HINT = "ctrl+e";
 
 export interface ToolResultLike {
@@ -97,19 +102,20 @@ export class ToolExecutionComponent extends Container {
         if (!output) return;
 
         const lines = this.colorOutput(output.split("\n"));
-        const truncated = !this.expanded && lines.length > COLLAPSED_LINES;
-        const shown = truncated ? lines.slice(0, COLLAPSED_LINES) : lines;
+        // Collapsed → short preview; expanded → a taller but still bounded view.
+        // Either way the block can't exceed its cap, so tall output never eats
+        // the conversation.
+        const cap = this.expanded ? MAX_EXPANDED_LINES : COLLAPSED_LINES;
+        const hidden = lines.length - cap;
+        const shown = hidden > 0 ? lines.slice(0, cap) : lines;
 
         this.box.addChild(new Spacer(1));
         this.box.addChild(new Text(shown.join("\n"), 0, 0));
-        if (truncated) {
-            this.box.addChild(
-                new Text(
-                    theme.fg("dim", `… +${lines.length - COLLAPSED_LINES} lines (${EXPAND_HINT} to expand)`),
-                    0,
-                    0,
-                ),
-            );
+        if (hidden > 0) {
+            // Only offer the expand hint while collapsed — once expanded, the
+            // remainder stays capped (the full text is in the transcript).
+            const hint = this.expanded ? `… +${hidden} more lines` : `… +${hidden} lines (${EXPAND_HINT} to expand)`;
+            this.box.addChild(new Text(theme.fg("dim", hint), 0, 0));
         }
     }
 

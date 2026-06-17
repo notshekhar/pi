@@ -33,6 +33,16 @@ export function isHttpServer(cfg: McpServerConfig): cfg is HttpServerConfig {
     return cfg.type === "http" || cfg.type === "sse";
 }
 
+/**
+ * Master switch for MCP. Default ON — only an explicit `mcp: false` disables it.
+ * Callers that spawn/connect servers additionally gate on project trust; this
+ * helper is just the setting so the toggle, command visibility, and agent loop
+ * all agree on one rule.
+ */
+export function isMcpEnabled(): boolean {
+    return getSetting("mcp") !== false;
+}
+
 export function isServerEnabled(cfg: McpServerConfig): boolean {
     return cfg.enabled !== false;
 }
@@ -72,6 +82,11 @@ export function getGlobalServers(): Record<string, McpServerConfig> {
 
 export function isGlobalServer(name: string): boolean {
     return name in getGlobalServers();
+}
+
+/** Add or replace a global server in ~/.pi/settings.json. */
+export function addServer(name: string, cfg: McpServerConfig): void {
+    setSetting("mcpServers", { ...getGlobalServers(), [name]: cfg });
 }
 
 /** Flip a global server's enabled flag. Returns false if not a global server. */

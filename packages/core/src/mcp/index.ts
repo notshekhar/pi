@@ -4,6 +4,7 @@ export {
     isGlobalServer,
     isHttpServer,
     isServerEnabled,
+    isMcpEnabled,
     resolveSecrets,
     type McpServerConfig,
     type StdioServerConfig,

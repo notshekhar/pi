@@ -45,7 +45,42 @@ const MCP_TOOL_TIMEOUT_MS = Number(process.env.PI_MCP_TOOL_TIMEOUT_MS) || 120_00
 
 type ExecutableTool = { execute?: (input: unknown, options: unknown) => Promise<unknown> };
 
-/** Wrap a tool's execute so a call that never settles rejects instead of hanging. */
+interface McpCallResult {
+    content?: Array<{ type?: string; text?: string }>;
+    structuredContent?: unknown;
+    isError?: boolean;
+}
+
+function isMcpCallResult(value: unknown): value is McpCallResult {
+    return typeof value === "object" && value !== null && ("content" in value || "structuredContent" in value);
+}
+
+/**
+ * Preserve a tool's `structuredContent`. The AI SDK MCP client only maps a
+ * result's `content` blocks into the model-facing output when the tool is
+ * created with an explicit outputSchema; with the automatic schemas we use
+ * (client.tools() with no args), `structuredContent` is dropped entirely. A
+ * server that returns its real payload there with an empty `content` array
+ * (e.g. codespec) then hands the model — and our persistence — nothing.
+ *
+ * So when a result carries structuredContent but no text block, surface it as a
+ * text block. Generic: any structured-output MCP server benefits, no per-server
+ * code. Servers that already return text content are left untouched.
+ */
+function preserveStructuredContent(result: unknown): unknown {
+    if (!isMcpCallResult(result)) return result;
+    if (result.structuredContent == null) return result;
+    const content = Array.isArray(result.content) ? result.content : [];
+    const hasText = content.some((part) => part?.type === "text" && part.text);
+    if (hasText) return result;
+    const asText = { type: "text", text: JSON.stringify(result.structuredContent, null, 2) };
+    return { ...result, content: [...content, asText] };
+}
+
+/**
+ * Wrap a tool's execute so a call that never settles rejects instead of
+ * hanging, and so structuredContent-only results aren't silently lost.
+ */
 function withTimeout(name: string, tool: ExecutableTool): ExecutableTool {
     if (typeof tool.execute !== "function") return tool;
     const original = tool.execute.bind(tool);
@@ -59,7 +94,9 @@ function withTimeout(name: string, tool: ExecutableTool): ExecutableTool {
                     MCP_TOOL_TIMEOUT_MS,
                 );
             });
-            return Promise.race([original(input, options), timeout]).finally(() => clearTimeout(timer));
+            return Promise.race([original(input, options), timeout])
+                .then(preserveStructuredContent)
+                .finally(() => clearTimeout(timer));
         },
     };
 }

@@ -38,8 +38,29 @@ describe("connectServer (stdio, real MCP handshake)", () => {
     test("connects and namespaces the server's tools", async () => {
         const { client, tools, toolCount } = await connectServer("mock", stdioConfig);
         try {
-            expect(toolCount).toBe(1);
-            expect(Object.keys(tools)).toEqual(["mcp__mock__echo"]);
+            expect(toolCount).toBe(2);
+            expect(Object.keys(tools).sort()).toEqual(["mcp__mock__echo", "mcp__mock__structured"]);
+        } finally {
+            await client.close();
+        }
+    });
+
+    // Regression: a server that returns its payload only via structuredContent
+    // (empty content array, like codespec) must not be lost — the AI SDK's
+    // automatic-schema path drops structuredContent, so we surface it as text.
+    test("structuredContent-only result is preserved as text content", async () => {
+        const { client, tools } = await connectServer("mock", stdioConfig);
+        try {
+            const tool = tools["mcp__mock__structured"] as {
+                execute: (i: unknown, o: unknown) => Promise<unknown>;
+            };
+            const result = (await tool.execute({ text: "hi" }, {})) as {
+                content: Array<{ type: string; text: string }>;
+            };
+            const textPart = result.content.find((p) => p.type === "text");
+            expect(textPart).toBeDefined();
+            expect(textPart!.text).toContain('"echo": "hi"');
+            expect(textPart!.text).toContain('"items"');
         } finally {
             await client.close();
         }
@@ -70,8 +91,8 @@ describe("McpManager", () => {
 
         const servers = manager.listServers();
         expect(servers).toHaveLength(1);
-        expect(servers[0]).toMatchObject({ name: "mock", status: "ready", toolCount: 1 });
-        expect(Object.keys(manager.getTools())).toEqual(["mcp__mock__echo"]);
+        expect(servers[0]).toMatchObject({ name: "mock", status: "ready", toolCount: 2 });
+        expect(Object.keys(manager.getTools()).sort()).toEqual(["mcp__mock__echo", "mcp__mock__structured"]);
 
         await manager.close();
         expect(manager.listServers()).toHaveLength(0);

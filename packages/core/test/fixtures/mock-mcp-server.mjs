@@ -22,6 +22,18 @@ const TOOLS = [
             required: ["text"],
         },
     },
+    {
+        // Mirrors a structured-output server (e.g. codespec): the real payload
+        // rides `structuredContent`, with an empty `content` array. Exercises
+        // the structuredContent-preservation path.
+        name: "structured",
+        description: "Return data only via structuredContent.",
+        inputSchema: {
+            type: "object",
+            properties: { text: { type: "string" } },
+            required: ["text"],
+        },
+    },
 ];
 
 rl.on("line", (line) => {
@@ -53,6 +65,14 @@ rl.on("line", (line) => {
     }
     if (method === "tools/call") {
         const text = params?.arguments?.text ?? "";
+        if (params?.name === "structured") {
+            send({
+                jsonrpc: "2.0",
+                id,
+                result: { content: [], structuredContent: { echo: text, items: [1, 2, 3] } },
+            });
+            return;
+        }
         send({
             jsonrpc: "2.0",
             id,

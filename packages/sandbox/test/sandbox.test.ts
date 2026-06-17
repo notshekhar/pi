@@ -3,17 +3,28 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, existsSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
-import { sandbox, defaultSandboxConfig, isSandboxSupported, type SandboxConfig } from "../src/index";
+import {
+    sandbox,
+    defaultSandboxConfig,
+    isSandboxSupported,
+    checkSandboxDependencies,
+    type SandboxConfig,
+} from "../src/index";
 
 const shell = existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh";
+
+// The platform must support the sandbox AND its tooling must be installed
+// (e.g. bwrap on Linux). CI Linux runners have no bwrap, so wrap() would throw
+// "bwrap not found" — skip those cases there rather than assert a value.
+const enforceable = isSandboxSupported() && checkSandboxDependencies().errors.length === 0;
 
 function denyNetworkConfig(): SandboxConfig {
     return defaultSandboxConfig(); // network: "deny"
 }
 
 describe("sandbox.wrap (pure output)", () => {
-    test("returns a [shell, -c, wrapped] argv on supported platforms", async () => {
-        if (!isSandboxSupported()) return;
+    test("returns a [shell, -c, wrapped] argv when the sandbox is enforceable", async () => {
+        if (!enforceable) return;
         const wrapped = await sandbox.wrap({ command: "echo hi", shell, cwd: process.cwd(), config: denyNetworkConfig() });
         expect(wrapped).not.toBeNull();
         expect(wrapped!.argv[0]).toBe(shell);

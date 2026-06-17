@@ -36,6 +36,23 @@ describe("findDeniedCommand", () => {
         expect(findDeniedCommand("echo $(git commit -m hi)", deny)?.pattern).toBe("git commit");
     });
 
+    test("sees through the rtk token-proxy wrapper", () => {
+        expect(findDeniedCommand("rtk git commit -m x", deny)?.pattern).toBe("git commit");
+    });
+
+    test("sees through rtk proxy passthrough", () => {
+        expect(findDeniedCommand("rtk proxy git commit", deny)?.pattern).toBe("git commit");
+    });
+
+    test("catches a denied command inside sh -c", () => {
+        expect(findDeniedCommand("bash -c 'git commit -m hi'", deny)?.pattern).toBe("git commit");
+        expect(findDeniedCommand('sh -c "rm -rf build"', deny)?.pattern).toBe("rm");
+    });
+
+    test("peels interleaved env-assignments and wrappers", () => {
+        expect(findDeniedCommand("env FOO=1 sudo rtk rm x", deny)?.pattern).toBe("rm");
+    });
+
     test("an empty denylist allows everything", () => {
         expect(findDeniedCommand("rm -rf /", [])).toBeNull();
     });

@@ -22,11 +22,20 @@ export const DEFAULT_BASH_DENY: BashDenyEntry[] = [
     { pattern: "git push", reason: "pushing is the user's call — ask the user to push." },
 ];
 
-/** Commands that wrap another command; we look past them to the real command. */
-const WRAPPERS = new Set(["sudo", "env", "command", "nohup", "time", "nice", "stdbuf", "xargs"]);
+/**
+ * Commands that run another command; we look past them to the real one so
+ * `sudo rm` or `rtk git commit` resolve to `rm` / `git commit`. This closes the
+ * easy wrapper bypass — it does not (and cannot) close every bypass.
+ * `rtk` is the user's token-proxy that rewrites every command (`rtk <cmd>`, or
+ * `rtk proxy <cmd>` for raw passthrough); treat both forms as transparent.
+ */
+const WRAPPERS = new Set(["sudo", "env", "command", "nohup", "time", "nice", "stdbuf", "xargs", "rtk"]);
 
 /** Shell operators that separate one executed command from the next. */
 const SEGMENT_SEPARATORS = /\|\||&&|[;|&\n]/;
+
+/** `sh -c "<script>"` (and bash/zsh/…) runs an inline script — pull it out. */
+const SHELL_DASH_C = /\b(?:sh|bash|zsh|dash|ksh)\s+-c\s+(['"])([\s\S]*?)\1/g;
 
 export interface DeniedMatch {
     /** The denylist pattern that matched (e.g. "git commit"). */
@@ -52,7 +61,10 @@ function normalizeToken(token: string): string {
  * denied command hidden inside one is still seen.
  */
 function splitSegments(command: string): string[] {
-    const flattened = command.replace(/\$\(([\s\S]*?)\)/g, " ; $1 ; ").replace(/`/g, " ; ");
+    const flattened = command
+        .replace(SHELL_DASH_C, " ; $2 ; ")
+        .replace(/\$\(([\s\S]*?)\)/g, " ; $1 ; ")
+        .replace(/`/g, " ; ");
     return flattened
         .split(SEGMENT_SEPARATORS)
         .map((segment) => segment.trim())
@@ -66,11 +78,24 @@ function splitSegments(command: string): string[] {
  */
 function resolveSegment(segment: string): { command: string; rest: string[] } | null {
     let tokens = segment.split(/\s+/).filter(Boolean);
-    while (tokens.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) {
-        tokens = tokens.slice(1);
-    }
-    while (tokens.length > 0 && WRAPPERS.has(normalizeToken(tokens[0]))) {
-        tokens = tokens.slice(1);
+    // Peel leading env-assignments and wrappers until the real command surfaces.
+    // Either kind can come first (`env FOO=1 sudo rm`), so loop over both.
+    for (let peeled = true; peeled && tokens.length > 0; ) {
+        peeled = false;
+        if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) {
+            tokens = tokens.slice(1);
+            peeled = true;
+            continue;
+        }
+        const head = normalizeToken(tokens[0]);
+        if (WRAPPERS.has(head)) {
+            tokens = tokens.slice(1);
+            // `rtk proxy <cmd>` — the proxy subcommand is part of the wrapper.
+            if (head === "rtk" && tokens.length > 0 && normalizeToken(tokens[0]) === "proxy") {
+                tokens = tokens.slice(1);
+            }
+            peeled = true;
+        }
     }
     if (tokens.length === 0) return null;
     return {

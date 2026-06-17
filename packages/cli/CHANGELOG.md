@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.49] - 2026-06-17
+
+### Fixed
+
+- The bash denylist now sees through command wrappers and proxies, closing the easiest bypass. `rtk git commit` (and `rtk proxy git commit`), `sudo`/`env`/`xargs` prefixes, interleaved `VAR=value` assignments, and inline `sh -c "…"` / `bash -c "…"` scripts all resolve to the real command before matching — so `rtk git commit` is blocked just like `git commit`. This raises the bar against accidental and lazy evasions; it is still a guardrail, not a sandbox, and a determined model can defeat string matching by design.
+
 ## [0.3.48] - 2026-06-17
 
 ### Added

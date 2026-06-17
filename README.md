@@ -112,7 +112,24 @@ Existing flat sessions migrate automatically on first open.
 
 ### Tools
 
-`read` · `bash` · `edit` · `write` · `grep` · `find` · `ls` · `task` — colored diffs, syntax-highlighted output, file previews. `read` also fetches `http(s)://` URLs as readable text. `edit`/`write` enforce read-before-modify per session.
+`read` · `bash` · `edit` · `write` · `grep` · `find` · `ls` · `task` — colored diffs, syntax-highlighted output, file previews. `read` also fetches `http(s)://` URLs as readable text (and takes `offset`/`limit` for large files). `edit`/`write` enforce read-before-modify per session.
+
+### Bash sandbox
+
+`bash` can run each command inside an OS-enforced sandbox (`@notshekhar/pi-sandbox`), so the model's shell access is bounded by the kernel, not just by trust. Enable and shape it via the `sandbox` setting in `settings.json`:
+
+- `enabled` — turn the sandbox on.
+- `network` — `"deny"` (default) blocks outbound network, or allow it per your config.
+- `allowWrite` / `denyWrite` / `allowRead` / `denyRead` — filesystem boundaries (the working directory is writable by default; everything else is read-only unless allowed).
+- `allowGitConfig` — let commands read your git config.
+
+It is **fail-open** by design for the normal case: if the boundary can't be applied on your platform (unsupported OS, missing dependency, wrap failure) the command still runs, but pi appends a `[pi sandbox] … ran WITHOUT isolation` warning — never a silent downgrade. The read-only `plan` agent is the exception: it is **fail-closed** — bash there runs in a kernel-enforced read-only, network-denied sandbox, and is **refused** outright if that can't be enforced.
+
+### Bash denylist
+
+Before anything runs, `bash` checks the command against the `bashDeny` list and refuses a match — a **guardrail, not a security boundary**. It resolves each command to its real name + subcommand, looking past wrappers (`sudo`, `env`, `nohup`, `time`, `xargs`, `rtk`, …), `sh -c "…"` scripts, and `$(…)`/backtick substitutions, and normalizes full paths to their basename (`/bin/rm` → `rm`). Patterns match by name (`rm`) or name + subcommand prefix (`git commit`).
+
+It defaults to `git commit` and `git push` (commits/pushes stay with the human). Override the whole list in `settings.json` or manage it with `/bashdeny`. String inspection is fundamentally bypassable (base64-pipe-to-sh, write-a-script-then-run-it, …) — that's what the sandbox above is for; the denylist just reliably stops honest, ordinary invocations.
 
 ### Hooks
 

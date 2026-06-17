@@ -133,7 +133,12 @@ export class ToolExecutionComponent extends Container {
         }
         const title = theme.fg(this.titleColor(), theme.bold(this.toolName));
         const summary = this.argsSummary();
-        return summary ? `${title} ${theme.fg("muted", summary)}` : title;
+        if (!summary) return title;
+        // `read` appends its offset/limit as a warning-colored `:start-end`
+        // suffix (mirrors pi-mono); the range sits outside the muted wrap so it
+        // keeps its own color.
+        const range = this.toolName === "read" ? this.readLineRange() : "";
+        return `${title} ${theme.fg("muted", summary)}${range}`;
     }
 
     private argsSummary(): string {
@@ -168,6 +173,19 @@ export class ToolExecutionComponent extends Container {
                 return json.length > 80 ? `${json.slice(0, 77)}…` : json;
             }
         }
+    }
+
+    /**
+     * `read` line range — `:start` or `:start-end` from offset/limit, empty
+     * when neither is set. Mirrors pi-mono's formatReadLineRange.
+     */
+    private readLineRange(): string {
+        const offset = typeof this.args.offset === "number" ? this.args.offset : undefined;
+        const limit = typeof this.args.limit === "number" ? this.args.limit : undefined;
+        if (offset === undefined && limit === undefined) return "";
+        const start = offset ?? 1;
+        const end = limit !== undefined ? start + limit - 1 : "";
+        return theme.fg("warning", `:${start}${end ? `-${end}` : ""}`);
     }
 
     /** sql: the query, highlighted as a SQL block under the title. */

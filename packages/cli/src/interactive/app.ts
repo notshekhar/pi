@@ -7,7 +7,6 @@ import {
     CombinedAutocompleteProvider,
     Container,
     Editor,
-    Loader,
     ProcessTerminal,
     SelectList,
     type SelectItem,
@@ -28,7 +27,6 @@ import {
     getActiveProvider,
     settingsStore,
     getCatalog,
-    getModelSync,
     parseModelId,
     ensureTool,
     runHooks,
@@ -40,14 +38,10 @@ import {
     isHiddenAgent,
     DEFAULT_AGENT_NAME,
     getProjectModel,
-    deleteReminder,
-    listReminders,
     type ThinkingLevel,
     type ProviderId,
     type Session,
-    type UsageBlock,
 } from "@notshekhar/pi-core";
-import { Cron } from "croner";
 import { getSelectListTheme, initTheme } from "./ui/theme";
 import { ChatHistory } from "./components/chat-history";
 import { CostFooter } from "./components/cost-footer";
@@ -60,6 +54,9 @@ import {
 import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
 import { createTurnRunner } from "./turn-runner";
+import { createFooterRefresher } from "./footer-refresh";
+import { createWorkingIndicator } from "./working-indicator";
+import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
 import { installConsoleBridge } from "./console-bridge";
 import { runStartupTrustAndHooks, showWhatsNew, showWorkspaceBanners, startUpdateCheck } from "./startup";
@@ -192,22 +189,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     };
     footer.setAgent(state.agent);
 
-    function ctxTokensFromUsage(u: UsageBlock): number {
-        if (typeof u.totalTokens === "number" && u.totalTokens > 0) return u.totalTokens;
-        return (u.inputTokens ?? 0) + (u.outputTokens ?? 0) + (u.cachedInputTokens ?? 0);
-    }
-
-    function refreshFooterCtx(usage?: UsageBlock): void {
-        if (usage) state.latestContextTokens = ctxTokensFromUsage(usage);
-        const info = getModelSync(state.modelId);
-        footer.setContext(state.latestContextTokens, info?.contextWindow ?? 0);
-    }
-
-    function refreshFooter(usage?: UsageBlock): void {
-        footer.setCost(tracker.format());
-        refreshFooterCtx(usage);
-        tui.requestRender();
-    }
+    const { refreshFooter, refreshFooterCtx } = createFooterRefresher(footer, tracker, tui, state);
     refreshFooterCtx();
 
     const editor = new Editor(tui, editorTheme, { paddingX: 1 });
@@ -274,32 +256,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // this lands so the /model picker reflects today's reality.
     void getCatalog({ refresh: true }).catch(() => {});
 
-    let workingLoader: Loader | null = null;
-    function showWorking(message = "Generating…"): void {
-        const fullMsg = `${message} ${chalk.dim("(Esc to interrupt)")}`;
-        if (workingLoader) {
-            workingLoader.setMessage(fullMsg);
-            return;
-        }
-        workingLoader = new Loader(
-            tui,
-            (s) => chalk.cyan(s),
-            (s) => chalk.dim(s),
-            fullMsg,
-        );
-        statusContainer.clear();
-        statusContainer.addChild(workingLoader);
-        workingLoader.start();
-        tui.requestRender();
-    }
-    function hideWorking(): void {
-        if (!workingLoader) return;
-        workingLoader.stop();
-        statusContainer.clear();
-        statusContainer.addChild(statusIdleSpacer);
-        workingLoader = null;
-        tui.requestRender();
-    }
+    const { showWorking, hideWorking } = createWorkingIndicator(tui, statusContainer, statusIdleSpacer);
 
     // Open-selector count — timer/reminder prompts wait until the slot is free.
     let selectorDepth = 0;
@@ -353,105 +310,20 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         }
     }
 
-    // -------------------------------------------------------------------
-    // Shared 1s ticker: footer clock, /timer countdown, reminder scheduler.
-    // Runs only while one of them needs it, so idle sessions hold no timers.
-    // -------------------------------------------------------------------
-    let ticker: ReturnType<typeof setInterval> | null = null;
-    let lastTickAt = Date.now();
-    const notices: string[] = [];
-    let noticeShowing = false;
-
-    const remindersMuted = () => settingsStore.get("reminders") === false;
-
-    function tickerNeeded(): boolean {
-        const clockOn = settingsStore.get("clock") === true;
-        const remindersPending = !remindersMuted() && listReminders().some((r) => r.enabled);
-        // Keep ticking while notices are queued: a reminder/timer that fired
-        // during a turn is held until !busy, and a one-shot reminder deletes
-        // itself when it fires — without this the ticker could stop before the
-        // turn ends, stranding the notice so it never shows.
-        return clockOn || state.timerEndsAt !== null || remindersPending || notices.length > 0;
-    }
-
-    function syncTicker(): void {
-        footer.setClockEnabled(settingsStore.get("clock") === true);
-        const needed = tickerNeeded();
-        if (needed && ticker === null) {
-            lastTickAt = Date.now();
-            ticker = setInterval(onTick, 1000);
-        } else if (!needed && ticker !== null) {
-            clearInterval(ticker);
-            ticker = null;
-        }
-        tui.requestRender();
-    }
-
-    function onTick(): void {
-        const now = Date.now();
-        checkTimer(now);
-        checkReminders(now);
-        lastTickAt = now;
-        void drainNotices();
-        syncTicker(); // also renders; stops the pulse once nothing needs it
-    }
-
-    function checkTimer(now: number): void {
-        if (state.timerEndsAt === null || now < state.timerEndsAt) return;
-        const label = state.timerLabel;
-        state.timerEndsAt = null;
-        state.timerLabel = "";
-        footer.setTimer(null);
-        ring(`Timer over — ${label}`);
-    }
-
-    function checkReminders(now: number): void {
-        if (remindersMuted()) return; // muted: nothing fires, reminders stay stored
-        for (const r of listReminders()) {
-            if (!r.enabled) continue;
-            if (r.kind === "once") {
-                // Fires only if the moment passed during this tick — a deadline
-                // that lapsed while pi was closed never fires (by design).
-                if (r.at > lastTickAt && r.at <= now) {
-                    ring(`Reminder — ${r.text}`);
-                    deleteReminder(r.id); // one-shot: gone after firing; cron ones live on
-                }
-            } else {
-                try {
-                    const next = new Cron(r.expr).nextRun(new Date(lastTickAt));
-                    if (next && next.getTime() <= now) ring(`Reminder — ${r.text}`);
-                } catch {
-                    // invalid expression — the manager validates on entry; skip
-                }
-            }
-        }
-    }
-
-    function ring(title: string): void {
-        process.stdout.write("\x07"); // terminal bell
-        notices.push(title);
-    }
-
-    // Time's-up / reminder prompts swap into the input slot like any selector,
-    // but only when it's free: never during a streaming turn, never on top of
-    // an open picker. Enter (ok) or Esc dismisses; queued ones follow.
-    async function drainNotices(): Promise<void> {
-        if (noticeShowing) return;
-        noticeShowing = true;
-        try {
-            while (notices.length > 0 && !state.busy && selectorDepth === 0) {
-                const title = notices.shift()!;
-                await selectOnce([{ value: "ok", label: "ok" }], title);
-            }
-        } finally {
-            noticeShowing = false;
-        }
-    }
+    // Shared 1s ticker (footer clock, /timer countdown, reminder scheduler);
+    // owns its own timer/reminder/notice state and runs only while needed.
+    const { syncTicker, stopTicker } = createTicker({
+        state,
+        footer,
+        tui,
+        getSelectorDepth: () => selectorDepth,
+        selectOnce,
+    });
 
     const restoreConsole = installConsoleBridge(history, tui);
 
     const cleanExit = (code = 0) => {
-        if (ticker !== null) clearInterval(ticker);
+        stopTicker();
         tui.stop();
         // Tear down MCP transports (stdio subprocesses, sockets) on the way out.
         void getMcpManager().close();

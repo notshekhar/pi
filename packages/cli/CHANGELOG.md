@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.2] - 2026-06-19
+
+### Fixed
+
+- **`lp` no longer collides with the system printer.** The short `lp` alias shares a name with the preinstalled CUPS `lp` command (`/usr/bin/lp`); on machines where loop's bin dir sat behind `/usr/bin` in PATH, typing `lp` ran the printer instead of loop. The installer now adds an `lp` shell alias as a fallback when its symlink doesn't win the PATH lookup, and the install summary only advertises the command names that actually resolve to loop on your machine.
+
 ## [0.5.1] - 2026-06-18
 
 ### Added

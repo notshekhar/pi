@@ -11,20 +11,20 @@ import {
     SessionManager,
     startSocketServer,
     startStdioServer,
-} from "@notshekhar/pi-core";
-import type { ProviderId } from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
+import type { ProviderId } from "@notshekhar/loop-core";
 import { readStdinLine, type Args } from "./args";
 import { runPrint } from "./print";
 import { openBrowser } from "./open-browser";
 
-const REPO_SLUG = "notshekhar/pi";
+const REPO_SLUG = "notshekhar/loop";
 const UPGRADE_URL = `https://raw.githubusercontent.com/${REPO_SLUG}/main/install.sh`;
 const UPGRADE_URL_PS1 = `https://raw.githubusercontent.com/${REPO_SLUG}/main/install.ps1`;
 const RELEASES_API = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
 
 type InstallMethod = "binary" | "source";
 
-// Identify how the running `pi` was installed so `pi upgrade` uses the
+// Identify how the running `loop` was installed so `loop upgrade` uses the
 // matching upgrade path. The installer writes `.install-method` next to
 // the binary; default to "binary" otherwise.
 function detectInstallMethod(): InstallMethod {
@@ -80,26 +80,26 @@ export async function resolveAvailableUpdate(version: string): Promise<string | 
 
 // Silent startup check — like resolveAvailableUpdate, but network/parse
 // failures resolve to null so startup is never blocked or noisy.
-// Set PI_SKIP_VERSION_CHECK to disable.
+// Set LOOP_SKIP_VERSION_CHECK to disable.
 export async function checkForUpdate(version: string): Promise<string | null> {
-    if (process.env.PI_SKIP_VERSION_CHECK) return null;
+    if (process.env.LOOP_SKIP_VERSION_CHECK) return null;
     return resolveAvailableUpdate(version);
 }
 
 export function printHelp(version: string): void {
-    console.log(`pi/agent — terminal coding agent (v${version})
+    console.log(`loop/lp/agent — terminal coding agent (v${version})
 
 Usage:
-  pi                       Start interactive TUI
-  pi run <prompt>          Run a single prompt and exit
-  pi login [provider]      Configure provider auth
-  pi logout [provider]     Remove auth
-  pi sessions              List sessions in current cwd
-  pi models                List available models
-  pi whoami                Show active provider + auth status
-  pi rpc [--socket]        Start JSON-RPC server
-  pi upgrade               Pull latest and rebuild
-  pi version | -v          Print version
+  loop                     Start interactive TUI
+  loop run <prompt>        Run a single prompt and exit
+  loop login [provider]    Configure provider auth
+  loop logout [provider]   Remove auth
+  loop sessions            List sessions in current cwd
+  loop models              List available models
+  loop whoami              Show active provider + auth status
+  loop rpc [--socket]      Start JSON-RPC server
+  loop upgrade             Pull latest and rebuild
+  loop version | -v        Print version
 
 Flags:
   --model <provider/id>    Override default model
@@ -125,8 +125,8 @@ export async function runUpgrade(version: string, opts: { force?: boolean } = {}
     console.log(`▶ Install method: ${method}`);
 
     const env: NodeJS.ProcessEnv = { ...process.env };
-    if (opts.force) env.PI_FORCE = "1";
-    if (method === "source") env.PI_FROM_SOURCE = "1";
+    if (opts.force) env.LOOP_FORCE = "1";
+    if (method === "source") env.LOOP_FROM_SOURCE = "1";
 
     // Windows: invoke PowerShell installer. Mac/Linux: bash.
     const isWin = process.platform === "win32";
@@ -194,7 +194,7 @@ export function cmdRpc(args: Args): void {
     }
     if (args.flags.socket) {
         const { socketPath } = startSocketServer();
-        console.log(`pi RPC daemon listening on ${socketPath}`);
+        console.log(`loop RPC daemon listening on ${socketPath}`);
         return;
     }
     startStdioServer();

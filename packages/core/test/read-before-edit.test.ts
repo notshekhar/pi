@@ -6,7 +6,7 @@ import { createReadTool } from "../src/tools/read";
 import { createEditTool } from "../src/tools/edit";
 import { createWriteTool } from "../src/tools/write";
 
-const dir = mkdtempSync(join(tmpdir(), "pi-rbe-"));
+const dir = mkdtempSync(join(tmpdir(), "loop-rbe-"));
 const ctx = { cwd: dir };
 const read = createReadTool(ctx);
 const edit = createEditTool(ctx);

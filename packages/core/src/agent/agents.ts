@@ -1,5 +1,5 @@
 /**
- * Custom agents — named system prompts under ~/.pi/agents/<name>.md.
+ * Custom agents — named system prompts under ~/.loop/agents/<name>.md.
  *
  * File format: optional frontmatter with a `tools:` line (comma-separated
  * subset of TOOL_NAMES), then the prompt body. No frontmatter = all tools.
@@ -16,14 +16,14 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { getPiDir } from "../auth/storage";
+import { getLoopDir } from "../auth/storage";
 import { TOOL_NAMES } from "../tools";
 import { DEFAULT_BASE_PROMPT } from "./system-prompt";
-import { isSandboxSupported } from "@notshekhar/pi-sandbox";
+import { isSandboxSupported } from "@notshekhar/loop-sandbox";
 
 export const DEFAULT_AGENT_NAME = "default";
 
-export const PLAN_BASE_PROMPT = `You are pi-plan, a planning assistant for coding tasks. You investigate, you never modify.
+export const PLAN_BASE_PROMPT = `You are loop-plan, a planning assistant for coding tasks. You investigate, you never modify.
 
 Method:
 1. Map the territory first — ls/find for structure, grep for the patterns and call sites involved, read the files that matter. Never plan against imagined code.
@@ -48,11 +48,9 @@ const READONLY_TOOLS = ["read", "ls", "grep", "find", "sql"];
 // plan's tools. bash is included only when the OS sandbox can enforce read-only
 // on this platform (see the plan BUILTINS comment). isSandboxSupported() is a
 // cheap, deterministic platform check, so resolving once at module load is fine.
-const PLAN_TOOLS = isSandboxSupported()
-    ? [...READONLY_TOOLS, "bash", "task"]
-    : [...READONLY_TOOLS, "task"];
+const PLAN_TOOLS = isSandboxSupported() ? [...READONLY_TOOLS, "bash", "task"] : [...READONLY_TOOLS, "task"];
 
-export const ANALYST_BASE_PROMPT = `You are pi-data-analyst, a precise data assistant. Correctness over completeness — if a table, column, value, or range is missing or ambiguous, ASK the user instead of guessing.
+export const ANALYST_BASE_PROMPT = `You are loop-data-analyst, a precise data assistant. Correctness over completeness — if a table, column, value, or range is missing or ambiguous, ASK the user instead of guessing.
 
 Default to the sql tool — it is your primary instrument. Reach for read/ls/grep/find only when you actually need to inspect project files (migrations, models, docs); answer data questions with sql, not by reading files.
 
@@ -77,7 +75,7 @@ Correct > Fast · Ask > Assume · Silence > Hallucination`;
 
 export const DATA_ANALYST_AGENT_NAME = "data-analyst";
 
-/** Built-in agents: fixed tool sets, prompt overridable via ~/.pi/agents/<name>.md. */
+/** Built-in agents: fixed tool sets, prompt overridable via ~/.loop/agents/<name>.md. */
 const BUILTINS: Record<string, { prompt: string; tools?: string[]; hidden?: boolean }> = {
     // default is unrestricted, so it gets every tool including sql.
     [DEFAULT_AGENT_NAME]: { prompt: DEFAULT_BASE_PROMPT },
@@ -106,7 +104,7 @@ export interface AgentInfo {
 }
 
 function agentsDir(): string {
-    return join(getPiDir(), "agents");
+    return join(getLoopDir(), "agents");
 }
 
 function agentPath(name: string): string {

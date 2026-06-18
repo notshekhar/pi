@@ -34,8 +34,8 @@ export function buildTransport(cfg: McpServerConfig, authProvider?: OAuthClientP
         // chatty there (startup banners, logs), and those raw writes land in the
         // middle of the TUI — desyncing the differential renderer's cursor/line
         // model so the screen appears frozen until a full redraw. Discard it so
-        // the child can never write to our terminal. PI_MCP_STDERR=inherit
+        // the child can never write to our terminal. LOOP_MCP_STDERR=inherit
         // restores the old behavior for debugging a server outside the TUI.
-        stderr: (process.env.PI_MCP_STDERR as "inherit" | "ignore") || "ignore",
+        stderr: (process.env.LOOP_MCP_STDERR as "inherit" | "ignore") || "ignore",
     });
 }

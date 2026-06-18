@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { Loader, type Component, type Container, type TUI } from "@notshekhar/pi-tui";
+import { Loader, type Component, type Container, type TUI } from "@notshekhar/loop-tui";
 
 export interface WorkingIndicator {
     /** Show/update the spinner in the status slot (Esc-to-interrupt hint added). */

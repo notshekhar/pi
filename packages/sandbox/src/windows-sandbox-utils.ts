@@ -12,8 +12,8 @@
  */
 
 const NOT_IMPLEMENTED =
-    "Windows sandbox is not implemented in @notshekhar/pi-sandbox. It needs the " +
-    "native WFP component (srt-win). Run pi's bash tool without the sandbox on " +
+    "Windows sandbox is not implemented in @notshekhar/loop-sandbox. It needs the " +
+    "native WFP component (srt-win). Run loop's bash tool without the sandbox on " +
     "Windows, or use WSL2 (Linux sandbox) / a container.";
 
 export function checkWindowsDependencies(): { errors: string[]; warnings: string[] } {

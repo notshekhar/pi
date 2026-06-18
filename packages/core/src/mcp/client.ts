@@ -1,6 +1,6 @@
 /**
  * Connects to a single MCP server and returns its tools, namespaced so they
- * never collide with pi's built-ins or another server's tools.
+ * never collide with loop's built-ins or another server's tools.
  */
 import { createMCPClient } from "@ai-sdk/mcp";
 import { isHttpServer, type McpServerConfig } from "./config";
@@ -39,9 +39,9 @@ export function namespacedToolName(server: string, tool: string): string {
  * HTTP connection can leave `callTool` pending forever — the agent loop then
  * awaits a result that never arrives and the whole UI appears frozen. Racing
  * each call against a timeout turns that hang into a normal tool error the
- * model can recover from. Overridable via PI_MCP_TOOL_TIMEOUT_MS.
+ * model can recover from. Overridable via LOOP_MCP_TOOL_TIMEOUT_MS.
  */
-const MCP_TOOL_TIMEOUT_MS = Number(process.env.PI_MCP_TOOL_TIMEOUT_MS) || 120_000;
+const MCP_TOOL_TIMEOUT_MS = Number(process.env.LOOP_MCP_TOOL_TIMEOUT_MS) || 120_000;
 
 type ExecutableTool = { execute?: (input: unknown, options: unknown) => Promise<unknown> };
 
@@ -121,12 +121,10 @@ function namespaceTools(server: string, tools: McpToolSet): McpToolSet {
  */
 export async function connectServer(name: string, cfg: McpServerConfig): Promise<ConnectResult> {
     const authProvider =
-        isHttpServer(cfg) && cfg.auth === "oauth"
-            ? new PiOAuthProvider(name, oauthRefreshRedirectUri())
-            : undefined;
+        isHttpServer(cfg) && cfg.auth === "oauth" ? new PiOAuthProvider(name, oauthRefreshRedirectUri()) : undefined;
     const transport = buildTransport(cfg, authProvider);
     const client = await createMCPClient({
-        name: `pi-mcp-${name}`,
+        name: `loop-mcp-${name}`,
         transport,
         // Surface async transport errors instead of letting them crash the
         // process; the manager already tracks per-server status.
@@ -143,6 +141,6 @@ export async function connectServer(name: string, cfg: McpServerConfig): Promise
  * it; refresh itself never sends the redirect, so the exact port rarely matters.
  */
 function oauthRefreshRedirectUri(): string {
-    const port = Number(process.env.PI_MCP_OAUTH_CALLBACK_PORT) || 8976;
+    const port = Number(process.env.LOOP_MCP_OAUTH_CALLBACK_PORT) || 8976;
     return `http://127.0.0.1:${port}/callback`;
 }

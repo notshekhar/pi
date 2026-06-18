@@ -1,5 +1,5 @@
 /**
- * @notshekhar/pi-sandbox — OS-level sandbox for pi's bash tool.
+ * @notshekhar/loop-sandbox — OS-level sandbox for loop's bash tool.
  *
  * Ported/adapted from anthropic-experimental/sandbox-runtime (Apache-2.0):
  * https://github.com/anthropic-experimental/sandbox-runtime — see NOTICE.md.

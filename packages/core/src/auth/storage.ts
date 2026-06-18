@@ -1,8 +1,32 @@
 import Configstore from "configstore";
+import { cpSync, existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const PI_DIR = join(homedir(), ".pi");
+const LOOP_DIR = join(homedir(), ".loop");
+const LEGACY_DIR = join(homedir(), ".pi");
+
+/**
+ * One-time migration of the legacy config dir, for installs that don't go
+ * through install.sh/install.ps1 (npm, source, bun link). MOVE ~/.pi into
+ * ~/.loop (copy, then delete the old dir only once the copy succeeds) so config
+ * is never lost or duplicated. No-op once ~/.loop exists; the legacy dir only
+ * exists for older (sub-0.5.0) installs, so its presence is the gate.
+ *
+ * Called explicitly from the CLI entrypoint (not at module load) so it never
+ * fires during tests, which import this module against the real home dir.
+ */
+export function migrateLegacyConfig(): void {
+    try {
+        if (existsSync(LOOP_DIR) || !existsSync(LEGACY_DIR)) return;
+        cpSync(LEGACY_DIR, LOOP_DIR, { recursive: true });
+        // Only remove the legacy dir once the copy has landed.
+        if (existsSync(LOOP_DIR)) rmSync(LEGACY_DIR, { recursive: true, force: true });
+    } catch {
+        // Best-effort: a failed copy/delete leaves the legacy dir intact, and the
+        // app simply starts with whatever config is present rather than crashing.
+    }
+}
 
 type StoreData = Record<string, unknown>;
 
@@ -55,45 +79,44 @@ export class CachedStore {
 }
 
 export const authStore = new CachedStore(
-    "pi-agent-auth",
+    "loop-agent-auth",
     { providers: {}, active: null },
-    { configPath: join(PI_DIR, "auth.json") },
+    { configPath: join(LOOP_DIR, "auth.json") },
 );
 
 export const settingsStore = new CachedStore(
-    "pi-agent-settings",
+    "loop-agent-settings",
     {
         defaultModel: null,
         theme: "dark",
         maxSteps: 0, // 0 = unlimited; loop ends when the model stops calling tools
         autoCompactThreshold: 0.8,
-        piCompatMode: "direct",
         workspaceContext: true,
     },
-    { configPath: join(PI_DIR, "settings.json") },
+    { configPath: join(LOOP_DIR, "settings.json") },
 );
 
 export const costStore = new CachedStore(
-    "pi-agent-cost",
+    "loop-agent-cost",
     { lifetime: { usd: 0, byProvider: {} } },
-    { configPath: join(PI_DIR, "cost.json") },
+    { configPath: join(LOOP_DIR, "cost.json") },
 );
 
 // Datasources for the data-analyst agent's `sql` tool. Kept in its own file
 // (not settings.json) so connection configs stay isolated from app settings.
 export const datasourcesStore = new CachedStore(
-    "pi-agent-datasources",
+    "loop-agent-datasources",
     { connections: {} },
-    { configPath: join(PI_DIR, "datasources.json") },
+    { configPath: join(LOOP_DIR, "datasources.json") },
 );
 
-export function getPiDir(): string {
-    return PI_DIR;
+export function getLoopDir(): string {
+    return LOOP_DIR;
 }
 
 /**
  * Per-project model memory: the last model picked while working in a folder
- * is restored next time pi starts there. Global defaultModel stays the
+ * is restored next time loop starts there. Global defaultModel stays the
  * fallback for folders never seen before.
  */
 export function getProjectModel(cwd: string): string | undefined {
@@ -109,8 +132,7 @@ export function setProjectModel(cwd: string, modelId: string): void {
     // restores the model used last with that provider in this folder.
     const provider = providerOfModelId(modelId);
     if (!provider) return;
-    const pm =
-        (settingsStore.get("projectProviderModels") as Record<string, Record<string, string>> | undefined) ?? {};
+    const pm = (settingsStore.get("projectProviderModels") as Record<string, Record<string, string>> | undefined) ?? {};
     settingsStore.set("projectProviderModels", { ...pm, [cwd]: { ...pm[cwd], [provider]: modelId } });
 }
 

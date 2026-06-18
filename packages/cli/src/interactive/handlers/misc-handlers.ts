@@ -6,7 +6,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import chalk from "chalk";
-import { getCatalog, type CommandContext } from "@notshekhar/pi-core";
+import { getCatalog, type CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { readClipboardImageToFile } from "../clipboard-image";

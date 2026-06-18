@@ -2,7 +2,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { EventEmitter } from "node:events";
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { getPiDir } from "../auth/storage";
+import { getLoopDir } from "../auth/storage";
 import { SessionManager, type Session } from "../sessions";
 import { runTurn, CostTracker, runCompact } from "../agent";
 import { getCatalog } from "../catalog";
@@ -223,7 +223,7 @@ export function startStdioServer(): void {
 }
 
 export function startSocketServer(): { server: Server; socketPath: string; pidPath: string } {
-    const dir = join(getPiDir(), "agent");
+    const dir = join(getLoopDir(), "agent");
     const socketPath = join(dir, "rpc.sock");
     const pidPath = join(dir, "rpc.pid");
     if (existsSync(socketPath)) unlinkSync(socketPath);

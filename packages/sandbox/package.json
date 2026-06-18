@@ -1,23 +1,21 @@
 {
-    "name": "@notshekhar/pi-sandbox",
+    "name": "@notshekhar/loop-sandbox",
     "version": "0.0.2",
-    "description": "OS-level sandbox for pi's bash tool — Seatbelt (macOS) and bubblewrap (Linux) filesystem/network isolation. Ported from anthropic-experimental/sandbox-runtime (Apache-2.0).",
+    "description": "OS-level sandbox for loop's bash tool — Seatbelt (macOS) and bubblewrap (Linux) filesystem/network isolation. Ported from anthropic-experimental/sandbox-runtime (Apache-2.0).",
     "license": "Apache-2.0",
     "type": "module",
-    "homepage": "https://github.com/notshekhar/pi#readme",
+    "homepage": "https://github.com/notshekhar/loop#readme",
     "bugs": {
-        "url": "https://github.com/notshekhar/pi/issues"
+        "url": "https://github.com/notshekhar/loop/issues"
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/notshekhar/pi.git",
+        "url": "git+https://github.com/notshekhar/loop.git",
         "directory": "packages/sandbox"
     },
     "main": "./dist/index.js",
-    "types": "./dist/index.d.ts",
     "exports": {
         ".": {
-            "types": "./dist/index.d.ts",
             "import": "./dist/index.js"
         }
     },
@@ -28,7 +26,7 @@
         "LICENSE"
     ],
     "scripts": {
-        "build": "bun build.ts && tsc -p tsconfig.json",
+        "build": "bun build.ts",
         "build:seccomp": "bun vendor/seccomp/build.ts",
         "clean": "rm -rf dist"
     },

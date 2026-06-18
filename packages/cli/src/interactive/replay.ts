@@ -1,4 +1,4 @@
-import { isRecapPayload, parseModelId, type Entry, type Session } from "@notshekhar/pi-core";
+import { isRecapPayload, parseModelId, type Entry, type Session } from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
 
 /** AI-SDK content part shapes we replay from persisted assistant/tool messages. */

@@ -3,14 +3,14 @@
  * each server can be authorized, reconnected, enabled/disabled, or deleted.
  * `/mcp reconnect [name]` keeps a scriptable, non-interactive shortcut.
  */
-import type { SelectItem } from "@notshekhar/pi-tui";
+import type { SelectItem } from "@notshekhar/loop-tui";
 import {
     getMcpManager,
     isGlobalServer,
     type CommandContext,
     type McpServerConfig,
     type ServerSnapshot,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import { openBrowser } from "../../open-browser";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
@@ -67,7 +67,7 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
         if (!command) return undefined;
         const argsRaw = (await promptOnce("args (space-separated, optional)")).trim();
         const args = argsRaw ? argsRaw.split(/\s+/) : undefined;
-        // env/headers with secrets go in ~/.pi/settings.json as ${env:VAR}.
+        // env/headers with secrets go in ~/.loop/settings.json as ${env:VAR}.
         return { type: "stdio", command, ...(args ? { args } : {}) };
     }
 
@@ -127,7 +127,7 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
                     ? { value: "enable", label: "enable", description: "turn this server on" }
                     : { value: "disable", label: "disable", description: "turn this server off" },
             );
-            items.push({ value: "delete", label: "delete", description: "remove from ~/.pi/settings.json" });
+            items.push({ value: "delete", label: "delete", description: "remove from ~/.loop/settings.json" });
         }
 
         const pick = await selectOnce(items, `${s.name} — ${STATUS_LABEL[s.status]}`);

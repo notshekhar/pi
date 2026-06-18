@@ -5,10 +5,10 @@ import type { XaiOAuthCredentials } from "../types";
 const DEFAULT_BASE_URL = "https://api.x.ai/v1";
 const ISSUER = "https://auth.x.ai";
 const DISCOVERY_URL = `${ISSUER}/.well-known/openid-configuration`;
-const CLIENT_ID = process.env.PI_XAI_OAUTH_CLIENT_ID || "b1a00492-073a-47ea-816f-4c329264a828";
-const SCOPE = process.env.PI_XAI_OAUTH_SCOPE || "openid profile email offline_access grok-cli:access api:access";
-const CALLBACK_HOST = process.env.PI_XAI_OAUTH_CALLBACK_HOST || "127.0.0.1";
-const CALLBACK_PORT = Number.parseInt(process.env.PI_XAI_OAUTH_CALLBACK_PORT || "56121", 10);
+const CLIENT_ID = process.env.LOOP_XAI_OAUTH_CLIENT_ID || "b1a00492-073a-47ea-816f-4c329264a828";
+const SCOPE = process.env.LOOP_XAI_OAUTH_SCOPE || "openid profile email offline_access grok-cli:access api:access";
+const CALLBACK_HOST = process.env.LOOP_XAI_OAUTH_CALLBACK_HOST || "127.0.0.1";
+const CALLBACK_PORT = Number.parseInt(process.env.LOOP_XAI_OAUTH_CALLBACK_PORT || "56121", 10);
 const CALLBACK_PATH = "/callback";
 const REFRESH_SKEW_MS = 120_000;
 
@@ -22,7 +22,7 @@ export interface OAuthLoginCallbacks {
 }
 
 export function getBaseUrl(): string {
-    return (process.env.PI_XAI_BASE_URL || process.env.XAI_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
+    return (process.env.LOOP_XAI_BASE_URL || process.env.XAI_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
 }
 
 function base64Url(buffer: ArrayBuffer | Uint8Array): string {
@@ -242,11 +242,11 @@ export async function login(callbacks: OAuthLoginCallbacks): Promise<XaiOAuthCre
         authUrl.searchParams.set("state", state);
         authUrl.searchParams.set("nonce", nonce);
         authUrl.searchParams.set("plan", "generic");
-        authUrl.searchParams.set("referrer", "pi-agent");
+        authUrl.searchParams.set("referrer", "loop-agent");
 
         callbacks.onAuth({
             url: authUrl.toString(),
-            instructions: `Authorize xAI, then return to pi-agent. Callback listener: ${callback.redirectUri}`,
+            instructions: `Authorize xAI, then return to loop-agent. Callback listener: ${callback.redirectUri}`,
         });
 
         const result = await callback.waitForCallback(180_000);

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getPiDir } from "../auth/storage";
+import { getLoopDir } from "../auth/storage";
 import { loadProjectSkills } from "../agent/skills";
 import { DATA_ANALYST_AGENT_NAME, listAgents } from "../agent/agents";
 
@@ -279,7 +279,7 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         },
         {
             name: "update",
-            description: "Update pi to the latest release",
+            description: "Update loop to the latest release",
             handler: async (ctx) => {
                 await ctx.updateApp();
             },
@@ -294,7 +294,7 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         },
         {
             name: "hooks",
-            description: "List, add, and remove lifecycle hooks (pi-owned and imported)",
+            description: "List, add, and remove lifecycle hooks (loop-owned and imported)",
             handler: async (ctx) => {
                 await ctx.manageHooks();
             },
@@ -337,7 +337,7 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             description: "Enable/disable models for Ctrl+P cycling",
             handler: (ctx) => ctx.stub("scoped-models"),
         },
-        { name: "quit", description: "Quit pi-agent", handler: (ctx) => ctx.exit() },
+        { name: "quit", description: "Quit loop-agent", handler: (ctx) => ctx.exit() },
         { name: "exit", description: "Alias for /quit", handler: (ctx) => ctx.exit() },
     ];
 
@@ -373,7 +373,7 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
     } catch {}
 
     // user prompts as commands
-    const promptsDir = join(getPiDir(), "agent", "prompts");
+    const promptsDir = join(getLoopDir(), "agent", "prompts");
     if (existsSync(promptsDir)) {
         for (const file of readdirSync(promptsDir)) {
             if (!file.endsWith(".md")) continue;

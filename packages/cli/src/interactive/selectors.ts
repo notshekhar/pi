@@ -1,4 +1,4 @@
-import { Container, Editor, type EditorTheme, SelectList, type SelectItem, Text, TUI } from "@notshekhar/pi-tui";
+import { Container, Editor, type EditorTheme, SelectList, type SelectItem, Text, TUI } from "@notshekhar/loop-tui";
 import { DynamicBorder } from "./ui/messages";
 import { getSelectListTheme } from "./ui/theme";
 import chalk from "chalk";

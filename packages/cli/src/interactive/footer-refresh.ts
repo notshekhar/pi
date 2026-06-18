@@ -1,5 +1,5 @@
-import { getModelSync, type CostTracker, type UsageBlock } from "@notshekhar/pi-core";
-import type { TUI } from "@notshekhar/pi-tui";
+import { getModelSync, type CostTracker, type UsageBlock } from "@notshekhar/loop-core";
+import type { TUI } from "@notshekhar/loop-tui";
 import type { CostFooter } from "./components/cost-footer";
 import type { AppState } from "./state";
 

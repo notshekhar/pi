@@ -3,9 +3,9 @@
  * data-analyst agent's `sql` tool. Selecting a connection (or "+ new") opens a
  * single-page form — every field is a row you can edit in place, with test /
  * save / delete on the same page — so fixing one wrong value never means
- * re-walking the whole prompt chain. Configs persist in ~/.pi/datasources.json.
+ * re-walking the whole prompt chain. Configs persist in ~/.loop/datasources.json.
  */
-import type { SelectItem } from "@notshekhar/pi-tui";
+import type { SelectItem } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     MAX_DATASOURCES,
@@ -20,7 +20,7 @@ import {
     type CommandContext,
     type DataSourceConfig,
     type DataSourceType,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 
@@ -71,7 +71,11 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
             [
                 { value: "postgres", label: "postgres", description: "PostgreSQL" },
                 { value: "mysql", label: "mysql", description: "MySQL / MariaDB" },
-                { value: "redshift", label: "redshift", description: "Amazon Redshift (postgres-compatible, TLS required)" },
+                {
+                    value: "redshift",
+                    label: "redshift",
+                    description: "Amazon Redshift (postgres-compatible, TLS required)",
+                },
             ],
             "Datasource type",
         );

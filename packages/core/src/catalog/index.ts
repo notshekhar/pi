@@ -3,21 +3,21 @@ import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
-import { getPiDir } from "../auth/storage";
+import { getLoopDir } from "../auth/storage";
 import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders } from "../auth";
 import { listOllamaModels, showOllamaModel } from "../providers";
 import type { ModelInfo, ProviderId } from "../types";
 
 const cacheStore = new Configstore(
-    "pi-agent-catalog",
+    "loop-agent-catalog",
     { availability: {}, ts: 0, models: {}, modelsTs: 0 },
-    { configPath: join(getPiDir(), "catalog.json") },
+    { configPath: join(getLoopDir(), "catalog.json") },
 );
 
 const TTL_MS = 60 * 60 * 1000; // 1h
 
 // Model definitions move (new releases, pricing, context bumps) while the
-// build-time GENERATED_MODELS snapshot stays frozen until the next pi release.
+// build-time GENERATED_MODELS snapshot stays frozen until the next loop release.
 // We re-fetch models.dev at runtime on the same stale-while-revalidate cycle
 // as availability, so a binary keeps learning about new models.
 const MODELS_SOURCE = "https://models.dev/api.json";
@@ -149,7 +149,7 @@ async function fetchOllamaCatalog(): Promise<ModelInfo[]> {
 }
 
 function userOverridesPath(): string {
-    return join(getPiDir(), "models.json");
+    return join(getLoopDir(), "models.json");
 }
 
 function readUserOverrides(): Record<string, Partial<ModelInfo>> {
@@ -179,7 +179,7 @@ export interface CustomModelInput {
 }
 
 /**
- * Add a user-defined model to ~/.pi/models.json (the existing override file).
+ * Add a user-defined model to ~/.loop/models.json (the existing override file).
  * No validation against the provider — a wrong id surfaces as an API error at
  * call time, which is acceptable and documented. Returns the full id.
  */
@@ -381,7 +381,7 @@ export function getModelSync(id: string): ModelInfo | undefined {
         for (const m of FALLBACK_MODELS) FALLBACK_BY_ID[m.id] = m;
     }
     if (FALLBACK_BY_ID[id]) return FALLBACK_BY_ID[id];
-    // User-defined models (~/.pi/models.json) resolve before the async catalog
+    // User-defined models (~/.loop/models.json) resolve before the async catalog
     // has been built — e.g. the footer reading a just-picked custom model.
     const override = readUserOverrides()[id];
     return override ? ({ ...override, id } as ModelInfo) : undefined;

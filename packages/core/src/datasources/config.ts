@@ -1,6 +1,6 @@
 /**
  * Datasource configuration for the data-analyst agent's `sql` tool. Connections
- * are stored in ~/.pi/datasources.json (datasourcesStore), keyed by a
+ * are stored in ~/.loop/datasources.json (datasourcesStore), keyed by a
  * connectionId the agent passes to the `sql` tool.
  *
  * Passwords are stored as written. `${env:VAR}` placeholders are expanded from

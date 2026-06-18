@@ -34,7 +34,7 @@ function m(
     };
 }
 
-// xAI — pi-grok subscription + public API
+// xAI — loop-grok subscription + public API
 const XAI: ModelInfo[] = [
     // Composer 2.5: xAI's agentic coding model. Not listed by /v1/models but
     // callable (subscription/preview — see catalog/index.ts note). It reasons

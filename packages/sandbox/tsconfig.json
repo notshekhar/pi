@@ -1,12 +1,6 @@
 {
+    // Editor/IDE typecheck config. Building is done by build.ts (Bun); Bun runs
+    // TypeScript natively, so no tsc/declaration-emit step is needed.
     "extends": "../../tsconfig.base.json",
-    "compilerOptions": {
-        "outDir": "./dist",
-        "rootDir": "./src",
-        "composite": true,
-        "declaration": true,
-        "noEmit": false,
-        "emitDeclarationOnly": true
-    },
     "include": ["src/**/*"]
 }

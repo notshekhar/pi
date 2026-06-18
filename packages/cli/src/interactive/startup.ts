@@ -2,7 +2,7 @@
  * Startup-time chat banners and the trust → SessionStart hooks sequence.
  * Pulled out of app.ts so the app file stays an orchestrator.
  */
-import type { SelectItem, TUI } from "@notshekhar/pi-tui";
+import type { SelectItem, TUI } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     getMcpManager,
@@ -19,7 +19,7 @@ import {
     setTrust,
     settingsStore,
     trustForSession,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
@@ -55,7 +55,9 @@ export function startUpdateCheck(history: ChatHistory, tui: TUI, version: string
     if (!version) return;
     void checkForUpdate(version).then((latest) => {
         if (latest) {
-            history.addSystem(`Update available: v${version} → ${latest}. Run /update (or \`pi update\`) to upgrade.`);
+            history.addSystem(
+                `Update available: v${version} → ${latest}. Run /update (or \`loop update\`) to upgrade.`,
+            );
             tui.requestRender();
         }
     });
@@ -87,7 +89,7 @@ export async function showWorkspaceBanners(history: ChatHistory, cwd: string): P
 
 /**
  * Project trust → SessionStart hooks. First open of a folder that ships
- * .pi/.claude resources prompts before any project hook/skill can run; the
+ * .loop/.claude resources prompts before any project hook/skill can run; the
  * decision gates project resource loading (executable hooks, project skills).
  */
 export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): Promise<void> {
@@ -97,7 +99,7 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
         const opts = getTrustOptions(state.cwd);
         history.addSystem(
             chalk.yellow(`Trust this project folder?\n${state.cwd}`) +
-                chalk.dim("\nTrusting lets pi load this repo's .pi/.claude settings, hooks, and skills."),
+                chalk.dim("\nTrusting lets loop load this repo's .loop/.claude settings, hooks, and skills."),
         );
         tui.requestRender();
         const items: SelectItem[] = opts.map((o) => ({ value: o.label, label: o.label, description: "" }));

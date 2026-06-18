@@ -27,7 +27,7 @@ end try`;
 export function readClipboardImageToFile(): string | null {
     if (process.platform !== "darwin") return null;
 
-    const out = join(tmpdir(), `pi-clipboard-${randomUUID()}.png`);
+    const out = join(tmpdir(), `loop-clipboard-${randomUUID()}.png`);
     // AppleScript: try to coerce clipboard to PNG, write to tmp file.
     const script = `try
   set thePNG to the clipboard as «class PNGf»

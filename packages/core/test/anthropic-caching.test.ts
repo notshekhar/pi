@@ -7,7 +7,10 @@ const hasAnchor = (m: ModelMessage) =>
 
 describe("withAnthropicCaching", () => {
     test("anchors system and last message", () => {
-        const out = withAnthropicCaching("sys", [{ role: "user", content: "hi" }, { role: "user", content: "again" }]);
+        const out = withAnthropicCaching("sys", [
+            { role: "user", content: "hi" },
+            { role: "user", content: "again" },
+        ]);
         expect(out[0].role).toBe("system");
         expect(hasAnchor(out[0])).toBe(true);
         expect(hasAnchor(out[out.length - 1])).toBe(true);
@@ -20,7 +23,11 @@ describe("moveAnthropicCacheTail", () => {
         // Step 1: system + anchored user prompt (what the agent starts with).
         let messages: ModelMessage[] = [
             anthropicCachedSystem("sys"),
-            { role: "user", content: "do the task", providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } },
+            {
+                role: "user",
+                content: "do the task",
+                providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+            },
         ];
         // Simulate 10 loop steps, each appending an assistant + tool message.
         for (let step = 0; step < 10; step++) {
@@ -32,8 +39,21 @@ describe("moveAnthropicCacheTail", () => {
             expect(hasAnchor(messages[messages.length - 1])).toBe(true);
             messages = [
                 ...messages,
-                { role: "assistant", content: [{ type: "tool-call", toolCallId: `c${step}`, toolName: "read", input: {} }] },
-                { role: "tool", content: [{ type: "tool-result", toolCallId: `c${step}`, toolName: "read", output: { type: "text", value: "x" } }] },
+                {
+                    role: "assistant",
+                    content: [{ type: "tool-call", toolCallId: `c${step}`, toolName: "read", input: {} }],
+                },
+                {
+                    role: "tool",
+                    content: [
+                        {
+                            type: "tool-result",
+                            toolCallId: `c${step}`,
+                            toolName: "read",
+                            output: { type: "text", value: "x" },
+                        },
+                    ],
+                },
             ];
         }
     });

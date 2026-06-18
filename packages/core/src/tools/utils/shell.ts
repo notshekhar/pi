@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 
 export function getBinDir(): string {
-    return join(homedir(), ".pi", "bin");
+    return join(homedir(), ".loop", "bin");
 }
 
 export interface ShellConfig {

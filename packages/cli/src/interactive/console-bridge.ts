@@ -2,7 +2,7 @@
  * Route stray console output and escaped errors into the chat so they never
  * tear the TUI renderer by writing to stdout/stderr directly.
  */
-import type { TUI } from "@notshekhar/pi-tui";
+import type { TUI } from "@notshekhar/loop-tui";
 import type { ChatHistory } from "./components/chat-history";
 
 /** Returns a restore function — needed when the TUI hands the terminal back

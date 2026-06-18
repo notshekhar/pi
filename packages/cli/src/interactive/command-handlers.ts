@@ -3,7 +3,7 @@
  * one concern (sessions, session tree, models, agents, hooks, settings,
  * misc) and contributes its slice of CommandContext.
  */
-import type { CommandContext } from "@notshekhar/pi-core";
+import type { CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { createAgentHandlers } from "./handlers/agent-handlers";

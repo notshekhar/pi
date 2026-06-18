@@ -25,9 +25,9 @@ export type ServerStatus = "disabled" | "connecting" | "ready" | "error" | "need
  * but never replies, would otherwise leave `connectServer` pending forever —
  * the status stays "connecting" and, in print mode (which awaits init), the
  * whole run hangs. Racing against a timeout turns that into a normal `error`
- * status the user can see and retry. Overridable via PI_MCP_CONNECT_TIMEOUT_MS.
+ * status the user can see and retry. Overridable via LOOP_MCP_CONNECT_TIMEOUT_MS.
  */
-const CONNECT_TIMEOUT_MS = Number(process.env.PI_MCP_CONNECT_TIMEOUT_MS) || 30_000;
+const CONNECT_TIMEOUT_MS = Number(process.env.LOOP_MCP_CONNECT_TIMEOUT_MS) || 30_000;
 
 /**
  * A rejecting timer plus a `clear()` so a fast connect doesn't leave the

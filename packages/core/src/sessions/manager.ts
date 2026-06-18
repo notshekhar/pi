@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, statSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ulid } from "ulid";
-import { getPiDir, settingsStore } from "../auth/storage";
+import { getLoopDir } from "../auth/storage";
 import type { Entry, ProviderId, SessionInfoData } from "../types";
 import { Session, generateEntryId } from "./session";
 import { stripSessionHookContext } from "./hook-context";
@@ -13,7 +13,7 @@ function slugCwd(cwd: string): string {
 }
 
 function sessionsDir(): string {
-    const dir = join(getPiDir(), "agent", "sessions");
+    const dir = join(getLoopDir(), "agent", "sessions");
     mkdirSync(dir, { recursive: true });
     return dir;
 }
@@ -24,7 +24,6 @@ export interface SessionInfo extends SessionInfoData {
     firstUserMessage?: string;
     /** User-set display name (/name), latest session-name entry wins. */
     name?: string;
-    source: "pi-agent" | "pi";
 }
 
 export interface NewSessionOptions {
@@ -61,12 +60,10 @@ export class SessionManager {
             let info: SessionInfoData | null = null;
             let firstUser: string | undefined;
             let name: string | undefined;
-            let source: "pi-agent" | "pi" = "pi";
             for (const line of lines) {
                 const parsed = JSON.parse(line) as { type?: string; name?: string };
                 if (parsed.type === "session-info") {
                     info = parsed as unknown as SessionInfoData;
-                    source = "pi-agent";
                 }
                 if (parsed.type === "session-name") {
                     name = parsed.name?.trim() || undefined;
@@ -88,7 +85,7 @@ export class SessionManager {
                 const id = path.split("/").pop()!.replace(".jsonl", "");
                 info = { id, createdAt: stat.birthtimeMs, cwd: slug, provider: "xai", model: "" };
             }
-            return { ...info, path, mtime: stat.mtimeMs, firstUserMessage: firstUser, name, source };
+            return { ...info, path, mtime: stat.mtimeMs, firstUserMessage: firstUser, name };
         } catch {
             return null;
         }
@@ -117,15 +114,7 @@ export class SessionManager {
         if (!path) throw new Error(`Session not found: ${idOrPath}`);
         const peek = this.peek(path, "");
         if (!peek) throw new Error(`Cannot read session: ${path}`);
-        const session = Session.load(path, peek);
-
-        if (peek.source === "pi") {
-            const mode = (settingsStore.get("piCompatMode") as string) ?? "direct";
-            if (mode === "fork") {
-                return this.fork(session);
-            }
-        }
-        return session;
+        return Session.load(path, peek);
     }
 
     private findById(id: string): string | null {
@@ -192,12 +181,5 @@ export class SessionManager {
             source,
             path.filter((e) => e.type !== "session-info" && e.type !== "label"),
         );
-    }
-
-    /** Fork the entire session (all branches) — used for pi-compat opens. */
-    async fork(source: Session): Promise<Session> {
-        // Labels are excluded and recreated from the resolved map by writeFork.
-        const entries = source.entries().filter((e) => e.type !== "session-info" && e.type !== "label");
-        return this.writeFork(source, entries);
     }
 }

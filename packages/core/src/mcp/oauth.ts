@@ -1,21 +1,16 @@
 /**
  * OAuth 2.0 for MCP servers. Implements the AI SDK's OAuthClientProvider,
- * backed by ~/.pi/mcp-auth.json so tokens survive restarts. The AI SDK's
+ * backed by ~/.loop/mcp-auth.json so tokens survive restarts. The AI SDK's
  * `auth()` helper drives discovery, dynamic client registration, PKCE, and
  * token exchange — this provider just persists each piece and hands the
  * authorization URL to a caller-supplied opener (the browser).
  */
 import Configstore from "configstore";
 import { join } from "node:path";
-import type {
-    OAuthClientInformation,
-    OAuthClientMetadata,
-    OAuthClientProvider,
-    OAuthTokens,
-} from "@ai-sdk/mcp";
-import { getPiDir } from "../auth/storage";
+import type { OAuthClientInformation, OAuthClientMetadata, OAuthClientProvider, OAuthTokens } from "@ai-sdk/mcp";
+import { getLoopDir } from "../auth/storage";
 
-const mcpAuthStore = new Configstore("pi-agent-mcp-auth", {}, { configPath: join(getPiDir(), "mcp-auth.json") });
+const mcpAuthStore = new Configstore("loop-agent-mcp-auth", {}, { configPath: join(getLoopDir(), "mcp-auth.json") });
 
 /** Everything we persist for one server's OAuth session. */
 interface StoredAuth {
@@ -62,7 +57,7 @@ export class PiOAuthProvider implements OAuthClientProvider {
 
     get clientMetadata(): OAuthClientMetadata {
         return {
-            client_name: "pi",
+            client_name: "loop",
             redirect_uris: [this.redirectUri],
             grant_types: ["authorization_code", "refresh_token"],
             response_types: ["code"],

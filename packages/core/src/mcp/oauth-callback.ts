@@ -4,10 +4,10 @@
  */
 import { createServer, type Server } from "node:http";
 
-const CALLBACK_HOST = process.env.PI_MCP_OAUTH_CALLBACK_HOST || "127.0.0.1";
+const CALLBACK_HOST = process.env.LOOP_MCP_OAUTH_CALLBACK_HOST || "127.0.0.1";
 const CALLBACK_PATH = "/callback";
 /** Try a stable port first (nicer for allow-listed redirect URIs), else any. */
-const PREFERRED_PORT = Number(process.env.PI_MCP_OAUTH_CALLBACK_PORT) || 8976;
+const PREFERRED_PORT = Number(process.env.LOOP_MCP_OAUTH_CALLBACK_PORT) || 8976;
 
 export interface CallbackResult {
     code: string;
@@ -47,7 +47,7 @@ export async function startCallbackServer(): Promise<CallbackServer> {
             rejectResult(new Error("OAuth callback missing authorization code"));
             return;
         }
-        res.end(page("Authorized. You can close this tab and return to pi."));
+        res.end(page("Authorized. You can close this tab and return to loop."));
         resolveResult({ code, state: url.searchParams.get("state") ?? undefined });
     });
 

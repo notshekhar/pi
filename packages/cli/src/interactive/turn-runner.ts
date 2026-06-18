@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import { asTurnEmitter, type CommandContext, parseModelId, runTurn } from "@notshekhar/pi-core";
-import { wrapSessionHookContext } from "@notshekhar/pi-core";
+import { asTurnEmitter, type CommandContext, parseModelId, runTurn } from "@notshekhar/loop-core";
+import { wrapSessionHookContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { formatError } from "./format-error";

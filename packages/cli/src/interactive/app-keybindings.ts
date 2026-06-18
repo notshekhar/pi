@@ -1,5 +1,5 @@
 /** App-level keybindings layered over the tui defaults. */
-import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } from "@notshekhar/pi-tui";
+import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } from "@notshekhar/loop-tui";
 
 const APP_KEYBINDINGS = {
     "app.tools.expand": { defaultKeys: "ctrl+e", description: "Toggle tool output" },

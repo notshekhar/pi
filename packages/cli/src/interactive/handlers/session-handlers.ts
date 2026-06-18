@@ -3,7 +3,7 @@
  * /export, /import.
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import type { SelectItem } from "@notshekhar/pi-tui";
+import type { SelectItem } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     CompactAbortedError,
@@ -13,7 +13,7 @@ import {
     setProjectModel,
     settingsStore,
     type CommandContext,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { renderSessionBranch } from "../replay";
@@ -177,7 +177,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                         label: s.name
                             ? `${s.name}  ·  ${s.id.slice(0, 12)}`
                             : `${s.id.slice(0, 12)}  ${s.model || "?"}`,
-                        description: `${formatSessionTime(s.mtime)}  ·  ${s.firstUserMessage?.slice(0, 80) ?? "(no messages)"}${s.source === "pi" ? "  [pi]" : ""}`,
+                        description: `${formatSessionTime(s.mtime)}  ·  ${s.firstUserMessage?.slice(0, 80) ?? "(no messages)"}`,
                     })),
                 ];
                 pick = await searchOnce(items, `Resume session · ${filtered.length}/${sessions.length}`);

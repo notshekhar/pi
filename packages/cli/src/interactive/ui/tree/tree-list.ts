@@ -3,8 +3,8 @@
  * filter modes, type-to-search, folding, and label editing hooks. Layout
  * math lives in layout.ts, row presentation in entry-display.ts.
  */
-import { type Component, getKeybindings, type Keybinding, truncateToWidth } from "@notshekhar/pi-tui";
-import type { SessionTreeNode } from "@notshekhar/pi-core";
+import { type Component, getKeybindings, type Keybinding, truncateToWidth } from "@notshekhar/loop-tui";
+import type { SessionTreeNode } from "@notshekhar/loop-core";
 import { theme } from "../theme";
 import { type FlatNode, flattenTree, recalculateVisualStructure } from "./layout";
 import { formatLabelTimestamp, getEntryDisplayText, getSearchableText, hasTextContent } from "./entry-display";
@@ -98,9 +98,7 @@ export class TreeList implements Component {
         for (const flatNode of this.flatNodes) {
             entryMap.set(flatNode.node.entry.id!, flatNode);
         }
-        const visibleIdToIndex = new Map<string, number>(
-            this.filteredNodes.map((node, i) => [node.node.entry.id!, i]),
-        );
+        const visibleIdToIndex = new Map<string, number>(this.filteredNodes.map((node, i) => [node.node.entry.id!, i]));
 
         let currentId = entryId;
         while (currentId !== null) {
@@ -242,7 +240,10 @@ export class TreeList implements Component {
 
         lines.push(
             truncateToWidth(
-                theme.fg("muted", `  (${this.selectedIndex + 1}/${this.filteredNodes.length})${this.getStatusLabels()}`),
+                theme.fg(
+                    "muted",
+                    `  (${this.selectedIndex + 1}/${this.filteredNodes.length})${this.getStatusLabels()}`,
+                ),
                 width,
             ),
         );

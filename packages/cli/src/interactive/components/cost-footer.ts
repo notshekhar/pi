@@ -1,5 +1,5 @@
-import { getModelSync } from "@notshekhar/pi-core";
-import type { Component } from "@notshekhar/pi-tui";
+import { getModelSync } from "@notshekhar/loop-core";
+import type { Component } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import { formatClock, formatCountdown } from "../time";
 

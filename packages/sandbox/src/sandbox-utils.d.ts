@@ -2,7 +2,17 @@
  * Dangerous files that should be protected from writes. These can be used for
  * code execution or data exfiltration.
  */
-export declare const DANGEROUS_FILES: readonly [".gitconfig", ".gitmodules", ".bashrc", ".bash_profile", ".zshrc", ".zprofile", ".profile", ".ripgreprc", ".mcp.json"];
+export declare const DANGEROUS_FILES: readonly [
+    ".gitconfig",
+    ".gitmodules",
+    ".bashrc",
+    ".bash_profile",
+    ".zshrc",
+    ".zprofile",
+    ".profile",
+    ".ripgreprc",
+    ".mcp.json",
+];
 /**
  * Dangerous directories that contain sensitive config or executable files.
  */
@@ -45,12 +55,27 @@ export declare function getDefaultWritePaths(): string[];
  * Per-tool trust-store env vars set to the TLS-termination CA cert path so
  * HTTPS clients in the sandboxed child accept proxy-minted certs.
  */
-export declare const CA_TRUST_VARS: readonly ["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "PIP_CERT", "GIT_SSL_CAINFO", "AWS_CA_BUNDLE", "CARGO_HTTP_CAINFO", "DENO_CERT"];
+export declare const CA_TRUST_VARS: readonly [
+    "NODE_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+    "CURL_CA_BUNDLE",
+    "REQUESTS_CA_BUNDLE",
+    "PIP_CERT",
+    "GIT_SSL_CAINFO",
+    "AWS_CA_BUNDLE",
+    "CARGO_HTTP_CAINFO",
+    "DENO_CERT",
+];
 /**
  * Generate proxy environment variables for sandboxed processes. Without proxy
  * ports (Stage 1) this returns just the minimal SANDBOX_RUNTIME + TMPDIR set.
  */
-export declare function generateProxyEnvVars(httpProxyPort?: number, socksProxyPort?: number, caCertPath?: string, proxyAuthToken?: string): string[];
+export declare function generateProxyEnvVars(
+    httpProxyPort?: number,
+    socksProxyPort?: number,
+    caCertPath?: string,
+    proxyAuthToken?: string,
+): string[];
 /** Encode a command for sandbox monitoring (truncate to 100 chars, base64). */
 export declare function encodeSandboxedCommand(command: string): string;
 /** Decode a base64-encoded command from sandbox monitoring. */

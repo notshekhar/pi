@@ -47,7 +47,7 @@ export async function fetchUrlAsText(url: string, abortSignal?: AbortSignal): Pr
         const res = await fetch(url, {
             signal: controller.signal,
             redirect: "follow",
-            headers: { "user-agent": "pi-agent/1.0 (+https://github.com/notshekhar/pi)" },
+            headers: { "user-agent": "loop-agent/1.0 (+https://github.com/notshekhar/loop)" },
         });
         if (!res.ok) return `[fetch failed: ${res.status} ${res.statusText} for ${url}]`;
 

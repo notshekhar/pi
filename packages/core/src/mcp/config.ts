@@ -1,6 +1,6 @@
 /**
- * MCP server configuration. Servers are declared in ~/.pi/settings.json under
- * `mcpServers`, and optionally overridden per-project in <cwd>/.pi/mcp.json.
+ * MCP server configuration. Servers are declared in ~/.loop/settings.json under
+ * `mcpServers`, and optionally overridden per-project in <cwd>/.loop/mcp.json.
  * Two sources only (global + project) — project entries win on name collision.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -66,7 +66,7 @@ export function resolveSecretMap(map: Record<string, string> | undefined): Recor
 }
 
 /**
- * Merge global (settings.json) and project (<cwd>/.pi/mcp.json) server maps.
+ * Merge global (settings.json) and project (<cwd>/.loop/mcp.json) server maps.
  * A malformed project file is ignored rather than crashing startup.
  */
 export function loadMcpServers(cwd: string): Record<string, McpServerConfig> {
@@ -84,7 +84,7 @@ export function isGlobalServer(name: string): boolean {
     return name in getGlobalServers();
 }
 
-/** Add or replace a global server in ~/.pi/settings.json. */
+/** Add or replace a global server in ~/.loop/settings.json. */
 export function addServer(name: string, cfg: McpServerConfig): void {
     setSetting("mcpServers", { ...getGlobalServers(), [name]: cfg });
 }
@@ -108,7 +108,7 @@ export function removeServer(name: string): boolean {
 }
 
 function loadProjectServers(cwd: string): Record<string, McpServerConfig> {
-    const path = join(cwd, ".pi", "mcp.json");
+    const path = join(cwd, ".loop", "mcp.json");
     if (!existsSync(path)) return {};
     try {
         const parsed = JSON.parse(readFileSync(path, "utf8"));

@@ -1,8 +1,8 @@
 /**
  * Project trust — gate executable/instruction project resources (hooks, project
  * skills) behind an explicit per-folder decision, so opening an untrusted cloned
- * repo doesn't silently run its `.pi`/`.claude` hooks. Ported (simplified) from
- * pi-mono's trust-manager: nearest-ancestor lookup, persisted in ~/.pi/trust.json.
+ * repo doesn't silently run its `.loop`/`.claude` hooks. Ported (simplified) from
+ * pi-mono's trust-manager: nearest-ancestor lookup, persisted in ~/.loop/trust.json.
  *
  * Decision: true = trusted, false = explicitly untrusted, null = not yet asked.
  * Resources load only when the nearest decision is `true`.
@@ -10,13 +10,13 @@
 import Configstore from "configstore";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { getPiDir } from "../auth/storage";
+import { getLoopDir } from "../auth/storage";
 
 export type TrustDecision = boolean | null;
 
 let trustStore: Configstore | null = null;
 function store(): Configstore {
-    trustStore ??= new Configstore("pi-agent-trust", {}, { configPath: join(getPiDir(), "trust.json") });
+    trustStore ??= new Configstore("loop-agent-trust", {}, { configPath: join(getLoopDir(), "trust.json") });
     return trustStore;
 }
 
@@ -33,7 +33,7 @@ function canonical(cwd: string): string {
 export function hasProjectTrustInputs(cwd: string): boolean {
     let dir = canonical(cwd);
     for (;;) {
-        if (existsSync(join(dir, ".pi")) || existsSync(join(dir, ".claude"))) return true;
+        if (existsSync(join(dir, ".loop")) || existsSync(join(dir, ".claude"))) return true;
         const parent = dirname(dir);
         if (parent === dir) return false;
         dir = parent;
@@ -63,7 +63,7 @@ export function isTrusted(cwd: string): boolean {
     return getTrustDecision(cwd) === true;
 }
 
-/** Persist a trust decision to ~/.pi/trust.json. */
+/** Persist a trust decision to ~/.loop/trust.json. */
 export function setTrust(cwd: string, decision: boolean): void {
     store().set(canonical(cwd), decision);
 }

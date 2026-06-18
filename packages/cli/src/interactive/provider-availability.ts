@@ -4,7 +4,7 @@
  * /provider picker and the startup "no model selected" guidance so both agree
  * on what "you have a provider" means.
  */
-import { getCatalog, listAuthorizedProviders, listCustomProviders, type ProviderId } from "@notshekhar/pi-core";
+import { getCatalog, listAuthorizedProviders, listCustomProviders, type ProviderId } from "@notshekhar/loop-core";
 
 export async function listUsableProviders(): Promise<ProviderId[]> {
     const providers = [...listAuthorizedProviders()];

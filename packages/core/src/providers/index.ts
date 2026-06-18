@@ -9,11 +9,7 @@ import {
     resolveOAuthCreds,
 } from "../auth";
 import { COPILOT_HEADERS, getCopilotBaseUrl } from "../auth/oauth/github-copilot";
-import {
-    accountIdFromIdToken,
-    CODEX_BASE_URL,
-    OPENAI_CHATGPT_HEADERS,
-} from "../auth/oauth/openai-chatgpt";
+import { accountIdFromIdToken, CODEX_BASE_URL, OPENAI_CHATGPT_HEADERS } from "../auth/oauth/openai-chatgpt";
 import type { CustomProviderConfig, ProviderId } from "../types";
 
 type FetchInput = Parameters<typeof fetch>[0];
@@ -43,7 +39,7 @@ function copilotAuthFetch(): typeof fetch {
  * token it needs the `chatgpt-account-id` header, and the backend only accepts
  * stateless Responses calls — so we force `store:false` and ask for encrypted
  * reasoning so multi-step turns keep their reasoning context. The system prompt
- * (pi's instructions) is left intact; set PI_CODEX_INSTRUCTIONS to override it
+ * (loop's instructions) is left intact; set LOOP_CODEX_INSTRUCTIONS to override it
  * if the backend rejects a request for non-Codex instructions.
  */
 /** Responses API message content is a string or an array of text parts. */
@@ -58,7 +54,7 @@ function messageContentToText(content: unknown): string {
 }
 
 function openaiChatgptAuthFetch(): typeof fetch {
-    const overrideInstructions = process.env.PI_CODEX_INSTRUCTIONS;
+    const overrideInstructions = process.env.LOOP_CODEX_INSTRUCTIONS;
     return withPreconnect(async (input, init) => {
         const creds = await resolveOAuthCreds("openai-chatgpt");
         if (!creds) throw new Error("No ChatGPT credentials. Run: /login openai-chatgpt");
@@ -80,7 +76,7 @@ function openaiChatgptAuthFetch(): typeof fetch {
                 json.include = [...include];
                 // The Codex backend rejects requests without a top-level
                 // `instructions` ("Instructions are required"). The SDK encodes
-                // pi's system prompt as a developer message in `input`, so lift
+                // loop's system prompt as a developer message in `input`, so lift
                 // that out into `instructions` (removing the duplicate) unless an
                 // override is supplied.
                 if (!json.instructions) {
@@ -105,9 +101,9 @@ function openaiChatgptAuthFetch(): typeof fetch {
     });
 }
 
-/** Ollama host root (no /api suffix). Override with PI_OLLAMA_BASE_URL. */
+/** Ollama host root (no /api suffix). Override with LOOP_OLLAMA_BASE_URL. */
 export function ollamaBaseURL(): string {
-    return (process.env.PI_OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
+    return (process.env.LOOP_OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
 }
 
 export interface OllamaModelTag {
@@ -340,7 +336,7 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             const { createXai } = await import("@ai-sdk/xai");
             const xai = createXai({
                 apiKey: getApiKey("xai") ?? "placeholder",
-                baseURL: process.env.PI_XAI_BASE_URL || "https://api.x.ai/v1",
+                baseURL: process.env.LOOP_XAI_BASE_URL || "https://api.x.ai/v1",
                 fetch: xaiAuthFetch(),
             });
             return xai(model);

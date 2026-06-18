@@ -9,10 +9,10 @@ import { getBinDir } from "./shell";
 const TOOLS_DIR = getBinDir();
 const NETWORK_TIMEOUT_MS = 10_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
-const APP_NAME = "pi";
+const APP_NAME = "loop";
 
 function isOfflineModeEnabled(): boolean {
-    const v = process.env.PI_OFFLINE;
+    const v = process.env.LOOP_OFFLINE;
     if (!v) return false;
     return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "yes";
 }

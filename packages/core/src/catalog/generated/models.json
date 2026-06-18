@@ -1577,6 +1577,25 @@
     ],
     "available": true
   },
+  "openai/gpt-image-2": {
+    "id": "openai/gpt-image-2",
+    "provider": "openai",
+    "name": "gpt-image-2",
+    "contextWindow": 0,
+    "maxOutput": 0,
+    "cost": {
+      "input": 5,
+      "output": 30,
+      "cacheRead": 1.25,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
   "openai/gpt-5.1": {
     "id": "openai/gpt-5.1",
     "provider": "openai",
@@ -2694,6 +2713,25 @@
     ],
     "available": true
   },
+  "openrouter/google/gemini-3.1-flash-image": {
+    "id": "openrouter/google/gemini-3.1-flash-image",
+    "provider": "openrouter",
+    "name": "Nano Banana 2 (Gemini 3.1 Flash Image)",
+    "contextWindow": 65536,
+    "maxOutput": 65536,
+    "cost": {
+      "input": 0.5,
+      "output": 3,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "image",
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/google/gemma-3n-e4b-it": {
     "id": "openrouter/google/gemma-3n-e4b-it",
     "provider": "openrouter",
@@ -2716,7 +2754,7 @@
     "id": "openrouter/google/gemma-4-26b-a4b-it:free",
     "provider": "openrouter",
     "name": "Gemma 4 26B A4B  (free)",
-    "contextWindow": 262144,
+    "contextWindow": 131072,
     "maxOutput": 32768,
     "cost": {
       "input": 0,
@@ -2905,7 +2943,7 @@
     "provider": "openrouter",
     "name": "Nano Banana",
     "contextWindow": 32768,
-    "maxOutput": 32768,
+    "maxOutput": 8192,
     "cost": {
       "input": 0.3,
       "output": 2.5,
@@ -3050,7 +3088,7 @@
     "provider": "openrouter",
     "name": "Gemini 3 Flash Preview",
     "contextWindow": 1048576,
-    "maxOutput": 65536,
+    "maxOutput": 65535,
     "cost": {
       "input": 0.5,
       "output": 3,
@@ -3148,7 +3186,7 @@
     "provider": "openrouter",
     "name": "Gemma 4 31B (free)",
     "contextWindow": 262144,
-    "maxOutput": 32768,
+    "maxOutput": 8192,
     "cost": {
       "input": 0,
       "output": 0,
@@ -3177,6 +3215,25 @@
     },
     "reasoning": false,
     "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/google/gemini-3-pro-image": {
+    "id": "openrouter/google/gemini-3-pro-image",
+    "provider": "openrouter",
+    "name": "Nano Banana Pro (Gemini 3 Pro Image)",
+    "contextWindow": 65536,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 2,
+      "output": 12,
+      "cacheRead": 0.2,
+      "cacheWrite": 0.375
+    },
+    "reasoning": true,
+    "modalities": [
+      "image",
       "text"
     ],
     "available": true
@@ -4839,7 +4896,7 @@
     "provider": "openrouter",
     "name": "gpt-oss-20b (free)",
     "contextWindow": 131072,
-    "maxOutput": 8192,
+    "maxOutput": 32768,
     "cost": {
       "input": 0,
       "output": 0,
@@ -5762,24 +5819,6 @@
     ],
     "available": true
   },
-  "openrouter/xiaomi/mimo-v2-flash": {
-    "id": "openrouter/xiaomi/mimo-v2-flash",
-    "provider": "openrouter",
-    "name": "MiMo-V2-Flash",
-    "contextWindow": 262144,
-    "maxOutput": 65536,
-    "cost": {
-      "input": 0.1,
-      "output": 0.3,
-      "cacheRead": 0.01,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "openrouter/xiaomi/mimo-v2.5-pro": {
     "id": "openrouter/xiaomi/mimo-v2.5-pro",
     "provider": "openrouter",
@@ -6235,6 +6274,24 @@
       "cacheWrite": 0
     },
     "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/cohere/north-mini-code:free": {
+    "id": "openrouter/cohere/north-mini-code:free",
+    "provider": "openrouter",
+    "name": "North Mini Code (free)",
+    "contextWindow": 256000,
+    "maxOutput": 64000,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
     "modalities": [
       "text"
     ],

@@ -2,7 +2,7 @@
 // TUI's differential rendering. Disable globally before anything runs.
 (globalThis as Record<string, unknown>).AI_SDK_LOG_WARNINGS = false;
 
-import type { ProviderId } from "@notshekhar/pi-core";
+import type { ProviderId } from "@notshekhar/loop-core";
 import { parseArgs } from "./args";
 
 // The interactive app and subcommands transitively pull in pi-tui, highlight.js,
@@ -12,8 +12,8 @@ const commands = () => import("./commands");
 const interactive = () => import("./interactive/app");
 
 // injected at build time via tsup define
-declare const __PI_VERSION__: string;
-const VERSION = typeof __PI_VERSION__ !== "undefined" ? __PI_VERSION__ : "0.0.0";
+declare const __LOOP_VERSION__: string;
+const VERSION = typeof __LOOP_VERSION__ !== "undefined" ? __LOOP_VERSION__ : "0.0.0";
 
 async function main(): Promise<void> {
     const args = parseArgs(process.argv.slice(2));
@@ -26,6 +26,12 @@ async function main(): Promise<void> {
         (await commands()).printHelp(VERSION);
         return;
     }
+
+    // Lossless one-time migration of the pre-rename ~/.pi config dir → ~/.loop.
+    // Runs after the instant --version/--help paths so they stay disk-free, and
+    // before any command reads settings/auth/sessions. Dynamically imported so
+    // it doesn't pull core into the fast paths above.
+    (await import("@notshekhar/loop-core")).migrateLegacyConfig();
 
     switch (args.cmd) {
         case "version":

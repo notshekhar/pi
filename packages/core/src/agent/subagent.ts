@@ -19,7 +19,14 @@ import { getMcpManager } from "../mcp";
 import type { Session } from "../sessions";
 import type { SubagentActivityPart, UsageBlock } from "../types";
 import { buildSystemPrompt } from "./system-prompt";
-import { agentExists, DEFAULT_AGENT_NAME, getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
+import {
+    agentExists,
+    DEFAULT_AGENT_NAME,
+    getAgentPrompt,
+    getAgentTools,
+    isReadOnlyBashAgent,
+    listAgents,
+} from "./agents";
 import { runHooks } from "./hooks";
 import { withToolHooks } from "./tool-hooks";
 import { sumUsage, type CostTracker } from "./cost";

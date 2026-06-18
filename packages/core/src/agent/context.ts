@@ -2,11 +2,11 @@ import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md", ".pi/AGENTS.md", ".pi/CLAUDE.md"];
+const CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md", ".loop/AGENTS.md", ".loop/CLAUDE.md"];
 // Global instructions, loaded everywhere (mirrors Claude's ~/.claude/CLAUDE.md).
-// Both are loaded if present; pi writes AGENTS.md by default, but a user-authored
-// ~/.pi/CLAUDE.md is honored too.
-const GLOBAL_CONTEXT_FILES = [join(homedir(), ".pi", "AGENTS.md"), join(homedir(), ".pi", "CLAUDE.md")];
+// Both are loaded if present; loop writes AGENTS.md by default, but a user-authored
+// ~/.loop/CLAUDE.md is honored too.
+const GLOBAL_CONTEXT_FILES = [join(homedir(), ".loop", "AGENTS.md"), join(homedir(), ".loop", "CLAUDE.md")];
 const MAX_FILE_BYTES = 64 * 1024;
 
 export interface WorkspaceContext {

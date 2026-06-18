@@ -25,7 +25,12 @@ function denyNetworkConfig(): SandboxConfig {
 describe("sandbox.wrap (pure output)", () => {
     test("returns a [shell, -c, wrapped] argv when the sandbox is enforceable", async () => {
         if (!enforceable) return;
-        const wrapped = await sandbox.wrap({ command: "echo hi", shell, cwd: process.cwd(), config: denyNetworkConfig() });
+        const wrapped = await sandbox.wrap({
+            command: "echo hi",
+            shell,
+            cwd: process.cwd(),
+            config: denyNetworkConfig(),
+        });
         expect(wrapped).not.toBeNull();
         expect(wrapped!.argv[0]).toBe(shell);
         expect(wrapped!.argv[1]).toBe("-c");
@@ -33,7 +38,12 @@ describe("sandbox.wrap (pure output)", () => {
 
     test("macOS profile denies-by-default and omits allow-network when network denied", async () => {
         if (process.platform !== "darwin") return;
-        const wrapped = await sandbox.wrap({ command: "echo hi", shell, cwd: process.cwd(), config: denyNetworkConfig() });
+        const wrapped = await sandbox.wrap({
+            command: "echo hi",
+            shell,
+            cwd: process.cwd(),
+            config: denyNetworkConfig(),
+        });
         const line = wrapped!.argv[2];
         expect(line).toContain("sandbox-exec");
         expect(line).toContain("(deny default");
@@ -62,8 +72,8 @@ describe("macOS sandbox enforcement (functional)", () => {
 
     test("write inside cwd succeeds, write to home is blocked", async () => {
         if (process.platform !== "darwin") return;
-        const dir = mkdtempSync(join(tmpdir(), "pi-sbx-"));
-        const denied = join(homedir(), `pi-sbx-denied-${Date.now()}.txt`);
+        const dir = mkdtempSync(join(tmpdir(), "loop-sbx-"));
+        const denied = join(homedir(), `loop-sbx-denied-${Date.now()}.txt`);
         try {
             expect(await run(`touch ${dir}/ok.txt`, dir)).toBe(0);
             expect(existsSync(join(dir, "ok.txt"))).toBe(true);
@@ -81,7 +91,7 @@ describe("macOS sandbox enforcement (functional)", () => {
     // Read-only mode (plan agent): even cwd must be unwritable.
     test("readOnly filesystem blocks writes to cwd itself", async () => {
         if (process.platform !== "darwin") return;
-        const dir = mkdtempSync(join(tmpdir(), "pi-sbx-ro-"));
+        const dir = mkdtempSync(join(tmpdir(), "loop-sbx-ro-"));
         const cfg: SandboxConfig = {
             filesystem: { allowWrite: [], denyWrite: [], denyRead: [], allowRead: [], readOnly: true },
             network: "deny",

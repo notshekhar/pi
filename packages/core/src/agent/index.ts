@@ -357,8 +357,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
             // AI SDK v6 user-content attachment shape: a `file` part with the
             // bytes as `data` and an IANA `mediaType`. (The older `image` part is
             // deprecated in favor of this for all attachment kinds.)
-            const parts: Array<{ type: "text"; text: string } | { type: "file"; data: Buffer; mediaType: string }> =
-                [];
+            const parts: Array<{ type: "text"; text: string } | { type: "file"; data: Buffer; mediaType: string }> = [];
             if (textWithoutPaths) parts.push({ type: "text", text: textWithoutPaths });
             for (const img of images) parts.push({ type: "file", data: img.data, mediaType: img.mediaType });
             messages[lastUserIdx] = { role: "user", content: parts as never };

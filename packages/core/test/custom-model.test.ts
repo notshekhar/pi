@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { addCustomModel, removeCustomModel, listCustomModelIds, getModelSync, bustCatalogCache } from "../src/catalog";
 
-// PI_DIR is fixed at module load, so HOME can't isolate this — the helpers
-// write to the real ~/.pi/models.json. Track and remove what each test adds.
+// LOOP_DIR is fixed at module load, so HOME can't isolate this — the helpers
+// write to the real ~/.loop/models.json. Track and remove what each test adds.
 const added: string[] = [];
 const track = (id: string) => (added.push(id), id);
 
@@ -11,7 +11,7 @@ afterEach(() => {
     bustCatalogCache();
 });
 
-describe("custom models (~/.pi/models.json overrides)", () => {
+describe("custom models (~/.loop/models.json overrides)", () => {
     test("add registers a usable model with sane defaults", () => {
         const id = track(addCustomModel({ provider: "openrouter", modelId: "pitest/defaults-x" }));
         expect(id).toBe("openrouter/pitest/defaults-x");

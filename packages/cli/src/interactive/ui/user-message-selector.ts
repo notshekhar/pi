@@ -2,7 +2,7 @@
  * Fork-from-message selector — ported from pi-mono
  * modes/interactive/components/user-message-selector.ts.
  */
-import { type Component, Container, getKeybindings, Spacer, Text, truncateToWidth } from "@notshekhar/pi-tui";
+import { type Component, Container, getKeybindings, Spacer, Text, truncateToWidth } from "@notshekhar/loop-tui";
 import { theme } from "./theme";
 import { DynamicBorder } from "./messages";
 

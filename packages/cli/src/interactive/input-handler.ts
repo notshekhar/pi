@@ -1,9 +1,9 @@
-import type { CommandContext } from "@notshekhar/pi-core";
+import type { CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc, isShiftTab, isTab } from "./keys";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
-import { agentExists, extractImagesFromInput, getModelSync, listAgents, settingsStore } from "@notshekhar/pi-core";
+import { agentExists, extractImagesFromInput, getModelSync, listAgents, settingsStore } from "@notshekhar/loop-core";
 
 export type InputListener = (data: string) => { consume: boolean } | undefined;
 

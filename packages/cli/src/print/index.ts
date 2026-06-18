@@ -12,8 +12,8 @@ import {
     isTrusted,
     parseModelId,
     settingsStore,
-} from "@notshekhar/pi-core";
-import type { ProviderId } from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
+import type { ProviderId } from "@notshekhar/loop-core";
 
 export interface PrintOptions {
     prompt: string;
@@ -27,7 +27,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         opts.modelId ?? getProjectModel(opts.cwd) ?? (settingsStore.get("defaultModel") as string | undefined);
     if (!modelId) {
         process.stderr.write(
-            "No model selected. Pass --model <provider/model>, or run pi interactively and use /login + /provider first.\n",
+            "No model selected. Pass --model <provider/model>, or run loop interactively and use /login + /provider first.\n",
         );
         process.exit(1);
     }

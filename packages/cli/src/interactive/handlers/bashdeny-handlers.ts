@@ -6,9 +6,9 @@
  * An unset `bashDeny` means "use the seeded defaults"; the first edit here
  * materializes the resolved list so the user takes explicit ownership.
  */
-import type { SelectItem } from "@notshekhar/pi-tui";
+import type { SelectItem } from "@notshekhar/loop-tui";
 import chalk from "chalk";
-import { DEFAULT_BASH_DENY, denyPattern, settingsStore, type CommandContext } from "@notshekhar/pi-core";
+import { DEFAULT_BASH_DENY, denyPattern, settingsStore, type CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 

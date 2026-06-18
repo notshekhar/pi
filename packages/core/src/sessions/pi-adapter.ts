@@ -24,7 +24,7 @@ function treeFields(obj: Record<string, unknown>): { id?: string; parentId?: str
 }
 
 /**
- * Adapt a raw JSON line from a pi (or pi-agent) session into our Entry shape.
+ * Adapt a raw JSON line from a pi (or loop-agent) session into our Entry shape.
  * Unknown shapes fall back to { type: "custom", payload }.
  */
 export function adaptPiEntry(raw: unknown): Entry | null {
@@ -53,7 +53,8 @@ export function adaptPiEntry(raw: unknown): Entry | null {
             const nested = obj.message as Record<string, unknown> | undefined;
             const role = (nested?.role ?? obj.role) as string | undefined;
             const content = nested ? nested.content : obj.content;
-            const mappedRole = role === "toolResult" || role === "tool" ? "tool" : role === "assistant" ? "assistant" : "user";
+            const mappedRole =
+                role === "toolResult" || role === "tool" ? "tool" : role === "assistant" ? "assistant" : "user";
             return {
                 type: "message",
                 ts,

@@ -17,11 +17,11 @@ export interface ChangelogEntry {
 // Release binaries are single-file `bun --compile` outputs with no
 // CHANGELOG.md on disk — build.ts/build-bin.ts embed the content via this
 // define. Dev runs fall back to the file next to the package.
-declare const __PI_CHANGELOG__: string;
+declare const __LOOP_CHANGELOG__: string;
 
 /** Changelog entries from the embedded build-time copy, else CHANGELOG.md on disk. */
 export function loadChangelogEntries(): ChangelogEntry[] {
-    if (typeof __PI_CHANGELOG__ !== "undefined") return parseChangelogText(__PI_CHANGELOG__);
+    if (typeof __LOOP_CHANGELOG__ !== "undefined") return parseChangelogText(__LOOP_CHANGELOG__);
     return parseChangelog(getChangelogPath());
 }
 

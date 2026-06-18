@@ -15,7 +15,7 @@ export type BashDenyEntry = string;
 /**
  * Coerce a stored entry to its pattern string. Tolerates the legacy
  * `{ pattern, reason }` object form that older builds persisted to settings, so
- * an existing ~/.pi/settings.json doesn't crash after the type changed.
+ * an existing ~/.loop/settings.json doesn't crash after the type changed.
  */
 export function denyPattern(entry: unknown): string {
     if (typeof entry === "string") return entry;

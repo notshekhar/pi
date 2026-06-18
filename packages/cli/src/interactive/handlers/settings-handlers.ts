@@ -3,7 +3,7 @@
  */
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { SelectItem } from "@notshekhar/pi-tui";
+import type { SelectItem } from "@notshekhar/loop-tui";
 import {
     CommandRegistry,
     DEFAULT_AGENT_NAME,
@@ -14,7 +14,7 @@ import {
     registerBuiltins,
     settingsStore,
     type CommandContext,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { startMcpServers } from "../startup";
@@ -52,7 +52,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         value: "autoCompactThreshold",
                         label: `autoCompactThreshold: ${settingsStore.get("autoCompactThreshold") ?? 0.8}`,
                     },
-                    { value: "piCompatMode", label: `piCompatMode: ${settingsStore.get("piCompatMode") ?? "direct"}` },
                     {
                         value: "workspaceContext",
                         label: `workspaceContext: ${settingsStore.get("workspaceContext") ?? true}`,
@@ -110,11 +109,11 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     tui.requestRender();
                     continue;
                 }
-                // Theme gets a picker (built-ins + ~/.pi/agent/themes/*.json) and
+                // Theme gets a picker (built-ins + ~/.loop/agent/themes/*.json) and
                 // applies live — the global theme proxy makes themed components
                 // re-resolve colors on the next render.
                 if (pick.value === "theme") {
-                    const customDir = join(process.env.HOME ?? "", ".pi", "agent", "themes");
+                    const customDir = join(process.env.HOME ?? "", ".loop", "agent", "themes");
                     const custom = existsSync(customDir)
                         ? readdirSync(customDir)
                               .filter((f) => f.endsWith(".json"))

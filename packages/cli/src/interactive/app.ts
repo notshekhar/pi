@@ -17,7 +17,7 @@ import {
     type Component,
     type EditorTheme,
     type SlashCommand as TuiSlashCommand,
-} from "@notshekhar/pi-tui";
+} from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     CommandRegistry,
@@ -41,7 +41,7 @@ import {
     type ThinkingLevel,
     type ProviderId,
     type Session,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import { getSelectListTheme, initTheme } from "./ui/theme";
 import { ChatHistory } from "./components/chat-history";
 import { CostFooter } from "./components/cost-footer";
@@ -125,10 +125,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // it empty and guide them to /login or /provider instead of defaulting to
     // some provider they may not even be authenticated for.
     let initialModelId =
-        opts.modelId ??
-        getProjectModel(opts.cwd) ??
-        (settingsStore.get("defaultModel") as string | undefined) ??
-        "";
+        opts.modelId ?? getProjectModel(opts.cwd) ?? (settingsStore.get("defaultModel") as string | undefined) ?? "";
 
     const manager = new SessionManager();
     const initialSession: Session | null = opts.sessionId ? await manager.open(opts.sessionId) : null;
@@ -162,7 +159,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const initialThinking: ThinkingLevel = (settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off";
     footer.setThinking(initialThinking);
 
-    // Plan is a per-session mode, not a sticky preference: a new pi always
+    // Plan is a per-session mode, not a sticky preference: a new loop always
     // boots in the default agent even if the last session ended in plan.
     const savedAgentRaw = (settingsStore.get("agent") as string | undefined) ?? DEFAULT_AGENT_NAME;
     const savedAgent = savedAgentRaw === "plan" ? DEFAULT_AGENT_NAME : savedAgentRaw;
@@ -174,9 +171,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         agent: agentExists(savedAgent) ? savedAgent : DEFAULT_AGENT_NAME,
         oneShotAgent: null,
         cycleCustomAgent:
-            agentExists(savedAgent) && (!isBuiltinAgent(savedAgent) || isHiddenAgent(savedAgent))
-                ? savedAgent
-                : null,
+            agentExists(savedAgent) && (!isBuiltinAgent(savedAgent) || isHiddenAgent(savedAgent)) ? savedAgent : null,
         session: initialSession,
         latestContextTokens: seededCtxTokens,
         busy: false,
@@ -371,7 +366,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     syncTicker();
 
     history.addSystem(
-        `pi · ${state.modelId || "no model"} · session ${state.session?.id ?? "unsaved"}` +
+        `loop · ${state.modelId || "no model"} · session ${state.session?.id ?? "unsaved"}` +
             (state.agent !== DEFAULT_AGENT_NAME ? ` · agent ${state.agent}` : ""),
     );
     history.addSystem(`Type /help for commands. Shift+Tab cycles agents. Ctrl+C twice to quit.`);

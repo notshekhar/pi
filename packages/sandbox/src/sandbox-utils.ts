@@ -51,10 +51,7 @@ export function normalizeCaseForComparison(pathStr: string): string {
 /** Whether a path pattern contains glob characters. */
 export function containsGlobChars(pathPattern: string): boolean {
     return (
-        pathPattern.includes("*") ||
-        pathPattern.includes("?") ||
-        pathPattern.includes("[") ||
-        pathPattern.includes("]")
+        pathPattern.includes("*") || pathPattern.includes("?") || pathPattern.includes("[") || pathPattern.includes("]")
     );
 }
 
@@ -218,7 +215,7 @@ export function generateProxyEnvVars(
     proxyAuthToken?: string,
 ): string[] {
     const auth = proxyAuthToken ? `srt:${proxyAuthToken}@` : "";
-    const tmpdir = process.env.PI_SANDBOX_TMPDIR || process.env.CLAUDE_CODE_TMPDIR || "/tmp/claude";
+    const tmpdir = process.env.LOOP_SANDBOX_TMPDIR || process.env.CLAUDE_CODE_TMPDIR || "/tmp/claude";
     const envVars: string[] = [`SANDBOX_RUNTIME=1`, `TMPDIR=${tmpdir}`];
 
     if (caCertPath) {

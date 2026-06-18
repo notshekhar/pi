@@ -68,9 +68,21 @@ describe("CostTracker.seedFromSession", () => {
     test("counts each assistant usage once; ignores tool messages", () => {
         const entries: Entry[] = [
             { type: "message", role: "user", content: "q", ts: 0 },
-            { type: "message", role: "assistant", content: [{ type: "text", text: "a" }], ts: 0, usage: usage(100, 10) },
+            {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "a" }],
+                ts: 0,
+                usage: usage(100, 10),
+            },
             { type: "message", role: "tool", content: [{ type: "tool-result" }], ts: 0 },
-            { type: "message", role: "assistant", content: [{ type: "text", text: "b" }], ts: 0, usage: usage(120, 12) },
+            {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "b" }],
+                ts: 0,
+                usage: usage(120, 12),
+            },
         ];
         const session = new Session(
             { id: "t", createdAt: 0, cwd: "/tmp", provider: "xai", model: "xai/grok-build-0.1" },

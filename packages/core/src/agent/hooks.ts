@@ -1,8 +1,8 @@
 /**
  * Hooks — Claude Code–compatible lifecycle hooks (command type).
  *
- * Config lives under the `hooks` key in ~/.pi/settings.json (user) and
- * <cwd>/.pi/settings.json (project); project groups run after user groups.
+ * Config lives under the `hooks` key in ~/.loop/settings.json (user) and
+ * <cwd>/.loop/settings.json (project); project groups run after user groups.
  * The shape, matcher semantics, stdin payload, exit-code contract, and stdout
  * JSON fields mirror Claude Code's hooks so existing hook scripts port 1:1:
  *
@@ -173,7 +173,7 @@ function remapClaudeMatcher(matcher: string | undefined): string | undefined {
  * array of lowercase substrings matched against the hook command and (for
  * plugins) the plugin key. Unset/empty = import everything. Lets users keep
  * e.g. only their agent-state watchers (["caveman", "herdr", "warp"]) without
- * dragging every Claude hook into pi.
+ * dragging every Claude hook into loop.
  */
 function claudeImportFilter(): string[] | null {
     const v = getSetting("claudeHooksFilter") as unknown;
@@ -290,11 +290,11 @@ function loadHooksConfigUnsafe(cwd: string): HooksConfig {
     const userClaudePlugins = importClaude ? readClaudePluginHooks(home) : {};
 
     // Project hooks come from the repo — gated behind project trust, so opening
-    // an untrusted clone doesn't run its .pi/.claude hooks.
+    // an untrusted clone doesn't run its .loop/.claude hooks.
     let projectPi: HooksConfig = {};
     let projectClaude: HooksConfig = {};
     if (isTrusted(cwd)) {
-        projectPi = readHooksFromFile(join(cwd, ".pi", "settings.json"));
+        projectPi = readHooksFromFile(join(cwd, ".loop", "settings.json"));
         projectClaude = importClaude
             ? readClaudeHooks([join(cwd, ".claude", "settings.json"), join(cwd, ".claude", "settings.local.json")])
             : {};
@@ -315,8 +315,8 @@ export interface HookSourceEntry {
     matcher?: string;
     command: string;
     async?: boolean;
-    /** Where it loads from: pi-user | pi-project | claude-user | claude-plugins | claude-project */
-    source: "pi-user" | "pi-project" | "claude-user" | "claude-plugins" | "claude-project";
+    /** Where it loads from: loop-user | loop-project | claude-user | claude-plugins | claude-project */
+    source: "loop-user" | "loop-project" | "claude-user" | "claude-plugins" | "claude-project";
 }
 
 /** Flatten every loaded hook with its source. Same readers/gates as loadHooksConfig. */
@@ -339,7 +339,7 @@ export function listHooksWithSources(cwd: string): HookSourceEntry[] {
             collect(readClaudeHooks([join(home, ".claude", "settings.json")]), "claude-user");
             collect(readClaudePluginHooks(home), "claude-plugins");
         }
-        collect(getSetting("hooks") ?? {}, "pi-user");
+        collect(getSetting("hooks") ?? {}, "loop-user");
         if (isTrusted(cwd)) {
             if (importClaude) {
                 collect(
@@ -350,7 +350,7 @@ export function listHooksWithSources(cwd: string): HookSourceEntry[] {
                     "claude-project",
                 );
             }
-            collect(readHooksFromFile(join(cwd, ".pi", "settings.json")), "pi-project");
+            collect(readHooksFromFile(join(cwd, ".loop", "settings.json")), "loop-project");
         }
     } catch {
         // management view must never throw
@@ -358,7 +358,7 @@ export function listHooksWithSources(cwd: string): HookSourceEntry[] {
     return entries;
 }
 
-/** Register a hook in ~/.pi/settings.json — pi-owned, independent of any Claude install. */
+/** Register a hook in ~/.loop/settings.json — loop-owned, independent of any Claude install. */
 export function addPiUserHook(event: HookEvent, command: string, matcher?: string, isAsync?: boolean): void {
     const hooks = (getSetting("hooks") ?? {}) as HooksConfig;
     const cmd: HookCommand = { type: "command", command, ...(isAsync ? { async: true } : {}) };
@@ -370,7 +370,7 @@ export function addPiUserHook(event: HookEvent, command: string, matcher?: strin
     setSetting("hooks", { ...hooks, [event]: groups });
 }
 
-/** Remove a pi-user hook by event + exact command (first match). */
+/** Remove a loop-user hook by event + exact command (first match). */
 export function removePiUserHook(event: HookEvent, command: string): boolean {
     const hooks = (getSetting("hooks") ?? {}) as HooksConfig;
     const groups = hooks[event];
@@ -454,12 +454,12 @@ function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promis
         const isWin = process.platform === "win32";
         const child = spawn(isWin ? "cmd.exe" : "/bin/sh", [isWin ? "/c" : "-c", cmd.command], {
             cwd,
-            // PI_PROJECT_DIR for pi hooks; CLAUDE_PROJECT_DIR so imported Claude
+            // LOOP_PROJECT_DIR for loop hooks; CLAUDE_PROJECT_DIR so imported Claude
             // hooks that reference ${CLAUDE_PROJECT_DIR} keep working unchanged.
             // Watcher env (HERDR_*, etc.) flows through untouched via process.env.
             env: {
                 ...process.env,
-                PI_PROJECT_DIR: cwd,
+                LOOP_PROJECT_DIR: cwd,
                 CLAUDE_PROJECT_DIR: cwd,
                 CLAUDE_CODE_VERSION: CLAUDE_HOOK_API_VERSION,
             },
@@ -597,7 +597,7 @@ function applyResult(
     // fallback (silently allowing would grant what the hook wanted gated).
     if (hso?.permissionDecision === "ask") {
         block(
-            `${hso.permissionDecisionReason ?? `${event} hook requested confirmation`} (ask unsupported in pi — denied)`,
+            `${hso.permissionDecisionReason ?? `${event} hook requested confirmation`} (ask unsupported in loop — denied)`,
         );
         return;
     }

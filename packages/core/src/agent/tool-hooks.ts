@@ -74,7 +74,7 @@ export function withToolHooks<T extends object>(tools: T, ctx: ToolHookCtx): T {
                             session_id: ctx.sessionId,
                             transcript_path: ctx.transcriptPath,
                             message: `Permission needed: ${name} — ${pre.reason}`,
-                            title: "pi",
+                            title: "loop",
                         },
                         ctx.cwd,
                     ).then((n) => {
@@ -101,7 +101,7 @@ export function withToolHooks<T extends object>(tools: T, ctx: ToolHookCtx): T {
                         tool_name: name,
                         tool_input: effectiveInput,
                         // Claude Code sends `tool_response`; keep `tool_output` too for
-                        // any pi hooks already written against it.
+                        // any loop hooks already written against it.
                         tool_response: output,
                         tool_output: output,
                         ...agentFields,

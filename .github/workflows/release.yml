@@ -37,7 +37,7 @@ jobs:
                   echo "ver=$v"   >> "$GITHUB_OUTPUT"
 
     # ─── Job 2: per-platform binary build (matrix) ───────────────────────────
-    # Cross-compile not possible — pi pulls native NAPI modules
+    # Cross-compile not possible — loop pulls native NAPI modules
     # (@mariozechner/clipboard, koffi) that ship platform-specific .node files.
     # Each target builds on a runner matching its OS+arch.
     build-binary:
@@ -91,7 +91,7 @@ jobs:
             - name: Smoke test binary
               run: |
                   # bun --compile appends .exe on windows targets
-                  bin="./packages/cli/dist/bin/${{ matrix.target }}/pi"
+                  bin="./packages/cli/dist/bin/${{ matrix.target }}/loop"
                   [ -x "${bin}.exe" ] && bin="${bin}.exe"
                   "$bin" --version
 
@@ -99,9 +99,9 @@ jobs:
               working-directory: packages/cli/dist/bin
               run: |
                   if command -v sha256sum >/dev/null; then
-                    sha256sum "pi-${{ matrix.target }}.tar.gz" > "pi-${{ matrix.target }}.tar.gz.sha256"
+                    sha256sum "loop-${{ matrix.target }}.tar.gz" > "loop-${{ matrix.target }}.tar.gz.sha256"
                   else
-                    shasum -a 256 "pi-${{ matrix.target }}.tar.gz" > "pi-${{ matrix.target }}.tar.gz.sha256"
+                    shasum -a 256 "loop-${{ matrix.target }}.tar.gz" > "loop-${{ matrix.target }}.tar.gz.sha256"
                   fi
                   ls -lh
 
@@ -110,8 +110,8 @@ jobs:
               with:
                   name: bin-${{ matrix.target }}
                   path: |
-                      packages/cli/dist/bin/pi-${{ matrix.target }}.tar.gz
-                      packages/cli/dist/bin/pi-${{ matrix.target }}.tar.gz.sha256
+                      packages/cli/dist/bin/loop-${{ matrix.target }}.tar.gz
+                      packages/cli/dist/bin/loop-${{ matrix.target }}.tar.gz.sha256
                   retention-days: 14
 
     # ─── Job 3: GitHub Release ────────────────────────────────────────────────
@@ -132,7 +132,7 @@ jobs:
               run: |
                   ls -lh
                   : > SHA256SUMS
-                  for f in pi-*.tar.gz; do
+                  for f in loop-*.tar.gz; do
                     sha256sum "$f" >> SHA256SUMS
                   done
                   cat SHA256SUMS
@@ -144,6 +144,6 @@ jobs:
                   name: ${{ needs.prepare.outputs.tag }}
                   generate_release_notes: true
                   files: |
-                      release/pi-*.tar.gz
-                      release/pi-*.tar.gz.sha256
+                      release/loop-*.tar.gz
+                      release/loop-*.tar.gz.sha256
                       release/SHA256SUMS

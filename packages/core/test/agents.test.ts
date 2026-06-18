@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { getAgentTools, isReadOnlyBashAgent, isValidAgentName, parseAgentFile } from "../src/agent/agents";
-import { isSandboxSupported } from "@notshekhar/pi-sandbox";
+import { isSandboxSupported } from "@notshekhar/loop-sandbox";
 
 describe("plan agent tools", () => {
     test("includes bash only where the OS sandbox can enforce read-only", () => {
@@ -59,9 +59,7 @@ describe("parseAgentFile", () => {
     });
 
     test("full tool list (incl. task) normalizes to undefined (= all)", () => {
-        const parsed = parseAgentFile(
-            "---\ntools: read, write, edit, bash, ls, grep, find, sql, task\n---\n\nBody.",
-        );
+        const parsed = parseAgentFile("---\ntools: read, write, edit, bash, ls, grep, find, sql, task\n---\n\nBody.");
         expect(parsed.tools).toBeUndefined();
     });
 

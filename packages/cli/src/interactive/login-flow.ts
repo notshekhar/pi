@@ -1,4 +1,4 @@
-import { type SelectItem, type TUI } from "@notshekhar/pi-tui";
+import { type SelectItem, type TUI } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     bustCatalogCache,
@@ -18,7 +18,7 @@ import {
     setActiveProvider,
     type CustomProviderConfig,
     type ProviderId,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
 import { providerLabel } from "./provider-labels";
 import { openBrowser } from "../open-browser";
@@ -265,7 +265,7 @@ async function loginOllama(deps: LoginDeps): Promise<StepResult> {
     const models = await listOllamaModels();
     if (models === null) {
         history.addError(
-            `Ollama not reachable at ${ollamaBaseURL()}. Start it (\`ollama serve\`) or set PI_OLLAMA_BASE_URL.`,
+            `Ollama not reachable at ${ollamaBaseURL()}. Start it (\`ollama serve\`) or set LOOP_OLLAMA_BASE_URL.`,
         );
         tui.requestRender();
         return "done";

@@ -1,7 +1,7 @@
 /**
  * Agent management: /agents and one-shot /<agent> <message>.
  */
-import type { SelectItem } from "@notshekhar/pi-tui";
+import type { SelectItem } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     AGENT_TOOL_NAMES,
@@ -19,7 +19,7 @@ import {
     saveAgent,
     settingsStore,
     type CommandContext,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 

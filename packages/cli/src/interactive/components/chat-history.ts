@@ -1,5 +1,5 @@
-import { Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/pi-tui";
-import { formatSubagentActivity, type SubagentActivityPart } from "@notshekhar/pi-core";
+import { Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/loop-tui";
+import { formatSubagentActivity, type SubagentActivityPart } from "@notshekhar/loop-core";
 import { getMarkdownTheme } from "../ui/theme";
 import {
     AssistantMessageComponent,
@@ -10,7 +10,7 @@ import {
     UserMessageComponent,
 } from "../ui/messages";
 import { ToolExecutionComponent } from "../ui/tool-execution";
-import { matchSessionHookContext } from "@notshekhar/pi-core";
+import { matchSessionHookContext } from "@notshekhar/loop-core";
 import chalk from "chalk";
 
 const HOOK_ORANGE = chalk.hex("#e09956");

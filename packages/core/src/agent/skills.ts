@@ -4,8 +4,8 @@
  * format per the Agent Skills standard).
  *
  * Discovery locations:
- *   - ~/.pi/agent/skills/        (user-global)
- *   - <cwd>/.pi/skills/          (project-local)
+ *   - ~/.loop/agent/skills/        (user-global)
+ *   - <cwd>/.loop/skills/          (project-local)
  * Discovery rules per directory:
  *   - a directory containing SKILL.md is a skill root; don't recurse further
  *   - otherwise load direct *.md children and recurse into subdirectories
@@ -17,7 +17,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { getPiDir } from "../auth/storage";
+import { getLoopDir } from "../auth/storage";
 
 const MAX_NAME_LENGTH = 64;
 const MAX_DESCRIPTION_LENGTH = 1024;
@@ -207,8 +207,8 @@ export async function loadProjectSkills(cwd: string): Promise<LoadedSkills & { p
         }
     };
 
-    addSkills(loadSkillsFromDir(join(getPiDir(), "agent", "skills"), true));
-    addSkills(loadSkillsFromDir(resolve(cwd, ".pi", "skills"), true));
+    addSkills(loadSkillsFromDir(join(getLoopDir(), "agent", "skills"), true));
+    addSkills(loadSkillsFromDir(resolve(cwd, ".loop", "skills"), true));
 
     const skills = Array.from(skillMap.values());
     return { skills, diagnostics, promptBlock: formatSkillsForPrompt(skills) };

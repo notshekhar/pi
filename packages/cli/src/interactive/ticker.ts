@@ -1,6 +1,6 @@
-import { deleteReminder, listReminders, settingsStore } from "@notshekhar/pi-core";
+import { deleteReminder, listReminders, settingsStore } from "@notshekhar/loop-core";
 import { Cron } from "croner";
-import type { SelectItem, TUI } from "@notshekhar/pi-tui";
+import type { SelectItem, TUI } from "@notshekhar/loop-tui";
 import type { CostFooter } from "./components/cost-footer";
 import type { AppState } from "./state";
 
@@ -84,7 +84,7 @@ export function createTicker(deps: TickerDeps): Ticker {
             if (!r.enabled) continue;
             if (r.kind === "once") {
                 // Fires only if the moment passed during this tick — a deadline
-                // that lapsed while pi was closed never fires (by design).
+                // that lapsed while loop was closed never fires (by design).
                 if (r.at > lastTickAt && r.at <= now) {
                     ring(`Reminder — ${r.text}`);
                     deleteReminder(r.id); // one-shot: gone after firing; cron ones live on

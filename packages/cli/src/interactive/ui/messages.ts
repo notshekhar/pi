@@ -5,7 +5,7 @@
  * parseSkillBlock / DynamicBorder.
  * Ported from pi-mono, trimmed to what our chat history actually uses.
  */
-import { Box, type Component, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@notshekhar/pi-tui";
+import { Box, type Component, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@notshekhar/loop-tui";
 import { getMarkdownTheme, theme } from "./theme";
 
 // OSC 133 shell-integration zones — let terminals jump between messages

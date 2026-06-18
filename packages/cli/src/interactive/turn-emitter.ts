@@ -1,5 +1,5 @@
-import type { TUI } from "@notshekhar/pi-tui";
-import { asTurnEmitter, type UsageBlock } from "@notshekhar/pi-core";
+import type { TUI } from "@notshekhar/loop-tui";
+import { asTurnEmitter, type UsageBlock } from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
 import type { AppState } from "./state";
 import type { SubagentStream } from "./subagent-stream";

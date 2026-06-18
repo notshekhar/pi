@@ -14,8 +14,8 @@ import {
     Text,
     TruncatedText,
     truncateToWidth,
-} from "@notshekhar/pi-tui";
-import type { SessionTreeNode } from "@notshekhar/pi-core";
+} from "@notshekhar/loop-tui";
+import type { SessionTreeNode } from "@notshekhar/loop-core";
 import { theme } from "./theme";
 import { DynamicBorder } from "./messages";
 import { TreeList, keyText, type FilterMode } from "./tree/tree-list";

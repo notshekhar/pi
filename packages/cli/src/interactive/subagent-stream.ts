@@ -1,5 +1,5 @@
-import type { TUI } from "@notshekhar/pi-tui";
-import { subagentArgSummary } from "@notshekhar/pi-core";
+import type { TUI } from "@notshekhar/loop-tui";
+import { subagentArgSummary } from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
 
 /** Subagent activity buffers are tail-capped — only the last slice renders. */

@@ -6,7 +6,7 @@
  * per-tool-call blocks), so tool rows show a content snippet instead of
  * pi-mono's resolved tool-call name/arguments.
  */
-import { stripSessionHookContext, type SessionTreeNode } from "@notshekhar/pi-core";
+import { stripSessionHookContext, type SessionTreeNode } from "@notshekhar/loop-core";
 import { theme } from "../theme";
 
 const MAX_CONTENT_LEN = 200;

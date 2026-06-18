@@ -15,9 +15,7 @@ export interface LinuxSandboxParams {
     bwrapPath?: string;
 }
 /** Check Stage-1 Linux dependencies (just bwrap for now). */
-export declare function checkLinuxDependencies(opts?: {
-    bwrapPath?: string;
-}): SandboxDependencyCheck;
+export declare function checkLinuxDependencies(opts?: { bwrapPath?: string }): SandboxDependencyCheck;
 /**
  * Wrap a command with the Linux sandbox. Returns a single shell-quoted command
  * string (run via `<shell> -c <result>`), or the original command when no

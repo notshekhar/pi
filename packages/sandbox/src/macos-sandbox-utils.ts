@@ -119,11 +119,7 @@ function generateMoveBlockingRules(pathPatterns: string[], logTag: string): stri
             if (staticPrefix && staticPrefix !== "/") {
                 const baseDir = staticPrefix.endsWith("/") ? staticPrefix.slice(0, -1) : path.dirname(staticPrefix);
                 for (const op of ops) {
-                    rules.push(
-                        `(deny ${op}`,
-                        `  (literal ${escapePath(baseDir)})`,
-                        `  (with message "${logTag}"))`,
-                    );
+                    rules.push(`(deny ${op}`, `  (literal ${escapePath(baseDir)})`, `  (with message "${logTag}"))`);
                 }
                 for (const ancestorDir of getAncestorDirectories(baseDir)) {
                     for (const op of ops) {
@@ -137,11 +133,7 @@ function generateMoveBlockingRules(pathPatterns: string[], logTag: string): stri
             }
         } else {
             for (const op of ops) {
-                rules.push(
-                    `(deny ${op}`,
-                    `  (subpath ${escapePath(normalizedPath)})`,
-                    `  (with message "${logTag}"))`,
-                );
+                rules.push(`(deny ${op}`, `  (subpath ${escapePath(normalizedPath)})`, `  (with message "${logTag}"))`);
             }
             for (const ancestorDir of getAncestorDirectories(normalizedPath)) {
                 for (const op of ops) {
@@ -199,11 +191,7 @@ function generateReadRules(
         const normalizedPath = normalizePathForSandbox(pathPattern);
         if (containsGlobChars(normalizedPath)) {
             const regexPattern = globToRegex(normalizedPath);
-            rules.push(
-                `(allow file-read*`,
-                `  (regex ${escapePath(regexPattern)})`,
-                `  (with message "${logTag}"))`,
-            );
+            rules.push(`(allow file-read*`, `  (regex ${escapePath(regexPattern)})`, `  (with message "${logTag}"))`);
         } else {
             allowedSubpaths.push(normalizedPath);
             rules.push(
@@ -219,11 +207,7 @@ function generateReadRules(
         if (containsGlobChars(denyPath)) continue;
         const normalized = normalizePathForSandbox(denyPath);
         if (allowedSubpaths.some((a) => normalized.startsWith(a + "/"))) {
-            rules.push(
-                `(deny file-read*`,
-                `  (subpath ${escapePath(normalized)})`,
-                `  (with message "${logTag}"))`,
-            );
+            rules.push(`(deny file-read*`, `  (subpath ${escapePath(normalized)})`, `  (with message "${logTag}"))`);
         }
     }
 

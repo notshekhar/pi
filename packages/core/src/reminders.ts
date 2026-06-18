@@ -1,14 +1,14 @@
 /**
- * Persistent reminders — ~/.pi/reminders.json via configstore, same pattern
+ * Persistent reminders — ~/.loop/reminders.json via configstore, same pattern
  * as auth/settings/cost. A reminder is one-shot ("once", absolute timestamp)
  * or recurring ("cron", up to 6-field second-level expression, stored
  * verbatim). Scheduling/firing is the CLI's job; this module only persists.
  * There is deliberately no seen/missed tracking — reminders fire only while
- * pi is open.
+ * loop is open.
  */
 import { join } from "node:path";
 import { ulid } from "ulid";
-import { CachedStore, getPiDir } from "./auth/storage";
+import { CachedStore, getLoopDir } from "./auth/storage";
 
 export type ReminderSchedule = { kind: "once"; at: number } | { kind: "cron"; expr: string };
 
@@ -21,9 +21,9 @@ export type Reminder = ReminderSchedule & {
 // Cached: the 1s ticker reads this list twice a second (tickerNeeded +
 // checkReminders); without the cache that's two synchronous disk reads/sec.
 const remindersStore = new CachedStore(
-    "pi-agent-reminders",
+    "loop-agent-reminders",
     { reminders: [] },
-    { configPath: join(getPiDir(), "reminders.json") },
+    { configPath: join(getLoopDir(), "reminders.json") },
 );
 
 /** Hard cap on stored reminders — keeps the manager list and ticker scan small. */

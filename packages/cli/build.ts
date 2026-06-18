@@ -12,12 +12,12 @@ const result = await Bun.build({
     outdir: join(import.meta.dir, "dist"),
     target: "node",
     format: "esm",
-    // keep dynamic imports as separate chunks so `pi --version` doesn't eval the TUI stack
+    // keep dynamic imports as separate chunks so `loop --version` doesn't eval the TUI stack
     splitting: true,
     minify: { whitespace: true, identifiers: false, syntax: true },
-    external: ["@notshekhar/pi-core", "@notshekhar/pi-tui", "chalk", "highlight.js"],
+    external: ["@notshekhar/loop-core", "@notshekhar/loop-tui", "chalk", "highlight.js"],
     banner: "#!/usr/bin/env node",
-    define: { __PI_VERSION__: JSON.stringify(pkg.version), __PI_CHANGELOG__: JSON.stringify(changelog) },
+    define: { __LOOP_VERSION__: JSON.stringify(pkg.version), __LOOP_CHANGELOG__: JSON.stringify(changelog) },
 });
 
 if (!result.success) {

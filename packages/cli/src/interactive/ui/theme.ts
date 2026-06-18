@@ -2,12 +2,12 @@
  * Own theme engine — replaces @earendil-works/pi-coding-agent's theme module.
  * Ported from pi-mono theme.ts, simplified: built-in palettes are embedded TS
  * data (no JSON assets shipped next to the binary, no typebox validation, no
- * file watcher). Custom themes still load from ~/.pi/agent/themes/<name>.json
+ * file watcher). Custom themes still load from ~/.loop/agent/themes/<name>.json
  * using pi-mono's theme JSON shape (vars + colors).
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MarkdownTheme, SelectListTheme } from "@notshekhar/pi-tui";
+import type { MarkdownTheme, SelectListTheme } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import { DARK_THEME, LIGHT_THEME, type ThemeColors, type ThemeJson } from "./themes";
 
@@ -174,7 +174,7 @@ export const theme: Theme = new Proxy({} as Theme, {
 
 function customThemesDir(): string {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-    return path.join(home, ".pi", "agent", "themes");
+    return path.join(home, ".loop", "agent", "themes");
 }
 
 function loadThemeJson(name: string): ThemeJson {

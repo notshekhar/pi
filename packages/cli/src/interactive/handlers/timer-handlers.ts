@@ -3,11 +3,11 @@
  *
  * Timer: in-memory countdown shown in the footer; the time's-up prompt is
  * handled by the app ticker (app.ts). Reminders: persisted CRUD over
- * ~/.pi/reminders.json — one-time ("10m", "18:30", "2026-06-15 09:00") or
+ * ~/.loop/reminders.json — one-time ("10m", "18:30", "2026-06-15 09:00") or
  * cron-scheduled (up to 6 fields, second-level), managed through the same
  * selector flow as the model picker.
  */
-import type { SelectItem } from "@notshekhar/pi-tui";
+import type { SelectItem } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     addReminder,
@@ -18,7 +18,7 @@ import {
     type CommandContext,
     type Reminder,
     type ReminderSchedule,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import { Cron } from "croner";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";

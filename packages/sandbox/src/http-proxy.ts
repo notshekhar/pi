@@ -45,7 +45,7 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): http.Ser
         const reject = (status: string, reason: string) => {
             logForDebugging(`CONNECT ${host}:${port} ${reason}`, { level: "error" });
             try {
-                clientSocket.write(`HTTP/1.1 ${status}\r\nX-Proxy-Error: blocked-by-pi-sandbox\r\n\r\n`);
+                clientSocket.write(`HTTP/1.1 ${status}\r\nX-Proxy-Error: blocked-by-loop-sandbox\r\n\r\n`);
             } catch {
                 // client may already be gone
             }
@@ -84,7 +84,7 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): http.Ser
         try {
             target = new URL(url);
         } catch {
-            res.writeHead(400, { "X-Proxy-Error": "blocked-by-pi-sandbox" });
+            res.writeHead(400, { "X-Proxy-Error": "blocked-by-loop-sandbox" });
             res.end("malformed absolute-form request URL\n");
             return;
         }
@@ -94,7 +94,7 @@ export function createHttpProxyServer(options: HttpProxyServerOptions): http.Ser
         const deny = (status: number, reason: string) => {
             logForDebugging(`HTTP ${host}:${port} ${reason}`, { level: "error" });
             if (!res.headersSent) {
-                res.writeHead(status, { "Content-Type": "text/plain", "X-Proxy-Error": "blocked-by-pi-sandbox" });
+                res.writeHead(status, { "Content-Type": "text/plain", "X-Proxy-Error": "blocked-by-loop-sandbox" });
             }
             res.end(reason + "\n");
         };

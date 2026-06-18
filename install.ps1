@@ -1,21 +1,21 @@
-# pi installer (Windows PowerShell) — downloads prebuilt binary tarball
+# loop installer (Windows PowerShell) — downloads prebuilt binary tarball
 # from GitHub Releases. No runtime required.
 #
-#   irm https://raw.githubusercontent.com/notshekhar/pi/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/notshekhar/loop/main/install.ps1 | iex
 #
 # Layout after install:
-#   $env:USERPROFILE\.pi-bin\
-#     ├── pi.exe
+#   $env:USERPROFILE\.loop-bin\
+#     ├── loop.exe
 #     ├── package.json
 #     └── .install-method
-#   Adds $env:USERPROFILE\.pi-bin to user PATH (and the current session).
+#   Adds $env:USERPROFILE\.loop-bin to user PATH (and the current session).
 #
 # Env knobs:
-#   $env:PI_REPO_SLUG  notshekhar/pi
-#   $env:PI_VERSION    vX.Y.Z       pin a specific tag
-#   $env:PI_HOME       %USERPROFILE%\.pi-bin
-#   $env:PI_FORCE      1            skip "already up to date" gate
-#   $env:PI_UNINSTALL  1            remove the install + PATH entry and exit
+#   $env:LOOP_REPO_SLUG  notshekhar/loop
+#   $env:LOOP_VERSION    vX.Y.Z       pin a specific tag
+#   $env:LOOP_HOME       %USERPROFILE%\.loop-bin
+#   $env:LOOP_FORCE      1            skip "already up to date" gate
+#   $env:LOOP_UNINSTALL  1            remove the install + PATH entry and exit
 
 $ErrorActionPreference = "Stop"
 
@@ -23,32 +23,71 @@ function Bold($msg)  { Write-Host $msg -ForegroundColor White }
 function Dim($msg)   { Write-Host $msg -ForegroundColor DarkGray }
 function Err($msg)   { Write-Host $msg -ForegroundColor Red }
 
-$RepoSlug    = if ($env:PI_REPO_SLUG) { $env:PI_REPO_SLUG } else { "notshekhar/pi" }
-$PiHome      = if ($env:PI_HOME)      { $env:PI_HOME }      else { Join-Path $env:USERPROFILE ".pi-bin" }
-$Force       = $env:PI_FORCE -eq "1"
-$PinVersion  = $env:PI_VERSION
+$RepoSlug    = if ($env:LOOP_REPO_SLUG) { $env:LOOP_REPO_SLUG } else { "notshekhar/loop" }
+$LoopHome    = if ($env:LOOP_HOME)      { $env:LOOP_HOME }      else { Join-Path $env:USERPROFILE ".loop-bin" }
+$Force       = $env:LOOP_FORCE -eq "1"
+$PinVersion  = $env:LOOP_VERSION
+
+# Older installs (below this version) kept their config in ~\.pi; migrate once.
+$MigrateFromBelow = "0.5.0"
+
+# ── Migrate legacy config dir → ~\.loop (one-time, version-gated) ───────────
+# MOVE ~\.pi into ~\.loop (copy, then delete the old dir only once the copy
+# succeeds) so config is never lost or duplicated. Runs only for installs below
+# $MigrateFromBelow (version read from ~\.pi-bin\package.json; unknown counts as
+# below the cutoff).
+function Migrate-LegacyConfig {
+    $legacy  = Join-Path $env:USERPROFILE ".pi"
+    $current = Join-Path $env:USERPROFILE ".loop"
+    if (-not (Test-Path $legacy)) { return }
+    if (Test-Path $current) { return }
+
+    $legacyVer = $null
+    $legacyPkg = Join-Path $env:USERPROFILE ".pi-bin\package.json"
+    if (Test-Path $legacyPkg) {
+        try { $legacyVer = (Get-Content $legacyPkg -Raw | ConvertFrom-Json).version } catch {}
+    }
+    # Skip if a known legacy version is at/above the cutoff (not a pre-rename install).
+    if ($legacyVer) {
+        try {
+            if ([version]($legacyVer.TrimStart("v")) -ge [version]$MigrateFromBelow) { return }
+        } catch {}
+    }
+
+    $from = if ($legacyVer) { $legacyVer } else { "unknown" }
+    Bold "▶ Migrating config $legacy → $current (from $from, below $MigrateFromBelow)"
+    try {
+        Copy-Item -Recurse -Force $legacy $current
+        Remove-Item -Recurse -Force $legacy -ErrorAction SilentlyContinue
+        Dim "  moved auth, sessions, settings → $current (removed $legacy)"
+    } catch {
+        Err "  migration failed — your config stays in $legacy"
+    }
+}
 
 # ── Uninstall ─────────────────────────────────────────────────────────────
-if ($env:PI_UNINSTALL -eq "1") {
-    Bold "▶ Uninstalling pi"
+if ($env:LOOP_UNINSTALL -eq "1") {
+    Bold "▶ Uninstalling loop"
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath) {
-        $newPath = ($userPath.Split(";") | Where-Object { $_ -and $_ -ne $PiHome }) -join ";"
+        $newPath = ($userPath.Split(";") | Where-Object { $_ -and $_ -ne $LoopHome }) -join ";"
         if ($newPath -ne $userPath) {
             [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-            Dim "  removed $PiHome from user PATH"
+            Dim "  removed $LoopHome from user PATH"
         }
     }
-    if (Test-Path $PiHome) {
-        Remove-Item -Recurse -Force $PiHome -ErrorAction SilentlyContinue
-        Dim "  removed $PiHome"
+    if (Test-Path $LoopHome) {
+        Remove-Item -Recurse -Force $LoopHome -ErrorAction SilentlyContinue
+        Dim "  removed $LoopHome"
     }
-    Get-ChildItem -Path (Split-Path $PiHome -Parent) -Filter "$(Split-Path $PiHome -Leaf).old.*" -Directory -ErrorAction SilentlyContinue |
+    Get-ChildItem -Path (Split-Path $LoopHome -Parent) -Filter "$(Split-Path $LoopHome -Leaf).old.*" -Directory -ErrorAction SilentlyContinue |
         ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
-    Bold "✓ Uninstalled. Config in ~\.pi (auth, sessions, settings) was kept;"
-    Dim  "  remove it with: Remove-Item -Recurse -Force `"$env:USERPROFILE\.pi`""
+    Bold "✓ Uninstalled. Config in ~\.loop (auth, sessions, settings) was kept;"
+    Dim  "  remove it with: Remove-Item -Recurse -Force `"$env:USERPROFILE\.loop`""
     exit 0
 }
+
+Migrate-LegacyConfig
 
 # ── Detect arch ───────────────────────────────────────────────────────────
 if (-not [Environment]::Is64BitOperatingSystem) {
@@ -77,7 +116,7 @@ function Resolve-LatestTag {
     } catch {}
     try {
         $resp = Invoke-RestMethod "https://api.github.com/repos/$RepoSlug/releases/latest" `
-                                  -Headers @{ "User-Agent" = "pi-installer" }
+                                  -Headers @{ "User-Agent" = "loop-installer" }
         return $resp.tag_name
     } catch {
         return $null
@@ -90,7 +129,7 @@ if (-not $latest) {
     $latest = Resolve-LatestTag
     if (-not $latest) {
         Err "Could not resolve latest release tag from $RepoSlug."
-        Err "  Set `$env:PI_VERSION = 'vX.Y.Z' to pin."
+        Err "  Set `$env:LOOP_VERSION = 'vX.Y.Z' to pin."
         exit 1
     }
 }
@@ -98,7 +137,7 @@ if (-not $latest.StartsWith("v")) { $latest = "v$latest" }
 
 # ── Detect installed version ──────────────────────────────────────────────
 $installed = ""
-$installedPkgJson = Join-Path $PiHome "package.json"
+$installedPkgJson = Join-Path $LoopHome "package.json"
 if (Test-Path $installedPkgJson) {
     try {
         $installed = (Get-Content $installedPkgJson -Raw | ConvertFrom-Json).version
@@ -109,7 +148,7 @@ if (-not $Force -and $installed) {
     $installedSemver = [version]($installed.TrimStart("v"))
     if ($latestSemver -le $installedSemver) {
         Bold "✓ Up to date (installed $installed, latest $latest)"
-        Dim  "  Set `$env:PI_FORCE = '1' to reinstall."
+        Dim  "  Set `$env:LOOP_FORCE = '1' to reinstall."
         exit 0
     }
     Dim "  update: $installed → $latest"
@@ -118,12 +157,12 @@ if (-not $Force -and $installed) {
 }
 
 # ── Download tarball + verify sha256 ─────────────────────────────────────
-$tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) "pi-install-$(Get-Random)"
+$tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) "loop-install-$(Get-Random)"
 New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
 
 $base = "https://github.com/$RepoSlug/releases/download/$latest"
-$url  = "$base/pi-$target.tar.gz"
-$tar  = Join-Path $tmpRoot "pi.tar.gz"
+$url  = "$base/loop-$target.tar.gz"
+$tar  = Join-Path $tmpRoot "loop.tar.gz"
 
 Bold "▶ Downloading $($url.Split('/')[-1])"
 try {
@@ -157,36 +196,36 @@ try {
 # ── Extract (tar.exe ships with Windows 10 1803+) ─────────────────────────
 Bold "▶ Extracting"
 Push-Location $tmpRoot
-tar -xzf "pi.tar.gz"
+tar -xzf "loop.tar.gz"
 Pop-Location
 
 $srcDir = Join-Path $tmpRoot $target
-$binExe = Join-Path $srcDir "pi.exe"
+$binExe = Join-Path $srcDir "loop.exe"
 if (-not (Test-Path $binExe)) {
-    Err "tarball missing $target\pi.exe"
+    Err "tarball missing $target\loop.exe"
     exit 1
 }
 
 # ── Swap into place ───────────────────────────────────────────────────────
-Bold "▶ Installing to $PiHome"
-$parent = Split-Path $PiHome -Parent
+Bold "▶ Installing to $LoopHome"
+$parent = Split-Path $LoopHome -Parent
 if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
 
-# Sweep backup dirs left by earlier self-updates (a running pi.exe can't be
+# Sweep backup dirs left by earlier self-updates (a running loop.exe can't be
 # deleted at update time, only renamed — by now those locks are gone).
-Get-ChildItem -Path $parent -Filter "$(Split-Path $PiHome -Leaf).old.*" -Directory -ErrorAction SilentlyContinue |
+Get-ChildItem -Path $parent -Filter "$(Split-Path $LoopHome -Leaf).old.*" -Directory -ErrorAction SilentlyContinue |
     ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
 
-# A running pi.exe (self-update via `pi update`) locks deletion but allows
+# A running loop.exe (self-update via `loop update`) locks deletion but allows
 # renames — move the old dir aside, place the new one, then best-effort clean.
-if (Test-Path $PiHome) {
-    $backup = "$PiHome.old.$(Get-Random)"
-    Move-Item -Force $PiHome $backup
+if (Test-Path $LoopHome) {
+    $backup = "$LoopHome.old.$(Get-Random)"
+    Move-Item -Force $LoopHome $backup
     try { Remove-Item -Recurse -Force $backup -ErrorAction SilentlyContinue } catch {}
 }
-Move-Item -Force $srcDir $PiHome
+Move-Item -Force $srcDir $LoopHome
 
-Set-Content -Path (Join-Path $PiHome ".install-method") -Value "binary" -NoNewline
+Set-Content -Path (Join-Path $LoopHome ".install-method") -Value "binary" -NoNewline
 
 Remove-Item -Recurse -Force $tmpRoot -ErrorAction SilentlyContinue
 
@@ -194,31 +233,31 @@ Remove-Item -Recurse -Force $tmpRoot -ErrorAction SilentlyContinue
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not $userPath) { $userPath = "" }
 $paths = $userPath.Split(";") | Where-Object { $_ -ne "" }
-if ($paths -notcontains $PiHome) {
-    Bold "▶ Adding $PiHome to user PATH"
-    $newPath = if ($userPath) { "$userPath;$PiHome" } else { $PiHome }
+if ($paths -notcontains $LoopHome) {
+    Bold "▶ Adding $LoopHome to user PATH"
+    $newPath = if ($userPath) { "$userPath;$LoopHome" } else { $LoopHome }
     [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
 }
 $sessionPaths = $env:Path.Split(";") | Where-Object { $_ -ne "" }
-if ($sessionPaths -notcontains $PiHome) {
-    $env:Path = "$env:Path;$PiHome"
-    Dim "  PATH updated for this session too — `pi` works right away."
+if ($sessionPaths -notcontains $LoopHome) {
+    $env:Path = "$env:Path;$LoopHome"
+    Dim "  PATH updated for this session too — `loop` works right away."
 }
 
 # ── Smoke test: the binary must actually run ──────────────────────────────
 try {
-    $v = & (Join-Path $PiHome "pi.exe") --version 2>&1
+    $v = & (Join-Path $LoopHome "loop.exe") --version 2>&1
     if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE`: $v" }
-    Dim "  verified: pi v$v"
+    Dim "  verified: loop v$v"
 } catch {
     Err "installed binary failed to run: $_"
     exit 1
 }
 
 Bold "✓ Installed $latest"
-Write-Host "  pi:      $(Join-Path $PiHome 'pi.exe')"
-Write-Host "  target:  $PiHome"
+Write-Host "  loop:    $(Join-Path $LoopHome 'loop.exe')"
+Write-Host "  target:  $LoopHome"
 Write-Host ""
-Dim "Run ``pi`` to start. Run ``pi login`` to add a provider."
-Dim "Update later with ``pi update`` (or /update inside the TUI)."
+Dim "Run ``loop`` to start. Run ``loop login`` to add a provider."
+Dim "Update later with ``loop update`` (or /update inside the TUI)."
 Dim "First-run SmartScreen warning: click 'More info' → 'Run anyway'."

@@ -14,7 +14,7 @@ import { OutputAccumulator } from "./utils/output-accumulator";
 import { DEFAULT_MAX_BYTES, formatSize } from "./utils/truncate";
 import { DEFAULT_BASH_DENY, findDeniedCommand, formatDenyRefusal } from "./utils/command-deny";
 import { getSetting } from "../settings";
-import { sandbox, type SandboxConfig } from "@notshekhar/pi-sandbox";
+import { sandbox, type SandboxConfig } from "@notshekhar/loop-sandbox";
 
 export interface BashToolContext {
     cwd: string;
@@ -198,13 +198,13 @@ export function createBashTool(ctx: BashToolContext) {
             if (denied) throw new Error(formatDenyRefusal(denied));
 
             const signal = options?.abortSignal ?? ctx.abortSignal;
-            const output = new OutputAccumulator({ tempFilePrefix: "pi-bash" });
+            const output = new OutputAccumulator({ tempFilePrefix: "loop-bash" });
             const finalCommand = ctx.commandPrefix ? `${ctx.commandPrefix}\n${command}` : command;
 
             // Resolve the sandbox against the final command (commandPrefix included).
             const sandboxRun = await resolveSandbox(finalCommand, ctx);
             const withSandboxWarning = (text: string): string =>
-                sandboxRun.warning ? appendStatus(`[pi sandbox] ${sandboxRun.warning}`, text) : text;
+                sandboxRun.warning ? appendStatus(`[loop sandbox] ${sandboxRun.warning}`, text) : text;
 
             const formatOutput = async (emptyText = "(no output)"): Promise<{ text: string; truncated: boolean }> => {
                 output.finish();

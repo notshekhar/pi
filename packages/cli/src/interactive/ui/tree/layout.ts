@@ -8,7 +8,7 @@
  * - At indent 1: children always go to indent 2 (visual grouping of subtree)
  * - At indent 2+: stay flat for single-child chains, +1 only if parent branches
  */
-import type { SessionTreeNode } from "@notshekhar/pi-core";
+import type { SessionTreeNode } from "@notshekhar/loop-core";
 
 /** Gutter info: position (displayIndent where connector was) and whether to show │ */
 export interface GutterInfo {
@@ -242,7 +242,15 @@ export function recalculateVisualStructure(flatNodes: FlatNode[], filteredNodes:
 
         for (let i = children.length - 1; i >= 0; i--) {
             const childIsLast = i === children.length - 1;
-            stack.push([children[i], childIndent, multipleChildren, multipleChildren, childIsLast, childGutters, false]);
+            stack.push([
+                children[i],
+                childIndent,
+                multipleChildren,
+                multipleChildren,
+                childIsLast,
+                childGutters,
+                false,
+            ]);
         }
     }
 

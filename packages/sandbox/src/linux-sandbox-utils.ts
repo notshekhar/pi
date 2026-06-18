@@ -77,7 +77,9 @@ function whichSync(bin: string): string | null {
 }
 
 /** Check Linux dependencies: bwrap always; socat only when an allowlist is used. */
-export function checkLinuxDependencies(opts: { bwrapPath?: string; socatPath?: string; needsSocat?: boolean } = {}): SandboxDependencyCheck {
+export function checkLinuxDependencies(
+    opts: { bwrapPath?: string; socatPath?: string; needsSocat?: boolean } = {},
+): SandboxDependencyCheck {
     const errors: string[] = [];
     const warnings: string[] = [];
     if (!whichSync(opts.bwrapPath ?? "bwrap")) errors.push("bubblewrap (bwrap) not found");
@@ -100,8 +102,8 @@ export async function initializeLinuxNetworkBridge(
 ): Promise<LinuxNetworkBridge> {
     const socat = socatPath ?? "socat";
     const id = randomBytes(8).toString("hex");
-    const httpSocketPath = join(tmpdir(), `pi-http-${id}.sock`);
-    const socksSocketPath = join(tmpdir(), `pi-socks-${id}.sock`);
+    const httpSocketPath = join(tmpdir(), `loop-http-${id}.sock`);
+    const socksSocketPath = join(tmpdir(), `loop-socks-${id}.sock`);
 
     const startBridge = (sockPath: string, port: number, label: string): ChildProcess => {
         const proc = spawn(socat, [`UNIX-LISTEN:${sockPath},fork,reuseaddr`, `TCP:localhost:${port},keepalive`], {
@@ -118,7 +120,10 @@ export async function initializeLinuxNetworkBridge(
     try {
         socksBridge = startBridge(socksSocketPath, socksProxyPort, "SOCKS");
     } catch (err) {
-        if (httpBridge.pid) try { process.kill(httpBridge.pid, "SIGTERM"); } catch {}
+        if (httpBridge.pid)
+            try {
+                process.kill(httpBridge.pid, "SIGTERM");
+            } catch {}
         throw err;
     }
 
@@ -126,7 +131,11 @@ export async function initializeLinuxNetworkBridge(
     for (let i = 0; i < 5; i++) {
         if (fs.existsSync(httpSocketPath) && fs.existsSync(socksSocketPath)) break;
         if (i === 4) {
-            for (const p of [httpBridge, socksBridge]) if (p.pid) try { process.kill(p.pid, "SIGTERM"); } catch {}
+            for (const p of [httpBridge, socksBridge])
+                if (p.pid)
+                    try {
+                        process.kill(p.pid, "SIGTERM");
+                    } catch {}
             throw new Error("bridge sockets did not appear");
         }
         await new Promise((r) => setTimeout(r, (i + 1) * 100));
@@ -218,7 +227,16 @@ function buildBwrapArgs(params: LinuxSandboxParams): string[] {
  * restrictions apply. UNVERIFIED on macOS.
  */
 export function wrapCommandWithSandboxLinux(params: LinuxSandboxParams): string {
-    const { command, needsNetworkRestriction, readConfig, writeConfig, shell, bwrapPath, httpSocketPath, socksSocketPath } = params;
+    const {
+        command,
+        needsNetworkRestriction,
+        readConfig,
+        writeConfig,
+        shell,
+        bwrapPath,
+        httpSocketPath,
+        socksSocketPath,
+    } = params;
 
     const hasReadRestrictions = readConfig && readConfig.denyOnly.length > 0;
     const hasWriteRestrictions = writeConfig !== undefined;

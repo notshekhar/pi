@@ -24,13 +24,13 @@ describe("namespacing", () => {
 
 describe("resolveSecrets", () => {
     test("substitutes ${env:VAR} from process.env", () => {
-        process.env.PI_TEST_TOKEN = "secret123";
-        expect(resolveSecrets("Bearer ${env:PI_TEST_TOKEN}")).toBe("Bearer secret123");
-        delete process.env.PI_TEST_TOKEN;
+        process.env.LOOP_TEST_TOKEN = "secret123";
+        expect(resolveSecrets("Bearer ${env:LOOP_TEST_TOKEN}")).toBe("Bearer secret123");
+        delete process.env.LOOP_TEST_TOKEN;
     });
 
     test("unknown vars resolve to empty string", () => {
-        expect(resolveSecrets("x=${env:PI_DEFINITELY_UNSET}")).toBe("x=");
+        expect(resolveSecrets("x=${env:LOOP_DEFINITELY_UNSET}")).toBe("x=");
     });
 });
 
@@ -117,7 +117,8 @@ describe("McpManager", () => {
 
 describe("OAuth provider", () => {
     test("persists tokens/client info and reports needs-auth via a thrown redirect", async () => {
-        const { PiOAuthProvider, hasStoredTokens, clearMcpAuth, McpAuthRequiredError } = await import("../src/mcp/oauth");
+        const { PiOAuthProvider, hasStoredTokens, clearMcpAuth, McpAuthRequiredError } =
+            await import("../src/mcp/oauth");
         const server = `test-oauth-${Date.now()}`;
         clearMcpAuth(server);
         expect(hasStoredTokens(server)).toBe(false);
@@ -138,12 +139,12 @@ describe("OAuth provider", () => {
     });
 });
 
-/** Write a throwaway project dir with .pi/mcp.json so loadMcpServers picks it up. */
+/** Write a throwaway project dir with .loop/mcp.json so loadMcpServers picks it up. */
 function makeProjectWith(servers: Record<string, McpServerConfig>): string {
     const { mkdtempSync, mkdirSync, writeFileSync } = require("node:fs") as typeof import("node:fs");
     const { tmpdir } = require("node:os") as typeof import("node:os");
-    const root = mkdtempSync(join(tmpdir(), "pi-mcp-test-"));
-    mkdirSync(join(root, ".pi"), { recursive: true });
-    writeFileSync(join(root, ".pi", "mcp.json"), JSON.stringify({ mcpServers: servers }));
+    const root = mkdtempSync(join(tmpdir(), "loop-mcp-test-"));
+    mkdirSync(join(root, ".loop"), { recursive: true });
+    writeFileSync(join(root, ".loop", "mcp.json"), JSON.stringify({ mcpServers: servers }));
     return root;
 }

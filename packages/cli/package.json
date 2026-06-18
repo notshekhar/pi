@@ -1,16 +1,16 @@
 {
-    "name": "@notshekhar/pi",
-    "version": "0.4.4",
-    "description": "pi \u2014 terminal coding agent. Multi-provider, fast, native TUI.",
+    "name": "@notshekhar/loop",
+    "version": "0.5.0",
+    "description": "loop — terminal coding agent. Multi-provider, fast, native TUI.",
     "license": "MIT",
     "type": "module",
-    "homepage": "https://github.com/notshekhar/pi#readme",
+    "homepage": "https://github.com/notshekhar/loop#readme",
     "bugs": {
-        "url": "https://github.com/notshekhar/pi/issues"
+        "url": "https://github.com/notshekhar/loop/issues"
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/notshekhar/pi.git",
+        "url": "git+https://github.com/notshekhar/loop.git",
         "directory": "packages/cli"
     },
     "keywords": [
@@ -24,10 +24,11 @@
         "grok",
         "gemini",
         "openrouter",
-        "pi"
+        "loop"
     ],
     "bin": {
-        "pi": "./dist/cli.js",
+        "loop": "./dist/cli.js",
+        "lp": "./dist/cli.js",
         "agent": "./dist/cli.js"
     },
     "files": [
@@ -38,8 +39,8 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
-        "@notshekhar/pi-core": "*",
-        "@notshekhar/pi-tui": "*",
+        "@notshekhar/loop-core": "*",
+        "@notshekhar/loop-tui": "*",
         "chalk": "^5.5.0",
         "croner": "^10.0.1",
         "highlight.js": "^11.11.1"

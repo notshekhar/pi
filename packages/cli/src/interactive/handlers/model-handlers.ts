@@ -1,7 +1,7 @@
 /**
  * Model & provider selection: /model, /provider, /thinking.
  */
-import type { SelectItem } from "@notshekhar/pi-tui";
+import type { SelectItem } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     addCustomModel,
@@ -19,7 +19,7 @@ import {
     type CommandContext,
     type ProviderId,
     type ThinkingLevel,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { listUsableProviders } from "../provider-availability";
@@ -130,7 +130,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                             {
                                 value: "remove",
                                 label: "remove custom model",
-                                description: "delete from ~/.pi/models.json",
+                                description: "delete from ~/.loop/models.json",
                             },
                         ],
                         pick.value,

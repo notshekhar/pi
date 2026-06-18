@@ -9,7 +9,7 @@ import {
     settingsStore,
     stripSessionHookContext,
     type CommandContext,
-} from "@notshekhar/pi-core";
+} from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { UserMessageSelectorComponent } from "../ui/user-message-selector";

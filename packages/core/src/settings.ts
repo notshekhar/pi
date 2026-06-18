@@ -1,5 +1,5 @@
 /**
- * Typed access to ~/.pi/settings.json. One place declares every key and its
+ * Typed access to ~/.loop/settings.json. One place declares every key and its
  * type — call sites get autocomplete and lose the `as X | undefined` casts.
  * Unknown/extra keys in the file are preserved untouched.
  */
@@ -26,7 +26,6 @@ export interface PiSettings {
     autoCompactThreshold?: number;
     workspaceContext?: boolean;
     skills?: boolean;
-    piCompatMode?: string;
     agent?: string;
     lastChangelogVersion?: string;
     projectModels?: Record<string, string>;

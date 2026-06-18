@@ -44,9 +44,7 @@ export declare function defaultSandboxConfig(): SandboxConfig;
 /** Whether the current platform can enforce a sandbox at all. */
 export declare function isSandboxSupported(): boolean;
 /** Check that the platform's sandbox tooling is actually installed/usable. */
-export declare function checkSandboxDependencies(opts?: {
-    bwrapPath?: string;
-}): SandboxDependencyCheck;
+export declare function checkSandboxDependencies(opts?: { bwrapPath?: string }): SandboxDependencyCheck;
 /**
  * Wrap a command so the OS enforces the sandbox. Returns the spawn descriptor,
  * or null when the platform is unsupported (caller decides fail-open/closed).

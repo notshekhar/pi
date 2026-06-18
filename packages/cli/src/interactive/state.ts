@@ -1,4 +1,4 @@
-import type { ProviderId, Session, ThinkingLevel } from "@notshekhar/pi-core";
+import type { ProviderId, Session, ThinkingLevel } from "@notshekhar/loop-core";
 
 /**
  * Mutable runtime state for the interactive app. Handlers in

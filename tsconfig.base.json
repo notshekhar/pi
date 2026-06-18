@@ -13,9 +13,9 @@
         "allowImportingTsExtensions": false,
         "types": ["bun", "node"],
         "paths": {
-            "@notshekhar/pi-core": ["./packages/core/src/index.ts"],
-            "@notshekhar/pi-tui": ["./packages/tui/src/index.ts"],
-            "@notshekhar/pi-sandbox": ["./packages/sandbox/src/index.ts"]
+            "@notshekhar/loop-core": ["./packages/core/src/index.ts"],
+            "@notshekhar/loop-tui": ["./packages/tui/src/index.ts"],
+            "@notshekhar/loop-sandbox": ["./packages/sandbox/src/index.ts"]
         }
     }
 }

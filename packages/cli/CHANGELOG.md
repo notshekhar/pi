@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.5] - 2026-06-18
+
+### Added
+
+- Global instructions: `~/.pi/AGENTS.md` and `~/.pi/CLAUDE.md` are now loaded into workspace context in every session, regardless of the working directory — mirroring Claude's `~/.claude/CLAUDE.md`. Previously context files were only read from the cwd up to the repo root, so there was no place for user-wide rules. pi writes `AGENTS.md` by default, but a user-authored global `CLAUDE.md` is honored too. Workspace `AGENTS.md`/`CLAUDE.md` files still apply on top.
+
 ## [0.4.4] - 2026-06-18
 
 ### Added

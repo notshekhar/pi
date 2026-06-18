@@ -1,7 +1,12 @@
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 const CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md", ".pi/AGENTS.md", ".pi/CLAUDE.md"];
+// Global instructions, loaded everywhere (mirrors Claude's ~/.claude/CLAUDE.md).
+// Both are loaded if present; pi writes AGENTS.md by default, but a user-authored
+// ~/.pi/CLAUDE.md is honored too.
+const GLOBAL_CONTEXT_FILES = [join(homedir(), ".pi", "AGENTS.md"), join(homedir(), ".pi", "CLAUDE.md")];
 const MAX_FILE_BYTES = 64 * 1024;
 
 export interface WorkspaceContext {
@@ -29,23 +34,29 @@ export function loadWorkspaceContext(cwd: string): WorkspaceContext {
         dir = dirname(dir);
     }
 
+    // Global files first so they read as base rules; workspace files can refine them.
+    const candidatePaths: string[] = [...GLOBAL_CONTEXT_FILES];
+    for (const d of dirsToCheck) {
+        for (const rel of CONTEXT_FILES) candidatePaths.push(join(d, rel));
+    }
+
     const collected: string[] = [];
     const files: string[] = [];
-    for (const d of dirsToCheck) {
-        for (const rel of CONTEXT_FILES) {
-            const p = join(d, rel);
-            if (!existsSync(p)) continue;
-            try {
-                const stat = statSync(p);
-                if (!stat.isFile()) continue;
-                let content = readFileSync(p, "utf8");
-                if (Buffer.byteLength(content) > MAX_FILE_BYTES) {
-                    content = content.slice(0, MAX_FILE_BYTES) + "\n...[truncated]";
-                }
-                collected.push(`<file path="${p}">\n${content}\n</file>`);
-                files.push(p);
-            } catch {}
-        }
+    const seen = new Set<string>();
+    for (const p of candidatePaths) {
+        if (seen.has(p)) continue;
+        seen.add(p);
+        if (!existsSync(p)) continue;
+        try {
+            const stat = statSync(p);
+            if (!stat.isFile()) continue;
+            let content = readFileSync(p, "utf8");
+            if (Buffer.byteLength(content) > MAX_FILE_BYTES) {
+                content = content.slice(0, MAX_FILE_BYTES) + "\n...[truncated]";
+            }
+            collected.push(`<file path="${p}">\n${content}\n</file>`);
+            files.push(p);
+        } catch {}
     }
 
     if (collected.length === 0) return { text: "", files: [] };

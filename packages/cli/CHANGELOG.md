@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.3] - 2026-06-19
+
+### Changed
+
+- **Dropped the `lp` short alias.** `lp` collided with the preinstalled CUPS printer command (`/usr/bin/lp`), so depending on PATH order `lp` could run the printer instead of loop. The command is now just `loop` (with `agent` as the alias). On upgrade, the installer removes any old `lp` symlink and strips the `lp` shell alias a previous version may have added to your shell rc.
+
 ## [0.5.2] - 2026-06-19
 
 ### Fixed

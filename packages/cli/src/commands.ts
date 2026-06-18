@@ -87,7 +87,7 @@ export async function checkForUpdate(version: string): Promise<string | null> {
 }
 
 export function printHelp(version: string): void {
-    console.log(`loop/lp/agent — terminal coding agent (v${version})
+    console.log(`loop/agent — terminal coding agent (v${version})
 
 Usage:
   loop                     Start interactive TUI

@@ -10,7 +10,6 @@
 #     ├── loop                          (executable; reads package.json
 #     └── package.json                  alongside via dirname(execPath))
 #   $BIN_DIR/loop  → $LOOP_HOME/loop     (symlink)
-#   $BIN_DIR/lp    → $LOOP_HOME/loop     (symlink, short alias)
 #   $BIN_DIR/agent → $LOOP_HOME/loop     (symlink)
 #
 # Env knobs:
@@ -35,16 +34,10 @@ FROM_SOURCE="${LOOP_FROM_SOURCE:-0}"
 UNINSTALL="${LOOP_UNINSTALL:-0}"
 PIN_VERSION="${LOOP_VERSION:-}"
 
-# Marker for the `lp` shell-alias block we add as a fallback when the system
-# `lp` (CUPS printer) shadows our symlink in PATH. Used for idempotent
-# add/update and clean removal on uninstall.
+# Older installs shipped a short `lp` alias that collided with the system CUPS
+# printer (/usr/bin/lp). `lp` is gone now — this marker lets us strip the alias
+# block such an install may have written to a shell rc.
 LP_ALIAS_MARKER="# loop: lp alias (overrides system /usr/bin/lp)"
-# Set by link_globally(): which command names actually resolve to loop, so the
-# install summary only advertises commands that really work on this machine.
-LOOP_OK=0
-AGENT_OK=0
-LP_STATUS="none"   # path | alias | none
-LP_ALIAS_RC=""
 
 # Older installs (below this version) kept their config in ~/.pi; migrate once.
 MIGRATE_FROM_BELOW="0.5.0"
@@ -195,15 +188,7 @@ uninstall() {
       rm -f "$link" 2>/dev/null && dim "  removed $link" || true
     fi
   done
-  # Strip the lp alias we may have added to a shell rc.
-  for rc in "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.config/fish/config.fish"; do
-    [ -f "$rc" ] || continue
-    if grep -qF "$LP_ALIAS_MARKER" "$rc" 2>/dev/null; then
-      tmp="$(mktemp)" && grep -vF "$LP_ALIAS_MARKER" "$rc" > "$tmp" 2>/dev/null \
-        && cat "$tmp" > "$rc" && dim "  removed lp alias from $rc"
-      rm -f "$tmp" 2>/dev/null || true
-    fi
-  done
+  strip_lp_alias   # remove the legacy lp alias from any shell rc
   rm -rf "$LOOP_HOME" 2>/dev/null && dim "  removed $LOOP_HOME" || true
   bold "✓ Uninstalled. Config in ~/.loop (auth, sessions, settings) was kept;"
   dim  "  remove it with: rm -rf ~/.loop"
@@ -347,7 +332,7 @@ swap_into_place() {
 
 # ── Kill stale binaries + symlink fresh ones ──────────────────────────────
 link_globally() {
-  bold "▶ Linking loop + lp + agent globally"
+  bold "▶ Linking loop + agent globally"
 
   # Wipe shims from prior installer styles (bun link, npm i -g, older curl run).
   # Includes the legacy "pi" package/bin names and the upstream pi-coding-agent.
@@ -384,9 +369,12 @@ link_globally() {
   local bin_dir
   bin_dir="$(resolve_bin_dir)"
   ln -sf "$LOOP_HOME/loop" "$bin_dir/loop"
-  ln -sf "$LOOP_HOME/loop" "$bin_dir/lp"
   ln -sf "$LOOP_HOME/loop" "$bin_dir/agent"
   hash -r 2>/dev/null || true
+
+  # Clean up the legacy `lp` alias older installs added (the `lp` command is
+  # gone; the stale-symlink sweep above already removed any `lp` symlink).
+  strip_lp_alias
 
   case ":$PATH:" in
     *":$bin_dir:"*) ;;
@@ -394,26 +382,6 @@ link_globally() {
   esac
 
   LOOP_LINK_DIR="$bin_dir"
-
-  # Work out which command names actually launch loop on THIS machine, so the
-  # summary never advertises a command that won't run.
-  is_ours()    { [ "$(readlink "$1" 2>/dev/null)" = "$LOOP_HOME/loop" ]; }
-  resolves_to_loop() { is_ours "$(command -v "$1" 2>/dev/null)"; }
-
-  resolves_to_loop loop  && LOOP_OK=1
-  resolves_to_loop agent && AGENT_OK=1
-
-  # `lp` collides with the system CUPS printer (/usr/bin/lp). Our symlink only
-  # wins when bin_dir sits ahead of /usr/bin in PATH. When it doesn't, fall back
-  # to a shell alias (resolved before PATH in interactive shells) so `lp` still
-  # starts loop. If neither sticks, `lp` is unavailable and won't be shown.
-  if resolves_to_loop lp; then
-    LP_STATUS="path"
-  elif register_lp_alias; then
-    LP_STATUS="alias"
-  else
-    LP_STATUS="none"
-  fi
 }
 
 # Exact copy-pasteable PATH line for the user's shell.
@@ -429,42 +397,19 @@ path_hint() {
   esac
 }
 
-# rc file for the user's login shell, or non-zero if we don't know how to edit
-# it (an unknown shell — we won't guess and clobber something).
-rc_file_for_shell() {
-  case "$(basename "${SHELL:-}")" in
-    zsh)  printf '%s' "${ZDOTDIR:-$HOME}/.zshrc" ;;
-    bash) printf '%s' "$HOME/.bashrc" ;;
-    fish) printf '%s' "$HOME/.config/fish/config.fish" ;;
-    *)    return 1 ;;
-  esac
-}
-
-# Add (or refresh) the `lp` → loop alias in the user's shell rc, idempotently.
-# Returns 0 if the alias is in place afterwards, non-zero if we couldn't write
-# it (unknown shell / unwritable rc) — the caller then drops `lp` from the
-# summary instead of promising a command that won't work.
-register_lp_alias() {
-  local rc line
-  rc="$(rc_file_for_shell)" || return 1
-  if [ "$(basename "${SHELL:-}")" = "fish" ]; then
-    line="alias lp '$LOOP_HOME/loop'   $LP_ALIAS_MARKER"
-  else
-    line="alias lp='$LOOP_HOME/loop'   $LP_ALIAS_MARKER"
-  fi
-  mkdir -p "$(dirname "$rc")" 2>/dev/null || true
-  if [ -f "$rc" ] && grep -qF "$LP_ALIAS_MARKER" "$rc" 2>/dev/null; then
-    # Rewrite the existing marked line in case LOOP_HOME moved between installs.
-    local tmp; tmp="$(mktemp)" || return 1
+# Remove the legacy `lp` alias block a prior install may have written to a
+# shell rc. Idempotent; touches only our marked line, leaving the rest intact.
+strip_lp_alias() {
+  local rc tmp
+  for rc in "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.config/fish/config.fish"; do
+    [ -f "$rc" ] || continue
+    grep -qF "$LP_ALIAS_MARKER" "$rc" 2>/dev/null || continue
+    tmp="$(mktemp)" || continue
     if grep -vF "$LP_ALIAS_MARKER" "$rc" > "$tmp" 2>/dev/null; then
-      printf '%s\n' "$line" >> "$tmp" && cat "$tmp" > "$rc"
+      cat "$tmp" > "$rc" && dim "  removed legacy lp alias from $rc"
     fi
-    rm -f "$tmp"
-  else
-    printf '\n%s\n' "$line" >> "$rc" 2>/dev/null || return 1
-  fi
-  LP_ALIAS_RC="$rc"
-  return 0
+    rm -f "$tmp" 2>/dev/null || true
+  done
 }
 
 # The binary must actually run on this machine (catches libc/arch surprises
@@ -482,21 +427,11 @@ smoke_test() {
 finish_message() {
   local label="$1"
   bold "✓ Installed $label"
-  # Only advertise commands that actually resolve to loop on this machine.
   echo "  loop:    $LOOP_LINK_DIR/loop"
-  if [ "$LP_STATUS" = "path" ]; then
-    echo "  lp:      $LOOP_LINK_DIR/lp"
-  elif [ "$LP_STATUS" = "alias" ]; then
-    echo "  lp:      alias → $LOOP_HOME/loop  (added to ${LP_ALIAS_RC/#$HOME/\~}; restart your shell)"
-  fi
-  [ "$AGENT_OK" = "1" ] && echo "  agent:   $LOOP_LINK_DIR/agent"
+  echo "  agent:   $LOOP_LINK_DIR/agent"
   echo "  target:  $LOOP_HOME"
   echo
-  if [ "$LP_STATUS" = "none" ]; then
-    dim "Run \`loop\` to start. Run \`loop login\` to add a provider."
-  else
-    dim "Run \`loop\` (or \`lp\`) to start. Run \`loop login\` to add a provider."
-  fi
+  dim "Run \`loop\` (or \`agent\`) to start. Run \`loop login\` to add a provider."
   dim "Update later with \`loop update\` (or /update inside the TUI)."
 }
 

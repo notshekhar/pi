@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.1] - 2026-06-18
+
+### Added
+
+- **Animated welcome banner.** Startup now shows a masthead with a pixelated `loop` ring on the left — a bright "comet" head chases its way clockwise around the square (corners filled), spins for two rotations, then settles into a static hollow ring that reads as a loop. Beside it: the greeting, model · session · agent, cwd, and the tips line. The banner also re-appears on `/new` and `/clear`, which previously left the screen empty.
+
 ## [0.5.0] - 2026-06-18
 
 ### Changed

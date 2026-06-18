@@ -60,6 +60,7 @@ import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
 import { installConsoleBridge } from "./console-bridge";
 import { runStartupTrustAndHooks, showWhatsNew, showWorkspaceBanners, startUpdateCheck } from "./startup";
+import { showWelcomeBanner } from "./welcome";
 import { listUsableProviders } from "./provider-availability";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
@@ -365,11 +366,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     };
     syncTicker();
 
-    history.addSystem(
-        `loop · ${state.modelId || "no model"} · session ${state.session?.id ?? "unsaved"}` +
-            (state.agent !== DEFAULT_AGENT_NAME ? ` · agent ${state.agent}` : ""),
-    );
-    history.addSystem(`Type /help for commands. Shift+Tab cycles agents. Ctrl+C twice to quit.`);
+    showWelcomeBanner(history, state, deps);
     await showWorkspaceBanners(history, state.cwd);
     if (!state.modelId) await showNoModelGuidance(history, tui);
 

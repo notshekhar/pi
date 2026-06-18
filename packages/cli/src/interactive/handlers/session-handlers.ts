@@ -17,6 +17,7 @@ import {
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { renderSessionBranch } from "../replay";
+import { showWelcomeBanner } from "../welcome";
 
 type SessionHandlers = Pick<
     CommandContext,
@@ -81,7 +82,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             queuedMessages.length = 0;
             renderPending();
             history.reset();
-            history.addSystem("new session unsaved");
+            showWelcomeBanner(history, state, deps);
             tui.requestRender();
         },
         clearScreen() {
@@ -91,6 +92,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             state.latestContextTokens = 0;
             refreshFooter();
             history.reset();
+            showWelcomeBanner(history, state, deps);
             tui.invalidate();
             tui.requestRender(true);
         },

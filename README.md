@@ -169,7 +169,7 @@ The footer shows live cost/usage/context per step (subagents included). `/cost` 
 curl -fsSL https://raw.githubusercontent.com/notshekhar/loop/main/install.sh | bash
 ```
 
-Downloads the latest GitHub Release binary tarball (bun-compiled, zero runtime), verifies sha256, runs the binary once to confirm it works on your machine, and symlinks `loop`, `lp`, and `agent` into `/usr/local/bin` or `~/.local/bin` (with an exact PATH line for your shell if needed). musl distros (Alpine) get a clear pointer to `gcompat` or a source build.
+Downloads the latest GitHub Release binary tarball (bun-compiled, zero runtime), verifies sha256, runs the binary once to confirm it works on your machine, and symlinks `loop`, `lp`, and `agent` into `/usr/local/bin` or `~/.local/bin` (with an exact PATH line for your shell if needed). The short `lp` alias collides with the system CUPS printer command (`/usr/bin/lp`); when our symlink doesn't win the PATH lookup, the installer adds an `lp` shell alias to your rc as a fallback, and only advertises the commands that actually resolve to loop on your machine. musl distros (Alpine) get a clear pointer to `gcompat` or a source build.
 
 Env knobs: `LOOP_VERSION` (pin a tag), `LOOP_FORCE`, `LOOP_FROM_SOURCE`, `LOOP_HOME`, `LOOP_BIN_DIR`, `LOOP_UNINSTALL=1` (clean removal — keeps `~/.loop` config).
 

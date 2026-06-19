@@ -86,7 +86,10 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                 ];
                 const pick = await selectOnce(items, "Agents (Esc to close)", { initialIndex: lastIndex });
                 if (!pick) return;
-                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
+                lastIndex = Math.max(
+                    0,
+                    items.findIndex((i) => i.value === pick.value),
+                );
 
                 if (pick.value === "+new") {
                     const name = (await promptOnce("agent name (e.g. reviewer)")).trim();

@@ -31,11 +31,7 @@ function reasoningThenText(reasoning: string, text: string) {
 }
 
 function mkSession(dir: string, modelId: string) {
-    return new Session(
-        { id: "t", createdAt: 0, cwd: dir, provider: "xai", model: modelId },
-        join(dir, "s.jsonl"),
-        [],
-    );
+    return new Session({ id: "t", createdAt: 0, cwd: dir, provider: "xai", model: modelId }, join(dir, "s.jsonl"), []);
 }
 
 const MODEL = "xai/grok-build-0.1";
@@ -70,12 +66,15 @@ describe("partial output is persisted when a turn is aborted mid-stream", () => 
             if (seen.length >= opts.afterChars) abort.abort();
         });
         await runTurn({
-            session, modelId: MODEL, userInput: "write me a 1000 line poem", cwd: dir,
-            abortSignal: abort.signal, tracker: new CostTracker(), emitter: em,
+            session,
+            modelId: MODEL,
+            userInput: "write me a 1000 line poem",
+            cwd: dir,
+            abortSignal: abort.signal,
+            tracker: new CostTracker(),
+            emitter: em,
         });
-        const assistant = session
-            .entries()
-            .find((e: any) => e.type === "message" && e.role === "assistant") as any;
+        const assistant = session.entries().find((e: any) => e.type === "message" && e.role === "assistant") as any;
         return { assistant, seen };
     }
 

@@ -197,7 +197,10 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
                     initialIndex: lastIndex,
                 });
                 if (!pick) return;
-                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
+                lastIndex = Math.max(
+                    0,
+                    items.findIndex((i) => i.value === pick.value),
+                );
                 if (pick.value === ADD_SERVER) {
                     await addServerFlow();
                     continue;

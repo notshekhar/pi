@@ -24,7 +24,7 @@ type ColorMode = "truecolor" | "256color";
 type ColorValue = string | number;
 
 // ---------------------------------------------------------------------------
-// Color conversion 
+// Color conversion
 // ---------------------------------------------------------------------------
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {

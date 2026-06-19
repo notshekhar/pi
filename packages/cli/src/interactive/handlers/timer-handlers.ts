@@ -118,7 +118,10 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
                 ];
                 const pick = await searchOnce(items, `Reminders · ${reminders.length}`, { initialIndex: lastIndex });
                 if (!pick) return;
-                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
+                lastIndex = Math.max(
+                    0,
+                    items.findIndex((i) => i.value === pick.value),
+                );
 
                 if (pick.value === ADD) {
                     if (reminders.length >= MAX_REMINDERS) {

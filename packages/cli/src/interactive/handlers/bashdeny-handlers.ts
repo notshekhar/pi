@@ -55,7 +55,10 @@ export async function runBashDenyManager(deps: AppDeps): Promise<void> {
         // searchOnce gives a type-to-filter box so a long denylist stays navigable.
         const pick = await searchOnce(items, title, { initialIndex: lastIndex });
         if (!pick) return;
-        lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
+        lastIndex = Math.max(
+            0,
+            items.findIndex((i) => i.value === pick.value),
+        );
 
         if (pick.value === "+add") {
             const pattern = (await promptOnce('command to block (e.g. "rm" or "git commit")')).trim();

@@ -114,7 +114,10 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                     initialIndex: lastIndex,
                 });
                 if (!pick) return;
-                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
+                lastIndex = Math.max(
+                    0,
+                    items.findIndex((i) => i.value === pick.value),
+                );
 
                 if (pick.value === ADD) {
                     const modelId = (await promptOnce(`new model id under ${active}/ (e.g. some-model-v2)`)).trim();

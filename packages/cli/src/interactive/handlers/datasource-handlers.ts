@@ -124,7 +124,10 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
             const rows = [...fields, ...actions];
             const pick = await selectOnce(rows, `${id} — edit (Esc to cancel)`, { initialIndex: lastIndex });
             if (!pick || pick.value === "cancel") return;
-            lastIndex = Math.max(0, rows.findIndex((i) => i.value === pick.value));
+            lastIndex = Math.max(
+                0,
+                rows.findIndex((i) => i.value === pick.value),
+            );
 
             switch (pick.value) {
                 case "type":
@@ -223,7 +226,10 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
                 ];
                 const pick = await selectOnce(items, "Datasources (Esc to close)", { initialIndex: lastIndex });
                 if (!pick) return;
-                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
+                lastIndex = Math.max(
+                    0,
+                    items.findIndex((i) => i.value === pick.value),
+                );
                 if (pick.value === "+new") {
                     await newDatasource();
                 } else {

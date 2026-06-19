@@ -94,7 +94,10 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     initialIndex: lastIndex,
                 });
                 if (!pick) return;
-                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
+                lastIndex = Math.max(
+                    0,
+                    items.findIndex((i) => i.value === pick.value),
+                );
                 // Sub-flow: open the denylist manager, then return to settings.
                 if (pick.value === "bashDeny") {
                     await runBashDenyManager(deps);

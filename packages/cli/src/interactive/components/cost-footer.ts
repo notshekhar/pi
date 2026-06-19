@@ -51,7 +51,7 @@ export class CostFooter implements Component {
     private ctxUsed = 0;
     private ctxMax = 0;
     private thinking = "off";
-    // Whether the current model reasons. 
+    // Whether the current model reasons.
     // shows the thinking level when state.model?.reasoning is truthy.
     private modelReasoning = true;
     private agent = "default";

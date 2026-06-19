@@ -40,7 +40,10 @@ export function createHookHandlers(state: AppState, deps: AppDeps): HookHandlers
                     initialIndex: lastIndex,
                 });
                 if (!pick) return;
-                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
+                lastIndex = Math.max(
+                    0,
+                    items.findIndex((i) => i.value === pick.value),
+                );
 
                 if (pick.value === "+add") {
                     const ev = await selectOnce(

@@ -2,6 +2,7 @@ import type { CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc, isShiftTab, isTab } from "./keys";
+import { isKeyRelease } from "@notshekhar/loop-tui";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
 import { agentExists, extractImagesFromInput, getModelSync, listAgents, settingsStore } from "@notshekhar/loop-core";
 
@@ -37,6 +38,15 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
     const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, footer } = deps;
 
     return (data) => {
+        // Under the Kitty keyboard protocol a single physical keypress emits BOTH
+        // a press and a release event, and our chord matchers (isEsc, isCtrlC, …)
+        // match the codepoint regardless of event type. The TUI filters releases
+        // before the focused component, but input listeners run earlier, so a
+        // lone Esc would fire the interrupt twice — the release firing lands on
+        // the *next* (drained) turn and kills it. Drop releases here; every chord
+        // below is a press-only action. (isKeyRelease excludes bracketed-paste.)
+        if (isKeyRelease(data)) return undefined;
+
         // Selectors (e.g. /tree) own ctrl-key chords like ctrl+l/ctrl+d while
         // focused — global shortcuts that would shadow them only fire when the
         // editor has focus.

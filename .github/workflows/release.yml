@@ -49,15 +49,17 @@ jobs:
                 include:
                     - target: darwin-arm64
                       runner: macos-14
+                    - target: darwin-x64
+                      # macos-13 is the last free Intel runner (macos-14+ are
+                      # arm64). Needed for native NAPI modules that can't
+                      # cross-compile; powers the Homebrew Intel-mac bottle.
+                      runner: macos-13
                     - target: linux-x64
                       runner: ubuntu-latest
                     - target: linux-arm64
                       runner: ubuntu-24.04-arm
                     - target: windows-x64
                       runner: windows-latest
-                    # darwin-x64 dropped v1: macos-13 free runner queue is unreliable
-                    # (10–30 min) and macOS 13 is being sunset. Re-add via
-                    # macos-13-large (paid) when Intel users complain.
         runs-on: ${{ matrix.runner }}
         # Force bash on Windows runners too (default is pwsh). Git Bash ships
         # with windows-latest and provides sha256sum, tar, bun shell helpers.
@@ -147,3 +149,54 @@ jobs:
                       release/loop-*.tar.gz
                       release/loop-*.tar.gz.sha256
                       release/SHA256SUMS
+
+    # ─── Job 4: bump the Homebrew tap ─────────────────────────────────────────
+    # Regenerates notshekhar/homebrew-tap's Formula/loop.rb from the release's
+    # SHA256SUMS so `brew install notshekhar/tap/loop` tracks every tag with no
+    # manual step. Needs a PAT (HOMEBREW_TAP_TOKEN) with write access to the tap
+    # repo — the default GITHUB_TOKEN can't push to a different repository.
+    update-homebrew-tap:
+        name: update-homebrew-tap
+        needs: [prepare, release]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check out loop (for the render script)
+              uses: actions/checkout@v4
+              with:
+                  path: loop
+
+            - name: Check out tap repo
+              uses: actions/checkout@v4
+              with:
+                  repository: notshekhar/homebrew-tap
+                  token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+                  path: tap
+
+            - name: Fetch checksums from release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh release download "${{ needs.prepare.outputs.tag }}" \
+                    --repo "${{ github.repository }}" \
+                    --pattern SHA256SUMS --output SHA256SUMS --clobber
+
+            - name: Render Formula/loop.rb
+              run: |
+                  mkdir -p tap/Formula
+                  python3 loop/.github/scripts/render-formula.py \
+                    "${{ needs.prepare.outputs.ver }}" \
+                    SHA256SUMS \
+                    tap/Formula/loop.rb
+
+            - name: Commit & push
+              working-directory: tap
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git add Formula/loop.rb
+                  if git diff --cached --quiet; then
+                    echo "Formula already up to date — nothing to push."
+                  else
+                    git commit -m "loop ${{ needs.prepare.outputs.ver }}"
+                    git push
+                  fi

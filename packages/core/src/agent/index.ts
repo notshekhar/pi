@@ -20,6 +20,7 @@ import { buildProviderOptions, type ThinkingLevel } from "./thinking";
 import { estimateContextTokens, moveAnthropicCacheTail, toModelMessages, withAnthropicCaching } from "./model-messages";
 import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
+import { isAbortError } from "./abort";
 import { getMcpManager, isMcpEnabled } from "../mcp";
 import type { Session } from "../sessions";
 import type { UsageBlock } from "../types";
@@ -476,6 +477,10 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     });
 
     let assistantText = "";
+    // Reasoning is accumulated too (not just emitted) so an interrupt during the
+    // model's "thinking" phase — before any answer text streams — still persists
+    // what it produced instead of losing the whole partial turn.
+    let assistantReasoning = "";
     const toolsUsed: string[] = [];
     let lastUsage: UsageBlock | undefined;
     let lastStepUsage: UsageBlock | undefined;
@@ -485,71 +490,83 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     let stepUsageSum: UsageBlock | undefined;
 
     let lastYieldAt = Date.now();
-    for await (const part of result.fullStream) {
-        if (abortSignal?.aborted) break;
-        switch (part.type) {
-            case "text-delta":
-                assistantText += part.text;
-                emitter.emit("text-delta", part.text);
-                break;
-            case "reasoning-delta":
-                emitter.emit("reasoning-delta", (part as { text: string }).text);
-                break;
-            case "reasoning-start":
-                emitter.emit("reasoning-start");
-                break;
-            case "reasoning-end":
-                emitter.emit("reasoning-end");
-                break;
-            case "tool-call":
-                if (part.toolName) toolsUsed.push(part.toolName);
-                emitter.emit("tool-call", part);
-                break;
-            case "tool-result":
-                emitter.emit("tool-result", part);
-                break;
-            case "tool-error": {
-                // A tool's execute threw (MCP transport failure, timeout, bad
-                // args…). The AI SDK still feeds the error back to the model as
-                // the tool result, so the loop continues and the model can try
-                // another approach — we just surface it in the UI (red) instead
-                // of leaving the tool box spinning forever.
-                const e = part as { toolCallId?: string; toolName?: string; error?: unknown };
-                emitter.emit("tool-error", { toolCallId: e.toolCallId, toolName: e.toolName, error: e.error });
-                break;
-            }
-            case "finish-step": {
-                // Cost accrues per step (one API round-trip each), not at turn
-                // end — the footer updates live, and an aborted turn keeps the
-                // cost of the steps that already ran. Step usages sum to the
-                // turn total, so nothing is added again on finish.
-                const u = (part as { usage?: UsageBlock }).usage;
-                if (u) {
-                    lastStepUsage = u;
-                    stepUsageSum = sumUsage(stepUsageSum, u);
-                    const breakdown = tracker.add(modelId, u, cwd);
-                    emitter.emit("step-usage", { usage: u, breakdown });
+    // The interrupt can land between parts (caught by the `break` below) or while
+    // awaiting the next part. A real fetch-backed provider rejects its body
+    // stream on abort, which can throw straight out of `for await`; without this
+    // guard that throw would skip the persistence below, losing the partial
+    // reply. Swallow only aborts; any other error still propagates.
+    try {
+        for await (const part of result.fullStream) {
+            if (abortSignal?.aborted) break;
+            switch (part.type) {
+                case "text-delta":
+                    assistantText += part.text;
+                    emitter.emit("text-delta", part.text);
+                    break;
+                case "reasoning-delta": {
+                    const rt = (part as { text: string }).text;
+                    assistantReasoning += rt;
+                    emitter.emit("reasoning-delta", rt);
+                    break;
                 }
-                break;
+                case "reasoning-start":
+                    emitter.emit("reasoning-start");
+                    break;
+                case "reasoning-end":
+                    emitter.emit("reasoning-end");
+                    break;
+                case "tool-call":
+                    if (part.toolName) toolsUsed.push(part.toolName);
+                    emitter.emit("tool-call", part);
+                    break;
+                case "tool-result":
+                    emitter.emit("tool-result", part);
+                    break;
+                case "tool-error": {
+                    // A tool's execute threw (MCP transport failure, timeout, bad
+                    // args…). The AI SDK still feeds the error back to the model as
+                    // the tool result, so the loop continues and the model can try
+                    // another approach — we just surface it in the UI (red) instead
+                    // of leaving the tool box spinning forever.
+                    const e = part as { toolCallId?: string; toolName?: string; error?: unknown };
+                    emitter.emit("tool-error", { toolCallId: e.toolCallId, toolName: e.toolName, error: e.error });
+                    break;
+                }
+                case "finish-step": {
+                    // Cost accrues per step (one API round-trip each), not at turn
+                    // end — the footer updates live, and an aborted turn keeps the
+                    // cost of the steps that already ran. Step usages sum to the
+                    // turn total, so nothing is added again on finish.
+                    const u = (part as { usage?: UsageBlock }).usage;
+                    if (u) {
+                        lastStepUsage = u;
+                        stepUsageSum = sumUsage(stepUsageSum, u);
+                        const breakdown = tracker.add(modelId, u, cwd);
+                        emitter.emit("step-usage", { usage: u, breakdown });
+                    }
+                    break;
+                }
+                case "finish": {
+                    const u = (part as { totalUsage?: UsageBlock }).totalUsage;
+                    lastUsage = u;
+                    emitter.emit("finish", { usage: u, lastStepUsage });
+                    break;
+                }
+                case "error": {
+                    const msg = String((part as { error?: unknown }).error ?? "");
+                    if (/^(reasoning|text) part .* not found$/.test(msg)) break;
+                    emitter.emit("error", part.error);
+                    break;
+                }
             }
-            case "finish": {
-                const u = (part as { totalUsage?: UsageBlock }).totalUsage;
-                lastUsage = u;
-                emitter.emit("finish", { usage: u, lastStepUsage });
-                break;
-            }
-            case "error": {
-                const msg = String((part as { error?: unknown }).error ?? "");
-                if (/^(reasoning|text) part .* not found$/.test(msg)) break;
-                emitter.emit("error", part.error);
-                break;
+            // Let the TUI's render timers fire between bursts of buffered parts.
+            if (Date.now() - lastYieldAt >= STREAM_YIELD_INTERVAL_MS) {
+                await yieldToEventLoop();
+                lastYieldAt = Date.now();
             }
         }
-        // Let the TUI's render timers fire between bursts of buffered parts.
-        if (Date.now() - lastYieldAt >= STREAM_YIELD_INTERVAL_MS) {
-            await yieldToEventLoop();
-            lastYieldAt = Date.now();
-        }
+    } catch (err) {
+        if (!isAbortError(err) && !abortSignal?.aborted) throw err;
     }
 
     // Flush any in-flight step persistence before deciding on the fallback /
@@ -557,15 +574,20 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     await persistChain;
 
     // Steps persist incrementally via onStepFinish (above). Fallback: if a turn
-    // was aborted before any step finished but produced partial text or usage,
-    // keep it so resume isn't empty and cost seeding stays honest. Anthropic
-    // rejects empty text blocks, so only persist when there's text or usage.
-    if (!persistedAnyMessage && (assistantText.trim() !== "" || lastUsage || stepUsageSum)) {
+    // was aborted before any step finished, keep whatever streamed — the
+    // reasoning AND the answer text — so nothing is lost from the transcript or
+    // the next turn's context, and cost seeding stays honest. Structured parts
+    // preserve both; Anthropic rejects empty text blocks, so a usage-only turn
+    // keeps the legacy empty string (dropped later by toModelMessages).
+    const partialParts: Array<{ type: "reasoning"; text: string } | { type: "text"; text: string }> = [];
+    if (assistantReasoning.trim() !== "") partialParts.push({ type: "reasoning", text: assistantReasoning });
+    if (assistantText.trim() !== "") partialParts.push({ type: "text", text: assistantText });
+    if (!persistedAnyMessage && (partialParts.length > 0 || lastUsage || stepUsageSum)) {
         await session.append({
             type: "message",
             ts: Date.now(),
             role: "assistant",
-            content: assistantText,
+            content: partialParts.length > 0 ? partialParts : "",
             usage: lastUsage ?? stepUsageSum,
             model: modelId,
         });

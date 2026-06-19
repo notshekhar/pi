@@ -49,17 +49,18 @@ jobs:
                 include:
                     - target: darwin-arm64
                       runner: macos-14
-                    - target: darwin-x64
-                      # macos-13 is the last free Intel runner (macos-14+ are
-                      # arm64). Needed for native NAPI modules that can't
-                      # cross-compile; powers the Homebrew Intel-mac bottle.
-                      runner: macos-13
                     - target: linux-x64
                       runner: ubuntu-latest
                     - target: linux-arm64
                       runner: ubuntu-24.04-arm
                     - target: windows-x64
                       runner: windows-latest
+                    # darwin-x64 (Intel mac) intentionally omitted: the free
+                    # macos-13 runner queue is unreliable (often 30+ min / never
+                    # scheduled) and stalls the whole release. The Homebrew
+                    # formula directs Intel-mac users to the npm/install.sh path
+                    # instead. Re-add here on macos-13-large (paid) to ship an
+                    # Intel bottle; render-formula.py picks it up automatically.
         runs-on: ${{ matrix.runner }}
         # Force bash on Windows runners too (default is pwsh). Git Bash ships
         # with windows-latest and provides sha256sum, tar, bun shell helpers.

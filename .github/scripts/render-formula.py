@@ -49,6 +49,20 @@ def main() -> int:
     mac = [arch("on_arm", "darwin-arm64")]
     if "darwin-x64" in sums:
         mac.append(arch("on_intel", "darwin-x64"))
+    else:
+        # No prebuilt Intel-mac binary in this release (darwin-x64 isn't in the
+        # CI matrix). Fail the install with a clear pointer rather than letting
+        # Homebrew emit a confusing "no available formula" error. odie inside an
+        # on_intel block runs only when evaluated on an Intel mac.
+        mac.append(
+            "    on_intel do\n"
+            '      odie <<~EOS\n'
+            "        loop has no prebuilt Intel-mac (x86_64) binary yet.\n"
+            "        Install it directly instead:\n"
+            "          curl -fsSL https://raw.githubusercontent.com/notshekhar/loop/main/install.sh | bash\n"
+            "      EOS\n"
+            "    end"
+        )
 
     linux = []
     if "linux-arm64" in sums:

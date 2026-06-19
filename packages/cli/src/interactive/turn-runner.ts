@@ -6,6 +6,7 @@ import type { AppState } from "./state";
 import { formatError } from "./format-error";
 import { createSubagentStream } from "./subagent-stream";
 import { wireTurnEmitter } from "./turn-emitter";
+import { traceEvent } from "./debug-log";
 
 /**
  * Whether the leading /token of an input maps to a registered slash command.
@@ -39,6 +40,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
     const drainNext = (): void => {
         const next = queuedMessages.shift();
         if (next === undefined) return;
+        traceEvent("drain", `"${next}" aborted=${state.abort.signal.aborted} remaining=${queuedMessages.length}`);
         renderPending();
         if (editor.onSubmit) void editor.onSubmit(next);
     };
@@ -58,6 +60,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         // drainNext(), whatever its type.
         if (state.busy) {
             queuedMessages.push(text);
+            traceEvent("queue", `"${text}" (depth=${queuedMessages.length})`);
             renderPending();
             tui.requestRender();
             return;
@@ -129,13 +132,15 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             refreshFooter,
         });
 
+        const turnSignal = state.abort.signal;
+        traceEvent("turn", `start "${text}" abortedAtStart=${turnSignal.aborted} agent=${turnAgent}`);
         try {
             await runTurn({
                 session: activeSession,
                 modelId: state.modelId,
                 userInput: finalInput,
                 cwd: state.cwd,
-                abortSignal: state.abort.signal,
+                abortSignal: turnSignal,
                 tracker,
                 emitter,
                 thinkingLevel: state.thinkingLevel,
@@ -144,6 +149,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         } catch (err) {
             history.addError(formatError(err));
         } finally {
+            traceEvent("turn", `end   "${text}" abortedAtEnd=${turnSignal.aborted}`);
             state.busy = false;
             history.finishAssistant();
             hideWorking();

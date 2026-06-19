@@ -53,6 +53,7 @@ import {
 } from "./selectors";
 import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
+import { isEventTraceEnabled, setEventTraceSink, toggleEventTrace } from "./debug-log";
 import { createTurnRunner } from "./turn-runner";
 import { createFooterRefresher } from "./footer-refresh";
 import { createWorkingIndicator } from "./working-indicator";
@@ -319,6 +320,22 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     });
 
     const restoreConsole = installConsoleBridge(history, tui);
+
+    // Event tracer: dim trace lines in the chat + ~/.loop/events-debug.log.
+    // Off by default; LOOP_DEBUG_EVENTS=1 enables at startup, Shift+Ctrl+D
+    // toggles at runtime.
+    setEventTraceSink((line) => {
+        history.addSystem(chalk.dim(`· ${line}`));
+        tui.requestRender();
+    });
+    tui.onDebug = () => {
+        const on = toggleEventTrace();
+        history.addSystem(chalk.dim(`· event trace ${on ? "ON" : "off"} → ~/.loop/events-debug.log`));
+        tui.requestRender();
+    };
+    if (isEventTraceEnabled()) {
+        history.addSystem(chalk.dim("· event trace ON (LOOP_DEBUG_EVENTS) — Shift+Ctrl+D to toggle"));
+    }
 
     const cleanExit = (code = 0) => {
         stopTicker();

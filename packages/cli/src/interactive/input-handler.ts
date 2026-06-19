@@ -3,6 +3,7 @@ import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc, isShiftTab, isTab } from "./keys";
 import { isKeyRelease } from "@notshekhar/loop-tui";
+import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
 import { agentExists, extractImagesFromInput, getModelSync, listAgents, settingsStore } from "@notshekhar/loop-core";
 
@@ -38,6 +39,14 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
     const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, footer } = deps;
 
     return (data) => {
+        // Trace raw input: shows the press/release pair, modifiers, and which
+        // chord (if any) a keystroke resolves to — the view that exposes
+        // double-fire / event-ordering bugs.
+        traceEvent(
+            "input",
+            `${JSON.stringify(data)} release=${isKeyRelease(data)} esc=${isEsc(data)} busy=${state.busy} q=${queuedMessages.length}`,
+        );
+
         // Under the Kitty keyboard protocol a single physical keypress emits BOTH
         // a press and a release event, and our chord matchers (isEsc, isCtrlC, …)
         // match the codepoint regardless of event type. The TUI filters releases

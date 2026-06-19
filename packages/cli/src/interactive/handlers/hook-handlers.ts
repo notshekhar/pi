@@ -21,6 +21,7 @@ export function createHookHandlers(state: AppState, deps: AppDeps): HookHandlers
     return {
         async manageHooks() {
             // Loop so Esc in submenus returns to the hook list, like /settings.
+            let lastIndex = 0;
             while (true) {
                 const entries = listHooksWithSources(state.cwd);
                 const items: SelectItem[] = [
@@ -35,8 +36,11 @@ export function createHookHandlers(state: AppState, deps: AppDeps): HookHandlers
                         description: `${e.source} · ${e.command.length > 70 ? `${e.command.slice(0, 67)}…` : e.command}`,
                     })),
                 ];
-                const pick = await selectOnce(items, `Hooks — ${entries.length} loaded (Esc to close)`);
+                const pick = await selectOnce(items, `Hooks — ${entries.length} loaded (Esc to close)`, {
+                    initialIndex: lastIndex,
+                });
                 if (!pick) return;
+                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
 
                 if (pick.value === "+add") {
                     const ev = await selectOnce(

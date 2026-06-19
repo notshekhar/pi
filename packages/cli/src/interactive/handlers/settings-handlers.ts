@@ -40,7 +40,10 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
     return {
         async openSettings() {
             // Loop so Esc on the value prompt returns to the settings picker
-            // instead of bailing out of /settings entirely.
+            // instead of bailing out of /settings entirely. `lastIndex` re-opens
+            // the picker on the row the user just acted on (toggles, value edits)
+            // instead of snapping back to the top.
+            let lastIndex = 0;
             while (true) {
                 const items: SelectItem[] = [
                     { value: "theme", label: `theme: ${settingsStore.get("theme") ?? "dark"}` },
@@ -87,8 +90,11 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         description: "add/remove bash commands the agent is refused (guardrail)",
                     },
                 ];
-                const pick = await searchOnce(items, "Settings (type to filter, Esc to close)");
+                const pick = await searchOnce(items, "Settings (type to filter, Esc to close)", {
+                    initialIndex: lastIndex,
+                });
                 if (!pick) return;
+                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
                 // Sub-flow: open the denylist manager, then return to settings.
                 if (pick.value === "bashDeny") {
                     await runBashDenyManager(deps);

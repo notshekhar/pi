@@ -2,7 +2,7 @@
  * Project trust — gate executable/instruction project resources (hooks, project
  * skills) behind an explicit per-folder decision, so opening an untrusted cloned
  * repo doesn't silently run its `.loop`/`.claude` hooks. Ported (simplified) from
- * pi-mono's trust-manager: nearest-ancestor lookup, persisted in ~/.loop/trust.json.
+ * Trust manager: nearest-ancestor lookup, persisted in ~/.loop/trust.json.
  *
  * Decision: true = trusted, false = explicitly untrusted, null = not yet asked.
  * Resources load only when the nearest decision is `true`.
@@ -82,7 +82,7 @@ export interface TrustOption {
     savePath: string;
 }
 
-/** Selector options mirroring pi-mono: trust / trust parent / session-only / no. */
+/** Selector options: trust / trust parent / session-only / no. */
 export function getTrustOptions(cwd: string): TrustOption[] {
     const path = canonical(cwd);
     const parent = dirname(path);

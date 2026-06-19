@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import lockfile from "proper-lockfile";
 import type { Entry, SessionInfoData } from "../types";
-import { adaptPiEntry } from "./pi-adapter";
+import { adaptLoopEntry } from "./loop-adapter";
 
-/** Generate a unique short ID (8 hex chars, collision-checked) — pi-mono parity. */
+/** Generate a unique short ID (8 hex chars, collision-checked) — the reference parity. */
 export function generateEntryId(has: (id: string) => boolean): string {
     for (let i = 0; i < 100; i++) {
         const id = randomUUID().slice(0, 8);
@@ -26,7 +26,7 @@ export function extractMessageText(content: unknown): string {
     return "";
 }
 
-/** Tree node for getTree() — pi-mono SessionTreeNode equivalent. */
+/** Tree node for getTree() — the reference SessionTreeNode equivalent. */
 export interface SessionTreeNode {
     entry: Entry;
     children: SessionTreeNode[];
@@ -38,7 +38,7 @@ export interface SessionTreeNode {
 
 /**
  * A conversation session stored as an append-only tree in a JSONL file
- * (pi-mono session-manager mechanics on our Entry shape).
+ *.
  *
  * Every entry has an id and parentId. The "leaf" pointer tracks the current
  * position: append() creates a child of the leaf and advances it, branch()
@@ -72,7 +72,7 @@ export class Session {
         for (const line of lines) {
             try {
                 const parsed = JSON.parse(line);
-                const adapted = adaptPiEntry(parsed);
+                const adapted = adaptLoopEntry(parsed);
                 if (adapted) entries.push(adapted);
             } catch {}
         }
@@ -81,7 +81,7 @@ export class Session {
 
     /**
      * Migrate legacy flat entries (no id/parentId) to a linear chain —
-     * pi-mono migrateV1ToV2 equivalent. Returns true if anything changed.
+     * Migrate legacy flat entries to the tree shape. Returns true if anything changed.
      */
     private ensureTreeFields(): boolean {
         const ids = new Set<string>();
@@ -170,7 +170,7 @@ export class Session {
     }
 
     // =========================================================================
-    // Tree traversal (pi-mono parity)
+    // Tree traversal
     // =========================================================================
 
     getLeafId(): string | null {
@@ -210,7 +210,7 @@ export class Session {
 
     /**
      * Branch to an entry and record a summary of the abandoned path
-     * (pi-mono branchWithSummary). Pass null to branch before the root.
+     *. Pass null to branch before the root.
      */
     async branchWithSummary(branchFromId: string | null, summary: string): Promise<string> {
         if (branchFromId !== null && !this.byId.has(branchFromId)) {
@@ -228,17 +228,17 @@ export class Session {
         return entry.id!;
     }
 
-    /** User-set display name; latest session-name entry wins (pi-mono getSessionName). */
+    /** User-set display name; latest session-name entry wins. */
     getName(): string | undefined {
         return this.sessionName;
     }
 
-    /** Set (or clear, with empty string) the session display name — pi-mono appendSessionInfo. */
+    /** Set (or clear, with empty string) the session display name — the reference appendSessionInfo. */
     async setName(name: string): Promise<void> {
         await this.append({ type: "session-name", ts: Date.now(), name: name.trim() });
     }
 
-    /** Set or clear a user label on an entry (pi-mono appendLabelChange). */
+    /** Set or clear a user label on an entry. */
     async appendLabelChange(targetId: string, label: string | undefined): Promise<string> {
         if (!this.byId.has(targetId)) throw new Error(`Entry ${targetId} not found`);
         const entry: Entry = { type: "label", ts: Date.now(), targetId, label };
@@ -279,7 +279,7 @@ export class Session {
         return roots;
     }
 
-    /** All user messages (any branch) for the /fork selector — pi-mono parity. */
+    /** All user messages (any branch) for the /fork selector — the reference parity. */
     getUserMessagesForForking(): Array<{ entryId: string; text: string }> {
         const out: Array<{ entryId: string; text: string }> = [];
         for (const e of this.buffered) {

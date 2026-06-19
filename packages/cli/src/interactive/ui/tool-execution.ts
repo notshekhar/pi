@@ -1,7 +1,5 @@
 /**
- * Own tool execution renderer — replaces pi-coding-agent's
- * ToolExecutionComponent. pi's version dispatches to per-tool render
- * definitions deep inside pi-mono's core; ours renders our 7 tools directly:
+ * Own tool execution renderer for our 7 tools:
  * status-colored box, bold title with a per-tool arg summary, output that
  * collapses to a preview and expands with ctrl+e, diff coloring for edit/write,
  * syntax highlighting for read.
@@ -137,7 +135,7 @@ export class ToolExecutionComponent extends Container {
         const summary = this.argsSummary();
         if (!summary) return title;
         // `read` appends its offset/limit as a warning-colored `:start-end`
-        // suffix (mirrors pi-mono); the range sits outside the muted wrap so it
+        // suffix; the range sits outside the muted wrap so it
         // keeps its own color.
         const range = this.toolName === "read" ? this.readLineRange() : "";
         return `${title} ${theme.fg("muted", summary)}${range}`;
@@ -179,7 +177,7 @@ export class ToolExecutionComponent extends Container {
 
     /**
      * `read` line range — `:start` or `:start-end` from offset/limit, empty
-     * when neither is set. Mirrors pi-mono's formatReadLineRange.
+     * when neither is set.
      */
     private readLineRange(): string {
         const offset = typeof this.args.offset === "number" ? this.args.offset : undefined;

@@ -106,7 +106,7 @@ export interface SessionInfoData {
     cwd: string;
     provider: ProviderId;
     model: string;
-    /** Path of the session file this one was forked from (pi-mono parentSession). */
+    /** Path of the session file this one was forked from. */
     parentSession?: string;
 }
 
@@ -118,7 +118,7 @@ export type SubagentActivityPart =
     | { type: "tool"; name: string; summary: string };
 
 /**
- * pi-mono tree structure: every entry is a node with an id and a parent
+ * Tree structure: every entry is a node with an id and a parent
  * pointer. Optional on read (legacy flat sessions get ids assigned and a
  * linear chain on load); always set on write.
  */
@@ -156,7 +156,7 @@ export type Entry = EntryTreeFields &
         | { type: "compact"; summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number }
         | { type: "branch-summary"; summary: string; ts: number; fromId?: string }
         | { type: "label"; targetId: string; label?: string; ts: number }
-        // User-set session display name (pi-mono session_info name entries):
+        // User-set session display name:
         // latest wins, empty/absent name clears.
         | { type: "session-name"; name?: string; ts: number }
         | { type: "custom"; payload: unknown; ts: number }

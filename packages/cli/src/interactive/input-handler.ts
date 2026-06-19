@@ -8,7 +8,7 @@ import { agentExists, extractImagesFromInput, getModelSync, listAgents, settings
 export type InputListener = (data: string) => { consume: boolean } | undefined;
 
 // Terminals deliver both clipboard pastes and file drag-and-drop as a bracketed
-// paste: ESC[200~ <content> ESC[201~ (pi-tui re-wraps its paste event this way).
+// paste: ESC[200~ <content> ESC[201~ (the TUI re-wraps its paste event this way).
 const BRACKETED_PASTE = /^\x1b\[200~([\s\S]*)\x1b\[201~$/;
 
 /** Whether the active model can actually accept image attachments. */
@@ -54,7 +54,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             }
         }
         // Agent cycling: Shift+Tab and plain Tab both cycle, even with text in
-        // the prompt (diverges from pi: files are reached via the "@"/"#"
+        // the prompt (files are reached via the "@"/"#"
         // triggers, not Tab). With the autocomplete popup open, Tab still
         // applies the selected completion. Cycle = active custom agent (if
         // selected via /agents) plus all built-ins.

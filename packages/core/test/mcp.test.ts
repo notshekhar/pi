@@ -117,13 +117,13 @@ describe("McpManager", () => {
 
 describe("OAuth provider", () => {
     test("persists tokens/client info and reports needs-auth via a thrown redirect", async () => {
-        const { PiOAuthProvider, hasStoredTokens, clearMcpAuth, McpAuthRequiredError } =
+        const { LoopOAuthProvider, hasStoredTokens, clearMcpAuth, McpAuthRequiredError } =
             await import("../src/mcp/oauth");
         const server = `test-oauth-${Date.now()}`;
         clearMcpAuth(server);
         expect(hasStoredTokens(server)).toBe(false);
 
-        const provider = new PiOAuthProvider(server, "http://127.0.0.1:8976/callback");
+        const provider = new LoopOAuthProvider(server, "http://127.0.0.1:8976/callback");
         provider.saveClientInformation({ client_id: "abc" });
         provider.saveTokens({ access_token: "tok", token_type: "bearer" });
         expect(provider.clientInformation()).toMatchObject({ client_id: "abc" });

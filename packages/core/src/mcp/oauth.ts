@@ -9,6 +9,28 @@ import Configstore from "configstore";
 import { join } from "node:path";
 import type { OAuthClientInformation, OAuthClientMetadata, OAuthClientProvider, OAuthTokens } from "@ai-sdk/mcp";
 import { getLoopDir } from "../auth/storage";
+import { resolveSecrets, type HttpServerConfig } from "./config";
+
+/**
+ * Optional, user-supplied OAuth client config (from the server entry). When a
+ * `clientId` is present we hand it to the SDK as already-registered client
+ * information, so it skips dynamic client registration entirely — the escape
+ * hatch for servers that gate or forbid anonymous registration (e.g. Figma).
+ */
+export interface OAuthClientOptions {
+    clientId?: string;
+    clientSecret?: string;
+    scopes?: string[];
+}
+
+/** Pull the OAuth client options out of a server config, resolving secrets. */
+export function oauthClientOptions(cfg: HttpServerConfig): OAuthClientOptions {
+    return {
+        clientId: cfg.clientId,
+        clientSecret: cfg.clientSecret ? resolveSecrets(cfg.clientSecret) : undefined,
+        scopes: cfg.scopes,
+    };
+}
 
 const mcpAuthStore = new Configstore("loop-agent-mcp-auth", {}, { configPath: join(getLoopDir(), "mcp-auth.json") });
 
@@ -44,11 +66,12 @@ export function clearMcpAuth(server: string): void {
  * surfaces as needs-auth instead of silently popping a browser. The /mcp
  * authorize flow passes a real opener.
  */
-export class PiOAuthProvider implements OAuthClientProvider {
+export class LoopOAuthProvider implements OAuthClientProvider {
     constructor(
         private readonly server: string,
         private readonly redirectUri: string,
         private readonly onRedirect?: (url: URL) => void,
+        private readonly opts: OAuthClientOptions = {},
     ) {}
 
     get redirectUrl(): string {
@@ -61,11 +84,20 @@ export class PiOAuthProvider implements OAuthClientProvider {
             redirect_uris: [this.redirectUri],
             grant_types: ["authorization_code", "refresh_token"],
             response_types: ["code"],
-            token_endpoint_auth_method: "none",
+            // A configured secret means a confidential client; otherwise we're a
+            // public client and authenticate the token request with PKCE alone.
+            token_endpoint_auth_method: this.opts.clientSecret ? "client_secret_post" : "none",
+            ...(this.opts.scopes?.length ? { scope: this.opts.scopes.join(" ") } : {}),
         };
     }
 
     clientInformation(): OAuthClientInformation | undefined {
+        // A user-supplied client_id short-circuits dynamic registration: hand it
+        // straight to the SDK (with the secret for confidential clients). Falls
+        // back to whatever a prior registration stored.
+        if (this.opts.clientId) {
+            return { client_id: this.opts.clientId, client_secret: this.opts.clientSecret };
+        }
         return read(this.server).clientInformation;
     }
 

@@ -22,9 +22,9 @@ export interface AppDeps {
     showWorking: (msg?: string) => void;
     hideWorking: () => void;
     showSelector: (component: Container, focusable: Container | SelectList) => () => void;
-    selectOnce: (items: SelectItem[], title?: string) => Promise<SelectItem | null>;
+    selectOnce: (items: SelectItem[], title?: string, opts?: { initialIndex?: number }) => Promise<SelectItem | null>;
     /** Single-select with a type-to-filter search box (long lists). */
-    searchOnce: (items: SelectItem[], title?: string) => Promise<SelectItem | null>;
+    searchOnce: (items: SelectItem[], title?: string, opts?: { initialIndex?: number }) => Promise<SelectItem | null>;
     /** Multi-select toggle list (Enter/Space toggles, done confirms, Esc → null). */
     toggleOnce: (values: string[], initial: Set<string>, title?: string) => Promise<string[] | null>;
     promptOnce: (label?: string, initial?: string) => Promise<string>;

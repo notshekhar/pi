@@ -1,6 +1,6 @@
 /**
- * Skill loading + system-prompt formatting — own implementation, mirrors
- * pi-mono's core/skills.ts behavior (same discovery rules, same XML prompt
+ * Skill loading + system-prompt formatting — own implementation
+ * (same discovery rules, same XML prompt
  * format per the Agent Skills standard).
  *
  * Discovery locations:
@@ -10,7 +10,7 @@
  *   - a directory containing SKILL.md is a skill root; don't recurse further
  *   - otherwise load direct *.md children and recurse into subdirectories
  *
- * Divergences from pi-mono (deliberate, to avoid the yaml + ignore deps):
+ * Deliberate divergences (to avoid the yaml + ignore deps):
  *   - frontmatter is parsed with a minimal YAML subset (key: value lines,
  *     quoted strings, booleans) — multiline/folded values are not supported
  *   - .gitignore/.ignore files inside skill directories are not honored

@@ -15,7 +15,7 @@ function parseActivity(raw: unknown): SubagentActivityPart[] | undefined {
     return parts.length ? parts : undefined;
 }
 
-/** Tree fields (id/parentId) pass through so pi-mono branched sessions keep their shape. */
+/** Tree fields (id/parentId) pass through so the reference branched sessions keep their shape. */
 function treeFields(obj: Record<string, unknown>): { id?: string; parentId?: string | null } {
     const out: { id?: string; parentId?: string | null } = {};
     if (typeof obj.id === "string") out.id = obj.id;
@@ -24,10 +24,10 @@ function treeFields(obj: Record<string, unknown>): { id?: string; parentId?: str
 }
 
 /**
- * Adapt a raw JSON line from a pi (or loop-agent) session into our Entry shape.
+ * Adapt a raw JSON line from a legacy or loop session into our Entry shape.
  * Unknown shapes fall back to { type: "custom", payload }.
  */
-export function adaptPiEntry(raw: unknown): Entry | null {
+export function adaptLoopEntry(raw: unknown): Entry | null {
     if (!raw || typeof raw !== "object") return null;
     const obj = raw as Record<string, unknown>;
     const ts = typeof obj.ts === "number" ? obj.ts : typeof obj.timestamp === "number" ? obj.timestamp : Date.now();
@@ -49,7 +49,7 @@ export function adaptPiEntry(raw: unknown): Entry | null {
                 id: tree.id ?? String(obj.id ?? ""),
             } as Entry;
         case "message": {
-            // pi-mono nests the message: { type: "message", id, parentId, message: { role, content } }
+            // the reference nests the message: { type: "message", id, parentId, message: { role, content } }
             const nested = obj.message as Record<string, unknown> | undefined;
             const role = (nested?.role ?? obj.role) as string | undefined;
             const content = nested ? nested.content : obj.content;
@@ -97,7 +97,7 @@ export function adaptPiEntry(raw: unknown): Entry | null {
                 fromId: typeof obj.fromId === "string" ? obj.fromId : undefined,
                 ...tree,
             };
-        // pi-mono branch summaries
+        // the reference branch summaries
         case "branch_summary":
             return {
                 type: "branch-summary",
@@ -115,8 +115,8 @@ export function adaptPiEntry(raw: unknown): Entry | null {
                 ...tree,
             };
         case "session-name":
-        // pi-mono writes display names as session_info entries (distinct from
-        // our session-info header, which pi-mono doesn't use).
+        // the reference writes display names as session_info entries (distinct from
+        // our session-info header, which the reference doesn't use).
         case "session_info":
             return {
                 type: "session-name",
@@ -125,7 +125,7 @@ export function adaptPiEntry(raw: unknown): Entry | null {
                 ...tree,
             };
         default:
-            // pi-specific shapes: user-prompt, assistant-message, tool-call, tool-result, etc.
+            // legacy shapes: user-prompt, assistant-message, tool-call, tool-result, etc.
             if (obj.type === "user-prompt" || obj.role === "user") {
                 return { type: "message", ts, role: "user", content: obj.content ?? obj.text ?? "", ...tree };
             }

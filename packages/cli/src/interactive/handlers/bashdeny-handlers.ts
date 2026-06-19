@@ -35,6 +35,7 @@ export async function runBashDenyManager(deps: AppDeps): Promise<void> {
     const save = (entries: string[]): void => settingsStore.set("bashDeny", entries);
 
     // Loop so removing/adding returns to the list, like /agents.
+    let lastIndex = 0;
     while (true) {
         const entries = currentBashDeny();
         const usingDefaults = settingsStore.get("bashDeny") === undefined;
@@ -52,8 +53,9 @@ export async function runBashDenyManager(deps: AppDeps): Promise<void> {
             ? `Bash denylist · ${entries.length} (defaults — editing takes ownership)`
             : `Bash denylist · ${entries.length}`;
         // searchOnce gives a type-to-filter box so a long denylist stays navigable.
-        const pick = await searchOnce(items, title);
+        const pick = await searchOnce(items, title, { initialIndex: lastIndex });
         if (!pick) return;
+        lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
 
         if (pick.value === "+add") {
             const pattern = (await promptOnce('command to block (e.g. "rm" or "git commit")')).trim();

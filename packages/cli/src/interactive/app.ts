@@ -209,18 +209,18 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         refreshCommands();
     });
 
-    // pi pattern: editor lives in its own container so we can swap it out for selectors
+    // Editor lives in its own container so we can swap it out for selectors
     const editorContainer = new Container();
     editorContainer.addChild(editor);
 
-    // pi pattern: fixed-height status slot above editor so editor never shifts.
+    // Fixed-height status slot above editor so editor never shifts.
     // Loader renders 2 rows (leading blank + spinner line) — the idle spacer
     // must match, or the editor/footer block jumps a row on every turn start.
     const statusContainer = new Container();
     const statusIdleSpacer = new Spacer(2);
     statusContainer.addChild(statusIdleSpacer);
 
-    // pi-mono parity: queued user messages render between status and editor
+    // queued user messages render between status and editor
     const pendingContainer = new Container();
     const queuedMessages: string[] = [];
     function renderPending(): void {
@@ -274,8 +274,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     }
 
     const selectorHost = { tui, showSelector };
-    const selectOnce = (items: SelectItem[], title?: string) => selectOnceShared(selectorHost, items, title);
-    const searchOnce = (items: SelectItem[], title?: string) => searchSelectOnceShared(selectorHost, items, title);
+    const selectOnce = (items: SelectItem[], title?: string, opts?: { initialIndex?: number }) =>
+        selectOnceShared(selectorHost, items, title, opts);
+    const searchOnce = (items: SelectItem[], title?: string, opts?: { initialIndex?: number }) =>
+        searchSelectOnceShared(selectorHost, items, title, opts);
     const promptOnce = (label?: string, initial?: string) =>
         promptOnceShared(selectorHost, editorTheme, label, initial);
     const toggleOnce = (values: string[], initial: Set<string>, title?: string) =>

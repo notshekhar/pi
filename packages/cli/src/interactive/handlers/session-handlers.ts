@@ -239,7 +239,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                 return;
             }
             // /name with no arg opens an inline rename prompt prefilled with
-            // the current name (diverges from pi-mono, which just prints it).
+            // the current name (diverges, which just prints it).
             let next = name.trim();
             if (!next) {
                 next = (await promptOnce("session name", state.session.getName() ?? "")).trim();

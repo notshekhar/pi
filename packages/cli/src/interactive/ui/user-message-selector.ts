@@ -1,5 +1,5 @@
 /**
- * Fork-from-message selector — ported from pi-mono
+ * Fork-from-message selector.
  * modes/interactive/components/user-message-selector.ts.
  */
 import { type Component, Container, getKeybindings, Spacer, Text, truncateToWidth } from "@notshekhar/loop-tui";

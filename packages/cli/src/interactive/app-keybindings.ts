@@ -5,7 +5,7 @@ const APP_KEYBINDINGS = {
     "app.tools.expand": { defaultKeys: "ctrl+e", description: "Toggle tool output" },
     "app.interrupt": { defaultKeys: "escape", description: "Interrupt agent" },
     "app.clear": { defaultKeys: "ctrl+c", description: "Clear / exit" },
-    // /tree selector bindings (pi-mono defaults)
+    // /tree selector bindings
     "app.tree.foldOrUp": { defaultKeys: ["ctrl+left", "alt+left"], description: "Fold tree branch or move up" },
     "app.tree.unfoldOrDown": {
         defaultKeys: ["ctrl+right", "alt+right"],

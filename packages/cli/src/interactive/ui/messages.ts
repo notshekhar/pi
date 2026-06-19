@@ -1,9 +1,9 @@
 /**
- * Message components — replace @earendil-works/pi-coding-agent's
+ * Message components — our chat-history renderers:
  * UserMessageComponent / AssistantMessageComponent /
  * SkillInvocationMessageComponent / CompactionSummaryMessageComponent /
  * parseSkillBlock / DynamicBorder.
- * Ported from pi-mono, trimmed to what our chat history actually uses.
+ * Trimmed to what our chat history actually uses.
  */
 import { Box, type Component, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@notshekhar/loop-tui";
 import { getMarkdownTheme, theme } from "./theme";
@@ -253,7 +253,7 @@ export class CompactionSummaryMessageComponent extends Box {
     }
 }
 
-/** Branch summary box (pi-mono BranchSummaryMessageComponent) — rendered when
+/** Branch summary box — rendered when
  * /tree navigation summarized the abandoned branch. */
 export class BranchSummaryMessageComponent extends Box {
     private expanded = false;

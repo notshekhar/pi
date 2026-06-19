@@ -346,7 +346,7 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
     // /settings takes effect without rebuilding the command list or restarting.
     for (const c of cmds) reg.register(c);
 
-    // skills as /skill:name commands (pi-mono parity)
+    // skills as /skill:name commands
     try {
         const sk = await loadProjectSkills(cwd);
         for (const skill of sk.skills) {
@@ -363,7 +363,7 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
                         ctx.emit("error", `failed reading skill ${skill.name}: ${(e as Error).message}`);
                         return;
                     }
-                    // pi-mono skill block format — must match parseSkillBlock regex exactly
+                    // the reference skill block format — must match parseSkillBlock regex exactly
                     const block = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${content}\n</skill>`;
                     const text = args ? `${block}\n\n${args}` : block;
                     ctx.emit("inject-skill", text);

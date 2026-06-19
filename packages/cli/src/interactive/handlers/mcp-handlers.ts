@@ -82,10 +82,22 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
             "Auth",
         );
         if (!auth) return undefined;
+        if (auth.value !== "oauth") return { type: type as "http" | "sse", url };
+
+        // Optional pre-registered client — for servers that block automatic
+        // registration (e.g. Figma). Blank = let loop register dynamically.
+        const clientId = (await promptOnce("OAuth client ID (optional — blank = auto-register)")).trim();
+        const clientSecret = clientId
+            ? (await promptOnce("OAuth client secret (optional; supports ${env:VAR})")).trim()
+            : "";
+        const scopesRaw = (await promptOnce("OAuth scopes (space-separated, optional)")).trim();
         return {
             type: type as "http" | "sse",
             url,
-            ...(auth.value === "oauth" ? { auth: "oauth" as const } : {}),
+            auth: "oauth" as const,
+            ...(clientId ? { clientId } : {}),
+            ...(clientSecret ? { clientSecret } : {}),
+            ...(scopesRaw ? { scopes: scopesRaw.split(/\s+/) } : {}),
         };
     }
 
@@ -168,7 +180,9 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
 
             // Interactive panel: loop so action submenus return to the list.
             // "+ add server" is always offered, so an empty config isn't a
-            // dead end.
+            // dead end. `lastIndex` keeps the cursor on the row just acted on
+            // instead of snapping to the top after every action.
+            let lastIndex = 0;
             while (true) {
                 const servers = manager.listServers();
                 const items: SelectItem[] = [
@@ -179,8 +193,11 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
                         description: detail(s),
                     })),
                 ];
-                const pick = await searchOnce(items, "MCP servers (type to filter, Esc to close)");
+                const pick = await searchOnce(items, "MCP servers (type to filter, Esc to close)", {
+                    initialIndex: lastIndex,
+                });
                 if (!pick) return;
+                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
                 if (pick.value === ADD_SERVER) {
                     await addServerFlow();
                     continue;

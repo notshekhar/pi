@@ -1,7 +1,6 @@
 /**
  * Tree layout algorithms for the /tree selector — pure functions, no UI
- * state. Ported from pi-mono tree-selector.ts (flattenTree /
- * recalculateVisualStructure).
+ * state (flattenTree / recalculateVisualStructure).
  *
  * Indentation rules:
  * - At indent 0: stay at 0 unless parent has >1 children (then +1)

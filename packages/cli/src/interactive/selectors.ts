@@ -39,13 +39,21 @@ function matchItem(item: SelectItem, query: string): boolean {
  * description), arrows navigate the filtered set, Enter selects, Esc cancels.
  * For long lists (e.g. an OpenRouter model picker).
  */
-export function searchSelectOnce(host: SelectorHost, items: SelectItem[], title?: string): Promise<SelectItem | null> {
+export function searchSelectOnce(
+    host: SelectorHost,
+    items: SelectItem[],
+    title?: string,
+    opts?: { initialIndex?: number },
+): Promise<SelectItem | null> {
     return new Promise((resolve) => {
         if (!items.length) {
             resolve(null);
             return;
         }
         const list = new SelectList(items, Math.min(items.length, 10), getSelectListTheme());
+        // Re-open at a caller-supplied position so a looping menu (e.g. /settings
+        // toggles) doesn't snap back to the top after each action.
+        if (opts?.initialIndex != null) list.setSelectedIndex(opts.initialIndex);
         const header = new Text("", 0, 0);
         const renderHeader = (query: string) =>
             header.setText(
@@ -103,7 +111,12 @@ export function searchSelectOnce(host: SelectorHost, items: SelectItem[], title?
     });
 }
 
-export function selectOnce(host: SelectorHost, items: SelectItem[], title?: string): Promise<SelectItem | null> {
+export function selectOnce(
+    host: SelectorHost,
+    items: SelectItem[],
+    title?: string,
+    opts?: { initialIndex?: number },
+): Promise<SelectItem | null> {
     return new Promise((resolve) => {
         if (!items.length) {
             resolve(null);
@@ -111,6 +124,7 @@ export function selectOnce(host: SelectorHost, items: SelectItem[], title?: stri
         }
         const visible = Math.min(items.length, 10);
         const list = new SelectList(items, visible, getSelectListTheme());
+        if (opts?.initialIndex != null) list.setSelectedIndex(opts.initialIndex);
         const wrapper = buildSelectorWrapper(items, title, list);
         const close = host.showSelector(wrapper, list);
         let done = false;

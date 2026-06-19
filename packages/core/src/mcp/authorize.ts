@@ -5,7 +5,7 @@
  */
 import { auth } from "@ai-sdk/mcp";
 import { isHttpServer, type McpServerConfig } from "./config";
-import { clearMcpAuth, PiOAuthProvider } from "./oauth";
+import { clearMcpAuth, oauthClientOptions, LoopOAuthProvider } from "./oauth";
 import { startCallbackServer } from "./oauth-callback";
 
 const LOGIN_TIMEOUT_MS = 180_000;
@@ -31,34 +31,62 @@ export async function authorizeServer(
     // our explicit login must fetch it ourselves.
     const resourceMetadataUrl = await discoverResourceMetadataUrl(cfg.url);
 
+    const opts = oauthClientOptions(cfg);
     const callback = await startCallbackServer();
     try {
-        // Start clean: the dynamically-registered client is bound to the
-        // redirect URI it was created with. Re-registering against this run's
-        // live callback URI avoids a redirect_uri mismatch if a stale client
-        // (e.g. from a background connect) was registered on a different port.
+        // Start clean: a dynamically-registered client is bound to the redirect
+        // URI it was created with. Re-registering against this run's live
+        // callback URI avoids a redirect_uri mismatch if a stale client (e.g.
+        // from a background connect) was registered on a different port. A
+        // pre-configured clientId isn't stored here, so this never drops it.
         clearMcpAuth(name);
-        const provider = new PiOAuthProvider(name, callback.redirectUri, (url) => openUrl(url.toString()));
+        const provider = new LoopOAuthProvider(name, callback.redirectUri, (url) => openUrl(url.toString()), opts);
 
         // First pass: no auth code yet → provider.redirectToAuthorization fires,
         // the browser opens, and auth() returns "REDIRECT".
-        const first = await auth(provider, { serverUrl: cfg.url, resourceMetadataUrl });
+        const first = await runAuth(() => auth(provider, { serverUrl: cfg.url, resourceMetadataUrl }), !opts.clientId);
         if (first === "AUTHORIZED") return; // already had a valid session
 
         const { code, state } = await callback.waitForCode(LOGIN_TIMEOUT_MS);
 
         // Second pass: exchange the code for tokens (saved via saveTokens).
-        const result = await auth(provider, {
-            serverUrl: cfg.url,
-            authorizationCode: code,
-            callbackState: state,
-            resourceMetadataUrl,
-        });
+        const result = await runAuth(
+            () =>
+                auth(provider, {
+                    serverUrl: cfg.url,
+                    authorizationCode: code,
+                    callbackState: state,
+                    resourceMetadataUrl,
+                }),
+            !opts.clientId,
+        );
         if (result !== "AUTHORIZED") {
             throw new Error("authorization did not complete");
         }
     } finally {
         callback.close();
+    }
+}
+
+/**
+ * Run one `auth()` step, translating the SDK's cryptic registration failures
+ * into an actionable message. Servers that forbid anonymous dynamic client
+ * registration (e.g. Figma → HTTP 403 "Forbidden", which the SDK then fails to
+ * parse as JSON) need the user to register an app and set clientId/clientSecret.
+ */
+async function runAuth<T>(fn: () => Promise<T>, usedDynamicRegistration: boolean): Promise<T> {
+    try {
+        return await fn();
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (usedDynamicRegistration && /\b(403|forbidden|registration|invalid oauth error response)\b/i.test(msg)) {
+            throw new Error(
+                `${msg}\n\nThis server appears to block automatic OAuth client registration. ` +
+                    `Register an OAuth app with the provider, then add "clientId" (and "clientSecret" ` +
+                    `for confidential clients) to the server entry in ~/.loop/settings.json.`,
+            );
+        }
+        throw err;
     }
 }
 

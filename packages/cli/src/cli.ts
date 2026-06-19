@@ -5,7 +5,7 @@
 import type { ProviderId } from "@notshekhar/loop-core";
 import { parseArgs } from "./args";
 
-// The interactive app and subcommands transitively pull in pi-tui, highlight.js,
+// The interactive app and subcommands transitively pull in the TUI, highlight.js,
 // and core (~400ms of module eval). Dynamic-import them per command so
 // --version/--help stay instant and each command only loads what it needs.
 const commands = () => import("./commands");

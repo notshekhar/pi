@@ -68,6 +68,7 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                 pickFrom([...AGENT_TOOL_NAMES], initial, "Agent tools (task = can spawn subagents)");
 
             // Loop so Esc in submenus returns to the agent list, like /settings.
+            let lastIndex = 0;
             while (true) {
                 const agents = listAgents();
                 const items: SelectItem[] = [
@@ -83,8 +84,9 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                         description: `[${toolsLabel(a.tools)}] ${a.prompt.split("\n")[0].slice(0, 60)}`,
                     })),
                 ];
-                const pick = await selectOnce(items, "Agents (Esc to close)");
+                const pick = await selectOnce(items, "Agents (Esc to close)", { initialIndex: lastIndex });
                 if (!pick) return;
+                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
 
                 if (pick.value === "+new") {
                     const name = (await promptOnce("agent name (e.g. reviewer)")).trim();

@@ -1,5 +1,5 @@
 /**
- * /fork, /clone, /tree — session-tree navigation (pi-mono parity).
+ * /fork, /clone, /tree — session-tree navigation.
  */
 import {
     BranchSummaryAbortedError,
@@ -24,7 +24,7 @@ export function createSessionTreeHandlers(state: AppState, deps: AppDeps): Sessi
     const { selectOnce, promptOnce } = deps;
 
     /**
-     * pi-mono runtimeHost.fork: "before" forks at the parent of a user
+     * Fork semantics: "before" forks at the parent of a user
      * message (its text returns to the editor); "at" clones up to and
      * including the entry (for /clone).
      */
@@ -114,7 +114,7 @@ export function createSessionTreeHandlers(state: AppState, deps: AppDeps): Sessi
     /** Ask how to summarize the abandoned branch. null = user escaped back to the tree. */
     const promptSummaryChoice = async (): Promise<{ summarize: boolean; customInstructions?: string } | null> => {
         if (settingsStore.get("branchSummarySkipPrompt") as boolean) return { summarize: false };
-        // Loop so Esc in the custom-prompt editor returns to this picker (pi-mono parity).
+        // Loop so Esc in the custom-prompt editor returns to this picker.
         while (true) {
             const choice = await selectOnce(
                 [

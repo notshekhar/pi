@@ -5,7 +5,7 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { isHttpServer, type McpServerConfig } from "./config";
 import { buildTransport } from "./transport";
-import { PiOAuthProvider } from "./oauth";
+import { oauthClientOptions, LoopOAuthProvider } from "./oauth";
 
 export type McpClient = Awaited<ReturnType<typeof createMCPClient>>;
 export type McpToolSet = Record<string, unknown>;
@@ -121,7 +121,9 @@ function namespaceTools(server: string, tools: McpToolSet): McpToolSet {
  */
 export async function connectServer(name: string, cfg: McpServerConfig): Promise<ConnectResult> {
     const authProvider =
-        isHttpServer(cfg) && cfg.auth === "oauth" ? new PiOAuthProvider(name, oauthRefreshRedirectUri()) : undefined;
+        isHttpServer(cfg) && cfg.auth === "oauth"
+            ? new LoopOAuthProvider(name, oauthRefreshRedirectUri(), undefined, oauthClientOptions(cfg))
+            : undefined;
     const transport = buildTransport(cfg, authProvider);
     const client = await createMCPClient({
         name: `loop-mcp-${name}`,

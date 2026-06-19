@@ -1,6 +1,6 @@
 /**
- * Built-in theme palettes — copied from pi-mono's dark.json / light.json so
- * our rendering matches pi exactly. Embedded as TS so no JSON assets need to
+ * Built-in theme palettes — copied from dark.json / light.json so
+ * our rendering stays consistent. Embedded as TS so no JSON assets need to
  * ship next to the compiled binary.
  */
 

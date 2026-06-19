@@ -1,6 +1,6 @@
 /**
- * Changelog parsing — ported from pi-mono utils/changelog.ts.
- * Divergence: pi-mono's GitHub link normalization (repo-specific tag/blob
+ * Changelog parsing.
+ * Divergence: GitHub link normalization (repo-specific tag/blob
  * rewriting) is skipped; our CHANGELOG.md uses plain text and absolute URLs.
  */
 import { existsSync, readFileSync } from "node:fs";

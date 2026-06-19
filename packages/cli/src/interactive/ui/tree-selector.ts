@@ -1,5 +1,5 @@
 /**
- * Session tree selector — ported from pi-mono
+ * Session tree selector.
  * modes/interactive/components/tree-selector.ts. The component shell lives
  * here; list state/input is in tree/tree-list.ts, layout math in
  * tree/layout.ts, row presentation in tree/entry-display.ts.

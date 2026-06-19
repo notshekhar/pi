@@ -25,6 +25,16 @@ export interface HttpServerConfig {
     /** "oauth" → run the browser login flow; omit for static-header auth. */
     auth?: "oauth";
     enabled?: boolean;
+    /**
+     * Pre-registered OAuth client. Set these for servers that don't allow
+     * anonymous dynamic client registration (e.g. Figma returns 403) — loop then
+     * skips registration and authorizes with the credentials you provide.
+     * `clientSecret` supports `${env:VAR}`; omit it for public (PKCE) clients.
+     */
+    clientId?: string;
+    clientSecret?: string;
+    /** OAuth scopes to request — some servers require an explicit scope. */
+    scopes?: string[];
 }
 
 export type McpServerConfig = StdioServerConfig | HttpServerConfig;

@@ -27,8 +27,8 @@ import { checkForUpdate } from "../commands";
 import { getNewEntries, loadChangelogEntries } from "../changelog";
 
 /**
- * What's-new: show changelog entries the user hasn't seen yet (pi-mono
- * parity: fresh installs just record the version; resumed sessions skip).
+ * What's-new: show changelog entries the user hasn't seen yet (fresh
+ * installs just record the version; resumed sessions skip).
  */
 export function showWhatsNew(history: ChatHistory, version: string | undefined, resumed: boolean): void {
     if (!version || resumed) return;

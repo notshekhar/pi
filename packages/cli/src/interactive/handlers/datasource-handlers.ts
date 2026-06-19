@@ -103,6 +103,7 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
      */
     async function editForm(id: string, initial: DataSourceConfig, isNew: boolean): Promise<void> {
         const cfg: DataSourceConfig = { ...initial };
+        let lastIndex = 0;
         while (true) {
             const fields: SelectItem[] = [
                 { value: "type", label: `type      ${cfg.type}`, description: "postgres / mysql / redshift" },
@@ -120,8 +121,10 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
             if (!isNew) actions.push({ value: "delete", label: "delete", description: "remove this connection" });
             actions.push({ value: "cancel", label: "cancel", description: "discard changes" });
 
-            const pick = await selectOnce([...fields, ...actions], `${id} — edit (Esc to cancel)`);
+            const rows = [...fields, ...actions];
+            const pick = await selectOnce(rows, `${id} — edit (Esc to cancel)`, { initialIndex: lastIndex });
             if (!pick || pick.value === "cancel") return;
+            lastIndex = Math.max(0, rows.findIndex((i) => i.value === pick.value));
 
             switch (pick.value) {
                 case "type":
@@ -203,6 +206,7 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
     return {
         async manageDatasources() {
             // Loop so Esc in the form returns to the list (like /agents, /mcp).
+            let lastIndex = 0;
             while (true) {
                 const datasources = listDatasources();
                 const items: SelectItem[] = [
@@ -217,8 +221,9 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
                         description: describe(config),
                     })),
                 ];
-                const pick = await selectOnce(items, "Datasources (Esc to close)");
+                const pick = await selectOnce(items, "Datasources (Esc to close)", { initialIndex: lastIndex });
                 if (!pick) return;
+                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
                 if (pick.value === "+new") {
                     await newDatasource();
                 } else {

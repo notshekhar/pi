@@ -7,7 +7,7 @@ import { Session, generateEntryId } from "./session";
 import { stripSessionHookContext } from "./hook-context";
 
 function slugCwd(cwd: string): string {
-    // pi convention: "--Users-notshekhar-Documents-foo--"
+    // slug convention: "--Users-notshekhar-Documents-foo--"
     const stripped = cwd.replace(/^\/+|\/+$/g, "").replace(/\//g, "-");
     return `--${stripped}--`;
 }
@@ -152,7 +152,7 @@ export class SessionManager {
             out.push(copy);
         }
 
-        // Re-attach labels for copied entries, chained at the end (pi-mono
+        // Re-attach labels for copied entries, chained at the end (the reference
         // createBranchedSession recreates them from the resolved map).
         const usedIds = new Set([newId, ...copiedIds]);
         let parentId = out[out.length - 1].id!;
@@ -170,7 +170,7 @@ export class SessionManager {
     }
 
     /**
-     * Fork the path root → `leafId` into a new session file (pi-mono
+     * Fork the path root → `leafId` into a new session file (the reference
      * createBranchedSession). Abandoned branches stay behind; the new
      * session's header records the source via parentSession.
      */

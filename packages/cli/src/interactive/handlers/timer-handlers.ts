@@ -105,6 +105,7 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
         },
 
         async openReminders() {
+            let lastIndex = 0;
             while (true) {
                 const reminders = listReminders();
                 const items: SelectItem[] = [
@@ -115,8 +116,9 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
                         description: scheduleLabel(r),
                     })),
                 ];
-                const pick = await searchOnce(items, `Reminders · ${reminders.length}`);
+                const pick = await searchOnce(items, `Reminders · ${reminders.length}`, { initialIndex: lastIndex });
                 if (!pick) return;
+                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
 
                 if (pick.value === ADD) {
                     if (reminders.length >= MAX_REMINDERS) {

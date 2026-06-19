@@ -1,9 +1,9 @@
 /**
- * Own theme engine — replaces @earendil-works/pi-coding-agent's theme module.
- * Ported from pi-mono theme.ts, simplified: built-in palettes are embedded TS
+ * Own theme engine.
+ * Built-in palettes are embedded TS
  * data (no JSON assets shipped next to the binary, no typebox validation, no
  * file watcher). Custom themes still load from ~/.loop/agent/themes/<name>.json
- * using pi-mono's theme JSON shape (vars + colors).
+ * using a simple theme JSON shape (vars + colors).
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -24,7 +24,7 @@ type ColorMode = "truecolor" | "256color";
 type ColorValue = string | number;
 
 // ---------------------------------------------------------------------------
-// Color conversion (ported from pi-mono)
+// Color conversion 
 // ---------------------------------------------------------------------------
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -197,7 +197,7 @@ export function initTheme(themeName = "dark"): void {
 
 // ---------------------------------------------------------------------------
 // Syntax highlighting (highlight.js/lib/common — ~35 languages instead of
-// pi-mono's full set; covers everything in getLanguageFromPath that matters)
+// a curated set; covers everything in getLanguageFromPath that matters)
 // ---------------------------------------------------------------------------
 
 import hljs from "highlight.js/lib/common";
@@ -299,7 +299,7 @@ function renderHighlightedHtml(html: string, hlTheme: HighlightTheme): string {
 
 export function highlightCode(code: string, lang?: string): string[] {
     // No valid language → plain mdCodeBlock color. Auto-detection is unreliable
-    // (mirrors pi-mono's reasoning), so we never auto-detect.
+    // (mirrors reasoning), so we never auto-detect.
     const validLang = lang && hljs.getLanguage(lang) ? lang : undefined;
     if (!validLang) return code.split("\n").map((line) => theme.fg("mdCodeBlock", line));
     try {
@@ -362,7 +362,7 @@ export function getLanguageFromPath(filePath: string): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// pi-tui theme adapters
+// TUI theme adapters
 // ---------------------------------------------------------------------------
 
 export function getMarkdownTheme(): MarkdownTheme {

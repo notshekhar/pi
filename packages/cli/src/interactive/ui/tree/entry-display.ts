@@ -2,9 +2,9 @@
  * Row presentation for the /tree selector: one-line display text, search
  * text, and label timestamps per entry type. No layout or input concerns.
  *
- * Divergence from pi-mono: our tool entries carry raw output (we don't store
+ * Divergence: our tool entries carry raw output (we don't store
  * per-tool-call blocks), so tool rows show a content snippet instead of
- * pi-mono's resolved tool-call name/arguments.
+ * resolved tool-call name/arguments.
  */
 import { stripSessionHookContext, type SessionTreeNode } from "@notshekhar/loop-core";
 import { theme } from "../theme";

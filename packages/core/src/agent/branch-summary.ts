@@ -1,5 +1,5 @@
 /**
- * Branch summaries for /tree navigation — ported from pi-mono
+ * Branch summaries for /tree navigation.
  * core/compaction/branch-summarization. When the user navigates away from a
  * branch, its entries can be summarized into a branch-summary entry that
  * joins the model context at the navigation target.

@@ -140,7 +140,7 @@ interface PersistedTurnMessage {
 /**
  * Turn one completed step's messages into session entries — assistant text +
  * tool calls, and the tool results — in canonical AI-SDK shape (so they replay
- * and feed straight back to the model). Mirrors pi-mono: one entry per message,
+ * and feed straight back to the model). mirrors the reference: one entry per message,
  * persisted as the step finishes (abort-safe — completed steps survive).
  *
  * Task (subagent) tool calls/results are filtered out: they persist separately
@@ -407,7 +407,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     }
 
     const anthropicCaching = effectiveProvider === "anthropic";
-    // Incremental persistence (pi-mono parity): each completed step's messages
+    // Incremental persistence: each completed step's messages
     // are written as they finish, so tool calls/results survive turn boundaries
     // and aborts. `step.response.messages` is CUMULATIVE (it regrows the whole
     // turn each step), so we persist only the new tail — otherwise messages and
@@ -464,7 +464,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         tools,
         stopWhen: stepCountIs(maxSteps),
         abortSignal,
-        // Persist each step's messages as it finishes (mirrors pi-mono's
+        // Persist each step's messages as it finishes (mirrors the reference's
         // per-message persistence). Errors here must not break the turn.
         onStepFinish: (step) => {
             void persistStep(step as never);
@@ -472,7 +472,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         // smoothStream removed: it re-buffers tokens and releases them on its
         // own 20ms timers, coupling stream delivery to the timer phase — the
         // same phase that starves during a turn, which can deadlock delivery
-        // and freeze the TUI. pi-mono doesn't use it; we stream parts raw.
+        // and freeze the TUI. the reference doesn't use it; we stream parts raw.
         ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
     });
 

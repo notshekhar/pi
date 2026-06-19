@@ -94,6 +94,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
             const active = (getActiveProvider() ?? state.provider) as ProviderId;
 
             const ADD = "\x00add";
+            let lastIndex = 0;
             while (true) {
                 const cat = await getCatalog();
                 const custom = new Set(listCustomModelIds());
@@ -109,8 +110,11 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                     { value: ADD, label: "+ add model…", description: `register a model id under ${active}` },
                     ...modelItems,
                 ];
-                const pick = await searchOnce(items, `Model · ${active} (type to filter)`);
+                const pick = await searchOnce(items, `Model · ${active} (type to filter)`, {
+                    initialIndex: lastIndex,
+                });
                 if (!pick) return;
+                lastIndex = Math.max(0, items.findIndex((i) => i.value === pick.value));
 
                 if (pick.value === ADD) {
                     const modelId = (await promptOnce(`new model id under ${active}/ (e.g. some-model-v2)`)).trim();
@@ -149,7 +153,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
         },
         async setThinking(level) {
             // Models that don't reason (e.g. composer-2.5, grok-3) have no
-            // thinking levels — pi-mono shows "does not support thinking" and
+            // thinking levels — the reference shows "does not support thinking" and
             // skips the selector entirely.
             if (!getModelSync(state.modelId)?.reasoning) {
                 history.addSystem("current model does not support thinking");

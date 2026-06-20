@@ -6,5 +6,5 @@
     // paths) without rootDir/composite constraints.
     "extends": "../../tsconfig.base.json",
     "include": ["src/**/*", "src/catalog/generated/*.json"],
-    "exclude": ["src/catalog/scripts/**"]
+    "exclude": ["src/catalog/scripts/**", "src/docs/scripts/**"]
 }

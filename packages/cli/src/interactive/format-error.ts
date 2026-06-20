@@ -45,8 +45,7 @@ export function formatError(err: unknown): string {
 
     if (err && typeof err === "object") {
         const e = err as Record<string, unknown>;
-        const isApiError =
-            e.name === "AI_APICallError" || "responseBody" in e || "statusCode" in e || "url" in e;
+        const isApiError = e.name === "AI_APICallError" || "responseBody" in e || "statusCode" in e || "url" in e;
         if (isApiError) {
             const status = typeof e.statusCode === "number" ? e.statusCode : undefined;
             const real = providerMessage(e.data) ?? providerMessage(e.responseBody);

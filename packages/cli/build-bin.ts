@@ -46,11 +46,19 @@ const ext = isWin ? ".exe" : "";
 // Maximize CPU compatibility. By default `bun --compile` emits a "modern"
 // (Haswell/AVX2) x64 build that crashes with SIGILL on pre-2013 / low-end CPUs
 // (older servers, budget VPSes, VMs). Compile the `-baseline` (Nehalem) variant
-// for every x64 target so the published binaries run on ALL x64 CPUs. arm64 has
-// no baseline/modern split. The published asset name keeps the plain arch
-// (loop-linux-x64.tar.gz) — only the bun build target gains the suffix, so
-// Homebrew + install.sh naming is unaffected.
-const compileTarget = shortTarget.endsWith("x64") ? `${target}-baseline` : target;
+// for x64 so the published binaries run on ALL x64 CPUs. arm64 has no
+// baseline/modern split.
+//
+// Windows is excluded: Bun's `bun-windows-x64-baseline` runtime currently fails
+// to extract ("download may be incomplete", repro on Bun 1.3.14), so Windows
+// ships the default build (Win11 needs a modern CPU anyway). The native Windows
+// CI runner's own Bun is already bun-windows-x64, so the plain target needs no
+// extra runtime download. Revisit when Bun fixes baseline-windows packaging.
+//
+// The published asset name keeps the plain arch (loop-linux-x64.tar.gz) — only
+// the bun build target gains the suffix, so Homebrew + installers are unaffected.
+const useBaseline = shortTarget.endsWith("x64") && !isWin;
+const compileTarget = useBaseline ? `${target}-baseline` : target;
 
 const stageDir = join(import.meta.dir, "dist", "bin", shortTarget);
 const binPath = join(stageDir, `loop${ext}`);

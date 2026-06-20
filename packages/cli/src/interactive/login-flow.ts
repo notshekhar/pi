@@ -27,6 +27,7 @@ export interface LoginDeps {
     tui: TUI;
     history: ChatHistory;
     selectOnce: (items: SelectItem[], title?: string) => Promise<SelectItem | null>;
+    searchOnce: (items: SelectItem[], title?: string, opts?: { initialIndex?: number }) => Promise<SelectItem | null>;
     promptOnce: (label?: string) => Promise<string>;
 }
 
@@ -55,7 +56,7 @@ async function pickProvider(deps: LoginDeps): Promise<ProviderId | null> {
                 "Any compatible endpoint/gateway — bifrost, litellm, proxies (OpenAI/Anthropic/Google compatible)",
         },
     ];
-    const pick = await deps.selectOnce(items, "Sign in to provider");
+    const pick = await deps.searchOnce(items, "Sign in to provider (type to filter)");
     return pick ? (pick.value as ProviderId) : null;
 }
 
@@ -351,7 +352,7 @@ export async function startLogin(deps: LoginDeps, target?: string): Promise<void
 }
 
 export async function startLogout(deps: LoginDeps, target?: string): Promise<void> {
-    const { tui, history, selectOnce } = deps;
+    const { tui, history, searchOnce } = deps;
     let pick = target;
     if (!pick) {
         const authed: string[] = [
@@ -371,7 +372,7 @@ export async function startLogout(deps: LoginDeps, target?: string): Promise<voi
             })),
             { value: "__all__", label: chalk.red("all providers"), description: "Sign out from every provider" },
         ];
-        const sel = await selectOnce(items);
+        const sel = await searchOnce(items, "Sign out of provider (type to filter)");
         if (!sel) return;
         pick = sel.value;
     }

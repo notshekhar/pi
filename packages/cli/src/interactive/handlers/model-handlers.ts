@@ -64,7 +64,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                     label: id,
                     description: id === getActiveProvider() ? "(active)" : "",
                 }));
-                const pick = await selectOnce(items);
+                const pick = await searchOnce(items, "Provider (type to filter)");
                 if (!pick) return;
                 target = pick.value;
             }

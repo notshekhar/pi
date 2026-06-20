@@ -31,8 +31,8 @@ type MiscHandlers = Pick<
 >;
 
 export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers {
-    const { tui, history, tracker, editor, selectOnce, promptOnce, cleanExit } = deps;
-    const loginDeps = { tui, history, selectOnce, promptOnce };
+    const { tui, history, tracker, editor, selectOnce, searchOnce, promptOnce, cleanExit } = deps;
+    const loginDeps = { tui, history, selectOnce, searchOnce, promptOnce };
 
     return {
         emit(event, data) {

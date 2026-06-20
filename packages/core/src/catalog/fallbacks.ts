@@ -291,6 +291,7 @@ const MISTRAL: ModelInfo[] = [
 
 // Zhipu GLM via open.bigmodel.cn. GLM-4.5+ are thinking-capable (reasoning:true).
 const GLM: ModelInfo[] = [
+    m("glm", "glm-5.2", "GLM-5.2", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
     m("glm", "glm-4.7", "GLM-4.7", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
     m("glm", "glm-4.6", "GLM-4.6", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
     m("glm", "glm-4.5-air", "GLM-4.5 Air", 128_000, 96_000, { input: 0.2, output: 1.1 }, true),
@@ -298,6 +299,7 @@ const GLM: ModelInfo[] = [
 
 // Same GLM models via the international z.ai endpoint.
 const ZAI: ModelInfo[] = [
+    m("zai", "glm-5.2", "GLM-5.2 (z.ai)", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
     m("zai", "glm-4.7", "GLM-4.7 (z.ai)", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
     m("zai", "glm-4.6", "GLM-4.6 (z.ai)", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
     m("zai", "glm-4.5-air", "GLM-4.5 Air (z.ai)", 128_000, 96_000, { input: 0.2, output: 1.1 }, true),
@@ -319,6 +321,41 @@ const CEREBRAS: ModelInfo[] = [
         output: 1.2,
     }),
     m("cerebras", "llama-3.3-70b", "Llama 3.3 70B (Cerebras)", 131_072, 32_768, { input: 0.85, output: 1.2 }),
+];
+
+// ZenMux — OpenAI-compatible gateway (author/model ids, like OpenRouter).
+// Curated flagship seed; the full 200+ catalog is reachable via "+ add model".
+const ZENMUX: ModelInfo[] = [
+    m("zenmux", "z-ai/glm-5.2", "ZM · GLM-5.2", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
+    m("zenmux", "anthropic/claude-opus-4.8", "ZM · Claude Opus 4.8", 200_000, 64_000, { input: 5, output: 25 }, true, [
+        "text",
+        "image",
+    ]),
+    m(
+        "zenmux",
+        "anthropic/claude-sonnet-4.6",
+        "ZM · Claude Sonnet 4.6",
+        200_000,
+        64_000,
+        { input: 3, output: 15 },
+        true,
+        ["text", "image"],
+    ),
+    m("zenmux", "openai/gpt-5.5", "ZM · GPT-5.5", 400_000, 128_000, { input: 1.25, output: 10 }, true, [
+        "text",
+        "image",
+    ]),
+    m(
+        "zenmux",
+        "google/gemini-3.1-pro-preview",
+        "ZM · Gemini 3.1 Pro",
+        1_000_000,
+        64_000,
+        { input: 1.25, output: 10 },
+        true,
+        ["text", "image"],
+    ),
+    m("zenmux", "deepseek/deepseek-v3.2", "ZM · DeepSeek V3.2", 128_000, 64_000, { input: 0.28, output: 0.42 }, true),
 ];
 
 // GitHub Copilot — proxied OpenAI/Anthropic models (subscription-billed)
@@ -392,6 +429,7 @@ export const FALLBACK_MODELS: ModelInfo[] = [
     ...ZAI,
     ...GROQ,
     ...CEREBRAS,
+    ...ZENMUX,
     ...GITHUB_COPILOT,
 ];
 

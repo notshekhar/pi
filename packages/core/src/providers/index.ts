@@ -397,6 +397,15 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             const { createGroq } = await import("@ai-sdk/groq");
             return createGroq({ apiKey: key })(model);
         }
+        case "zenmux": {
+            // OpenAI-compatible gateway (https://zenmux.ai/api/v1), author/model ids.
+            const key = getApiKey("zenmux");
+            if (!key) throw new Error("No ZenMux API key. Run: piagent login zenmux");
+            const { createOpenAI } = await import("@ai-sdk/openai");
+            // .chat() forces /chat/completions — the gateway is chat-only, the
+            // SDK's default model call would hit /responses and 403.
+            return createOpenAI({ apiKey: key, baseURL: "https://zenmux.ai/api/v1" })(model);
+        }
         case "cerebras": {
             const key = getApiKey("cerebras");
             if (!key) throw new Error("No Cerebras API key. Run: piagent login cerebras");

@@ -26,6 +26,8 @@ export function providerLabel(id: string): string {
             return "Groq — API key";
         case "cerebras":
             return "Cerebras — API key";
+        case "zenmux":
+            return "ZenMux (gateway, 200+ models) — API key";
         case "ollama":
             return "Ollama — local, no key (must be running)";
         default:

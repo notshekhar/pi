@@ -469,6 +469,11 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         onStepFinish: (step) => {
             void persistStep(step as never);
         },
+        // The SDK's default onError does console.error(error) with the whole
+        // APICallError (request body, tool defs — a wall of noise). We already
+        // surface stream errors cleanly via the fullStream "error" part below,
+        // so swallow this duplicate to keep the console clean.
+        onError: () => {},
         // smoothStream removed: it re-buffers tokens and releases them on its
         // own 20ms timers, coupling stream delivery to the timer phase — the
         // same phase that starves during a turn, which can deadlock delivery

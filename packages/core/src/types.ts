@@ -12,6 +12,7 @@ export type BuiltinProviderId =
     | "zai"
     | "groq"
     | "cerebras"
+    | "zenmux"
     | "ollama";
 export type ProviderId = BuiltinProviderId | (string & {});
 
@@ -32,6 +33,7 @@ export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
     "zai",
     "groq",
     "cerebras",
+    "zenmux",
     "ollama",
 ];
 export const PROVIDER_IDS = BUILTIN_PROVIDER_IDS;

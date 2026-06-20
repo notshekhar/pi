@@ -43,6 +43,15 @@ const shortTarget = target.replace("bun-", "");
 const isWin = target.includes("windows");
 const ext = isWin ? ".exe" : "";
 
+// Maximize CPU compatibility. By default `bun --compile` emits a "modern"
+// (Haswell/AVX2) x64 build that crashes with SIGILL on pre-2013 / low-end CPUs
+// (older servers, budget VPSes, VMs). Compile the `-baseline` (Nehalem) variant
+// for every x64 target so the published binaries run on ALL x64 CPUs. arm64 has
+// no baseline/modern split. The published asset name keeps the plain arch
+// (loop-linux-x64.tar.gz) — only the bun build target gains the suffix, so
+// Homebrew + install.sh naming is unaffected.
+const compileTarget = shortTarget.endsWith("x64") ? `${target}-baseline` : target;
+
 const stageDir = join(import.meta.dir, "dist", "bin", shortTarget);
 const binPath = join(stageDir, `loop${ext}`);
 const pkgJsonPath = join(stageDir, "package.json");
@@ -50,11 +59,11 @@ const pkgJsonPath = join(stageDir, "package.json");
 if (existsSync(stageDir)) rmSync(stageDir, { recursive: true });
 mkdirSync(stageDir, { recursive: true });
 
-console.log(`▶ building ${binPath} (v${pkg.version})`);
+console.log(`▶ building ${binPath} (v${pkg.version}) [target ${compileTarget}]`);
 
 await $`bun build ${join(import.meta.dir, "src/cli.ts")} \
   --compile \
-  --target=${target} \
+  --target=${compileTarget} \
   --minify \
   --define __LOOP_VERSION__=${JSON.stringify(pkg.version)} \
   --define __LOOP_CHANGELOG__=${JSON.stringify(changelog)} \

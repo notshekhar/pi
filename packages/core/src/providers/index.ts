@@ -182,7 +182,7 @@ function xaiAuthFetch(): typeof fetch {
             token = await getAccessToken("xai");
         } catch {
             const key = getApiKey("xai");
-            if (!key) throw new Error("No xAI credentials. Run: piagent login xai");
+            if (!key) throw new Error("No xAI credentials. Run: loop login xai");
             token = key;
         }
         const headers = new Headers(init?.headers);
@@ -343,70 +343,70 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
         }
         case "anthropic": {
             const key = getApiKey("anthropic");
-            if (!key) throw new Error("No Anthropic API key. Run: piagent login anthropic");
+            if (!key) throw new Error("No Anthropic API key. Run: loop login anthropic");
             const { createAnthropic } = await import("@ai-sdk/anthropic");
             return createAnthropic({ apiKey: key })(model);
         }
         case "openai": {
             const key = getApiKey("openai");
-            if (!key) throw new Error("No OpenAI API key. Run: piagent login openai");
+            if (!key) throw new Error("No OpenAI API key. Run: loop login openai");
             const { createOpenAI } = await import("@ai-sdk/openai");
             return createOpenAI({ apiKey: key })(model);
         }
         case "google": {
             const key = getApiKey("google");
-            if (!key) throw new Error("No Google API key. Run: piagent login google");
+            if (!key) throw new Error("No Google API key. Run: loop login google");
             const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
             return createGoogleGenerativeAI({ apiKey: key })(model);
         }
         case "openrouter": {
             const key = getApiKey("openrouter");
-            if (!key) throw new Error("No OpenRouter API key. Run: piagent login openrouter");
+            if (!key) throw new Error("No OpenRouter API key. Run: loop login openrouter");
             const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
             return createOpenRouter({ apiKey: key })(model);
         }
         case "deepseek": {
             const key = getApiKey("deepseek");
-            if (!key) throw new Error("No DeepSeek API key. Run: piagent login deepseek");
+            if (!key) throw new Error("No DeepSeek API key. Run: loop login deepseek");
             const { createDeepSeek } = await import("@ai-sdk/deepseek");
             return createDeepSeek({ apiKey: key })(model);
         }
         case "mistral": {
             const key = getApiKey("mistral");
-            if (!key) throw new Error("No Mistral API key. Run: piagent login mistral");
+            if (!key) throw new Error("No Mistral API key. Run: loop login mistral");
             const { createMistral } = await import("@ai-sdk/mistral");
             return createMistral({ apiKey: key })(model);
         }
         case "glm": {
             // Zhipu GLM models via the BigModel endpoint (open.bigmodel.cn).
             const key = getApiKey("glm");
-            if (!key) throw new Error("No GLM (Zhipu) API key. Run: piagent login glm");
+            if (!key) throw new Error("No GLM (Zhipu) API key. Run: loop login glm");
             const { createZhipu } = await import("zhipu-ai-provider");
             return createZhipu({ apiKey: key })(model);
         }
         case "zai": {
             // Same Zhipu GLM models via the international z.ai endpoint.
             const key = getApiKey("zai");
-            if (!key) throw new Error("No z.ai API key. Run: piagent login zai");
+            if (!key) throw new Error("No z.ai API key. Run: loop login zai");
             const { createZhipu } = await import("zhipu-ai-provider");
             return createZhipu({ apiKey: key, baseURL: "https://api.z.ai/api/paas/v4" })(model);
         }
         case "groq": {
             const key = getApiKey("groq");
-            if (!key) throw new Error("No Groq API key. Run: piagent login groq");
+            if (!key) throw new Error("No Groq API key. Run: loop login groq");
             const { createGroq } = await import("@ai-sdk/groq");
             return createGroq({ apiKey: key })(model);
         }
         case "zenmux": {
             // OpenAI-compatible gateway (https://zenmux.ai/api/v1), author/model ids.
             const key = getApiKey("zenmux");
-            if (!key) throw new Error("No ZenMux API key. Run: piagent login zenmux");
+            if (!key) throw new Error("No ZenMux API key. Run: loop login zenmux");
             const { createOpenAI } = await import("@ai-sdk/openai");
             return createOpenAI({ apiKey: key, baseURL: "https://zenmux.ai/api/v1" })(model);
         }
         case "cerebras": {
             const key = getApiKey("cerebras");
-            if (!key) throw new Error("No Cerebras API key. Run: piagent login cerebras");
+            if (!key) throw new Error("No Cerebras API key. Run: loop login cerebras");
             const { createCerebras } = await import("@ai-sdk/cerebras");
             return createCerebras({ apiKey: key })(model);
         }

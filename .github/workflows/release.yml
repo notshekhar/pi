@@ -42,8 +42,9 @@ jobs:
     # prebuilt runtime for the target). Most targets still build on a runner
     # matching their OS+arch so the --version smoke test runs natively.
     # darwin-x64 is the exception: GitHub offers no free Intel-mac runner, so it
-    # is cross-compiled on the Apple-Silicon macos-14 runner and smoke-tested
-    # under Rosetta 2.
+    # is cross-compiled on the Apple-Silicon macos-14 runner. It can't be run
+    # there for the smoke test (Rosetta 2 SIGILLs on AVX/baseline alike), so its
+    # binary is validated statically (Mach-O x86_64) instead of executed.
     build-binary:
         name: binary (${{ matrix.target }})
         needs: prepare
@@ -54,7 +55,7 @@ jobs:
                     - target: darwin-arm64
                       runner: macos-14
                     - target: darwin-x64
-                      runner: macos-14 # arm64 host → cross-compiled, Rosetta smoke test
+                      runner: macos-14 # arm64 host → cross-compiled, validated statically
                     - target: linux-x64
                       runner: ubuntu-latest
                     - target: linux-arm64
@@ -89,21 +90,36 @@ jobs:
             - run: bun run gen:catalog
             - run: bun packages/core/build.ts
             - run: bun packages/tui/build.ts
-            - run: bun packages/cli/build-bin.ts bun-${{ matrix.target }}
-
-            # darwin-x64 is built on the arm64 macos-14 runner, so executing it
-            # for the smoke test needs Rosetta 2 (not preinstalled on Apple
-            # Silicon runners). No-op for every other target.
-            - name: Install Rosetta 2 (Intel-mac smoke test)
-              if: matrix.target == 'darwin-x64'
-              run: softwareupdate --install-rosetta --agree-to-license
+            # Retry the compile: fetching the cross-target Bun runtime is
+            # occasionally flaky ("Failed to extract executable … download may
+            # be incomplete"), especially for the -baseline variants. 3 attempts
+            # with a backoff turns a transient download blip into a pass.
+            - name: Build binary
+              run: |
+                  n=0
+                  until bun packages/cli/build-bin.ts bun-${{ matrix.target }}; do
+                    n=$((n + 1))
+                    if [ "$n" -ge 3 ]; then echo "build failed after $n attempts"; exit 1; fi
+                    echo "build attempt $n failed — retrying in 5s…"; sleep 5
+                  done
 
             - name: Smoke test binary
               run: |
                   # bun --compile appends .exe on windows targets
                   bin="./packages/cli/dist/bin/${{ matrix.target }}/loop"
-                  [ -x "${bin}.exe" ] && bin="${bin}.exe"
-                  "$bin" --version
+                  [ -f "${bin}.exe" ] && bin="${bin}.exe"
+                  if [ "${{ matrix.target }}" = "darwin-x64" ]; then
+                    # Cross-compiled on the arm64 runner — can't run it here:
+                    # Rosetta 2 lacks AVX and SIGILLs even on the baseline build,
+                    # so executing it is a false negative. Validate statically
+                    # that it's a real, non-trivial x86_64 Mach-O instead.
+                    file "$bin"
+                    file "$bin" | grep -q "x86_64"
+                    sz=$(stat -f%z "$bin" 2>/dev/null || stat -c%s "$bin")
+                    test "$sz" -gt 10000000
+                  else
+                    "$bin" --version
+                  fi
 
             - name: Compute sha256
               working-directory: packages/cli/dist/bin

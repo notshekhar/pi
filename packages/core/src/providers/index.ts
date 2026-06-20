@@ -402,8 +402,6 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             const key = getApiKey("zenmux");
             if (!key) throw new Error("No ZenMux API key. Run: piagent login zenmux");
             const { createOpenAI } = await import("@ai-sdk/openai");
-            // .chat() forces /chat/completions — the gateway is chat-only, the
-            // SDK's default model call would hit /responses and 403.
             return createOpenAI({ apiKey: key, baseURL: "https://zenmux.ai/api/v1" })(model);
         }
         case "cerebras": {

@@ -14,6 +14,18 @@ export function providerLabel(id: string): string {
             return "OpenRouter — API key";
         case "github-copilot":
             return "GitHub Copilot — OAuth (device flow)";
+        case "deepseek":
+            return "DeepSeek — API key";
+        case "mistral":
+            return "Mistral — API key";
+        case "glm":
+            return "Zhipu GLM (open.bigmodel.cn) — API key";
+        case "zai":
+            return "z.ai (GLM, international) — API key";
+        case "groq":
+            return "Groq — API key";
+        case "cerebras":
+            return "Cerebras — API key";
         case "ollama":
             return "Ollama — local, no key (must be running)";
         default:

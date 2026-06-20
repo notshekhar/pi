@@ -21,7 +21,20 @@ const TTL_MS = 60 * 60 * 1000; // 1h
 // We re-fetch models.dev at runtime on the same stale-while-revalidate cycle
 // as availability, so a binary keeps learning about new models.
 const MODELS_SOURCE = "https://models.dev/api.json";
-const MODEL_PROVIDERS: ProviderId[] = ["xai", "anthropic", "openai", "google", "openrouter"];
+// Only providers whose models.dev key matches our provider id belong here
+// (glm/zai map to models.dev "zhipuai", a different id — they're seeded from
+// curated fallbacks instead).
+const MODEL_PROVIDERS: ProviderId[] = [
+    "xai",
+    "anthropic",
+    "openai",
+    "google",
+    "openrouter",
+    "deepseek",
+    "mistral",
+    "groq",
+    "cerebras",
+];
 
 interface RawDevModel {
     id?: string;

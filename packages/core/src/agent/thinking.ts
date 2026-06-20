@@ -55,6 +55,7 @@ const OPENROUTER_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "medium" 
  *  - google:    `thinkingConfig: { thinkingBudget, includeThoughts }`
  *  - xai:       `reasoningEffort: low|high`
  *  - openrouter:`reasoning: { effort } | { exclude: true }`
+ *  - glm/zai:   `thinking: { type: enabled|disabled }` (boolean, no budget)
  */
 /**
  * xAI only honors `reasoning_effort` on grok-3-mini-class models. Grok-4 and
@@ -83,6 +84,11 @@ export function buildProviderOptions(
                 return anthropicAdaptiveOnly ? undefined : { anthropic: { thinking: { type: "disabled" } } };
             case "google":
                 return { google: { thinkingConfig: { thinkingBudget: 0 } } };
+            case "glm":
+            case "zai":
+                // GLM-4.5+ thinking is a boolean toggle (no budget), merged into
+                // the request body via the zhipu provider's providerOptions.
+                return { zhipu: { thinking: { type: "disabled" } } };
             case "ollama":
                 return { ollama: { think: false } };
             default:
@@ -112,6 +118,10 @@ export function buildProviderOptions(
             return xaiSupportsEffort(modelShortId) ? { xai: { reasoningEffort: XAI_EFFORT[lv] } } : undefined;
         case "openrouter":
             return { openrouter: { reasoning: { effort: OPENROUTER_EFFORT[lv] } } };
+        case "glm":
+        case "zai":
+            // GLM thinking is on/off only — any non-"off" level enables it.
+            return { zhipu: { thinking: { type: "enabled" } } };
         case "ollama":
             // Ollama thinking is a boolean toggle (DeepSeek-R1, Qwen3, etc.); no budget.
             return { ollama: { think: true } };

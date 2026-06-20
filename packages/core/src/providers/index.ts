@@ -365,6 +365,44 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
             return createOpenRouter({ apiKey: key })(model);
         }
+        case "deepseek": {
+            const key = getApiKey("deepseek");
+            if (!key) throw new Error("No DeepSeek API key. Run: piagent login deepseek");
+            const { createDeepSeek } = await import("@ai-sdk/deepseek");
+            return createDeepSeek({ apiKey: key })(model);
+        }
+        case "mistral": {
+            const key = getApiKey("mistral");
+            if (!key) throw new Error("No Mistral API key. Run: piagent login mistral");
+            const { createMistral } = await import("@ai-sdk/mistral");
+            return createMistral({ apiKey: key })(model);
+        }
+        case "glm": {
+            // Zhipu GLM models via the BigModel endpoint (open.bigmodel.cn).
+            const key = getApiKey("glm");
+            if (!key) throw new Error("No GLM (Zhipu) API key. Run: piagent login glm");
+            const { createZhipu } = await import("zhipu-ai-provider");
+            return createZhipu({ apiKey: key })(model);
+        }
+        case "zai": {
+            // Same Zhipu GLM models via the international z.ai endpoint.
+            const key = getApiKey("zai");
+            if (!key) throw new Error("No z.ai API key. Run: piagent login zai");
+            const { createZhipu } = await import("zhipu-ai-provider");
+            return createZhipu({ apiKey: key, baseURL: "https://api.z.ai/api/paas/v4" })(model);
+        }
+        case "groq": {
+            const key = getApiKey("groq");
+            if (!key) throw new Error("No Groq API key. Run: piagent login groq");
+            const { createGroq } = await import("@ai-sdk/groq");
+            return createGroq({ apiKey: key })(model);
+        }
+        case "cerebras": {
+            const key = getApiKey("cerebras");
+            if (!key) throw new Error("No Cerebras API key. Run: piagent login cerebras");
+            const { createCerebras } = await import("@ai-sdk/cerebras");
+            return createCerebras({ apiKey: key })(model);
+        }
         case "github-copilot": {
             const token = await resolveAuthToken("github-copilot");
             if (!token) throw new Error("No GitHub Copilot credentials. Run: /login github-copilot");

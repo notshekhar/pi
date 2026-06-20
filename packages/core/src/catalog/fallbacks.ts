@@ -251,6 +251,74 @@ const OPENROUTER: ModelInfo[] = [
         input: 0.13,
         output: 0.4,
     }),
+    m(
+        "openrouter",
+        "nex-agi/nex-n2-pro:free",
+        "OR · Nex-N2-Pro (free)",
+        262_144,
+        262_144,
+        { input: 0, output: 0 },
+        true,
+        ["text", "image"],
+    ),
+];
+
+// DeepSeek — chat (V3) + reasoner (R1). models.dev overrides pricing at runtime.
+const DEEPSEEK: ModelInfo[] = [
+    m("deepseek", "deepseek-chat", "DeepSeek Chat", 128_000, 8_192, { input: 0.28, output: 0.42, cacheRead: 0.028 }),
+    m(
+        "deepseek",
+        "deepseek-reasoner",
+        "DeepSeek Reasoner",
+        128_000,
+        64_000,
+        {
+            input: 0.28,
+            output: 0.42,
+            cacheRead: 0.028,
+        },
+        true,
+    ),
+];
+
+// Mistral — flagship + small + Codestral. models.dev overrides pricing at runtime.
+const MISTRAL: ModelInfo[] = [
+    m("mistral", "mistral-large-latest", "Mistral Large", 131_072, 8_192, { input: 2, output: 6 }),
+    m("mistral", "mistral-small-latest", "Mistral Small", 131_072, 8_192, { input: 0.1, output: 0.3 }),
+    m("mistral", "magistral-medium-latest", "Magistral Medium", 40_960, 40_960, { input: 2, output: 5 }, true),
+    m("mistral", "codestral-latest", "Codestral", 256_000, 8_192, { input: 0.3, output: 0.9 }),
+];
+
+// Zhipu GLM via open.bigmodel.cn. GLM-4.5+ are thinking-capable (reasoning:true).
+const GLM: ModelInfo[] = [
+    m("glm", "glm-4.7", "GLM-4.7", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
+    m("glm", "glm-4.6", "GLM-4.6", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
+    m("glm", "glm-4.5-air", "GLM-4.5 Air", 128_000, 96_000, { input: 0.2, output: 1.1 }, true),
+];
+
+// Same GLM models via the international z.ai endpoint.
+const ZAI: ModelInfo[] = [
+    m("zai", "glm-4.7", "GLM-4.7 (z.ai)", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
+    m("zai", "glm-4.6", "GLM-4.6 (z.ai)", 200_000, 128_000, { input: 0.6, output: 2.2 }, true),
+    m("zai", "glm-4.5-air", "GLM-4.5 Air (z.ai)", 128_000, 96_000, { input: 0.2, output: 1.1 }, true),
+];
+
+// Groq — OSS models on LPU hardware. models.dev overrides pricing at runtime.
+const GROQ: ModelInfo[] = [
+    m("groq", "openai/gpt-oss-120b", "GPT-OSS 120B (Groq)", 131_072, 32_768, { input: 0.15, output: 0.75 }, true),
+    m("groq", "openai/gpt-oss-20b", "GPT-OSS 20B (Groq)", 131_072, 32_768, { input: 0.1, output: 0.5 }, true),
+    m("groq", "moonshotai/kimi-k2-instruct", "Kimi K2 (Groq)", 131_072, 16_384, { input: 1, output: 3 }),
+    m("groq", "llama-3.3-70b-versatile", "Llama 3.3 70B (Groq)", 131_072, 32_768, { input: 0.59, output: 0.79 }),
+];
+
+// Cerebras — OSS models on wafer-scale hardware. models.dev overrides pricing.
+const CEREBRAS: ModelInfo[] = [
+    m("cerebras", "gpt-oss-120b", "GPT-OSS 120B (Cerebras)", 131_072, 32_768, { input: 0.25, output: 0.69 }, true),
+    m("cerebras", "qwen-3-235b-a22b-instruct-2507", "Qwen3 235B (Cerebras)", 131_072, 32_768, {
+        input: 0.6,
+        output: 1.2,
+    }),
+    m("cerebras", "llama-3.3-70b", "Llama 3.3 70B (Cerebras)", 131_072, 32_768, { input: 0.85, output: 1.2 }),
 ];
 
 // GitHub Copilot — proxied OpenAI/Anthropic models (subscription-billed)
@@ -318,6 +386,12 @@ export const FALLBACK_MODELS: ModelInfo[] = [
     ...OPENAI_CHATGPT,
     ...GOOGLE,
     ...OPENROUTER,
+    ...DEEPSEEK,
+    ...MISTRAL,
+    ...GLM,
+    ...ZAI,
+    ...GROQ,
+    ...CEREBRAS,
     ...GITHUB_COPILOT,
 ];
 

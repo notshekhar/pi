@@ -8533,5 +8533,936 @@
       "text"
     ],
     "available": true
+  },
+  "deepseek/deepseek-v4-flash": {
+    "id": "deepseek/deepseek-v4-flash",
+    "provider": "deepseek",
+    "name": "DeepSeek V4 Flash",
+    "contextWindow": 1000000,
+    "maxOutput": 384000,
+    "cost": {
+      "input": 0.14,
+      "output": 0.28,
+      "cacheRead": 0.0028,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "deepseek/deepseek-v4-pro": {
+    "id": "deepseek/deepseek-v4-pro",
+    "provider": "deepseek",
+    "name": "DeepSeek V4 Pro",
+    "contextWindow": 1000000,
+    "maxOutput": 384000,
+    "cost": {
+      "input": 0.435,
+      "output": 0.87,
+      "cacheRead": 0.003625,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "deepseek/deepseek-reasoner": {
+    "id": "deepseek/deepseek-reasoner",
+    "provider": "deepseek",
+    "name": "DeepSeek Reasoner",
+    "contextWindow": 1000000,
+    "maxOutput": 384000,
+    "cost": {
+      "input": 0.14,
+      "output": 0.28,
+      "cacheRead": 0.0028,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "deepseek/deepseek-chat": {
+    "id": "deepseek/deepseek-chat",
+    "provider": "deepseek",
+    "name": "DeepSeek Chat",
+    "contextWindow": 1000000,
+    "maxOutput": 384000,
+    "cost": {
+      "input": 0.14,
+      "output": 0.28,
+      "cacheRead": 0.0028,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/codestral-latest": {
+    "id": "mistral/codestral-latest",
+    "provider": "mistral",
+    "name": "Codestral (latest)",
+    "contextWindow": 256000,
+    "maxOutput": 4096,
+    "cost": {
+      "input": 0.3,
+      "output": 0.9,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/mistral-large-latest": {
+    "id": "mistral/mistral-large-latest",
+    "provider": "mistral",
+    "name": "Mistral Large (latest)",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.5,
+      "output": 1.5,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/open-mistral-7b": {
+    "id": "mistral/open-mistral-7b",
+    "provider": "mistral",
+    "name": "Mistral 7B",
+    "contextWindow": 8000,
+    "maxOutput": 8000,
+    "cost": {
+      "input": 0.25,
+      "output": 0.25,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/devstral-small-2507": {
+    "id": "mistral/devstral-small-2507",
+    "provider": "mistral",
+    "name": "Devstral Small",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.1,
+      "output": 0.3,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/ministral-3b-latest": {
+    "id": "mistral/ministral-3b-latest",
+    "provider": "mistral",
+    "name": "Ministral 3B (latest)",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.04,
+      "output": 0.04,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/pixtral-large-latest": {
+    "id": "mistral/pixtral-large-latest",
+    "provider": "mistral",
+    "name": "Pixtral Large (latest)",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/mistral-nemo": {
+    "id": "mistral/mistral-nemo",
+    "provider": "mistral",
+    "name": "Mistral Nemo",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.15,
+      "output": 0.15,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/mistral-embed": {
+    "id": "mistral/mistral-embed",
+    "provider": "mistral",
+    "name": "Mistral Embed",
+    "contextWindow": 8000,
+    "maxOutput": 3072,
+    "cost": {
+      "input": 0.1,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/mistral-small-2506": {
+    "id": "mistral/mistral-small-2506",
+    "provider": "mistral",
+    "name": "Mistral Small 3.2",
+    "contextWindow": 128000,
+    "maxOutput": 16384,
+    "cost": {
+      "input": 0.1,
+      "output": 0.3,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/ministral-8b-latest": {
+    "id": "mistral/ministral-8b-latest",
+    "provider": "mistral",
+    "name": "Ministral 8B (latest)",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.1,
+      "output": 0.1,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/open-mixtral-8x22b": {
+    "id": "mistral/open-mixtral-8x22b",
+    "provider": "mistral",
+    "name": "Mixtral 8x22B",
+    "contextWindow": 64000,
+    "maxOutput": 64000,
+    "cost": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/mistral-medium-latest": {
+    "id": "mistral/mistral-medium-latest",
+    "provider": "mistral",
+    "name": "Mistral Medium (latest)",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.4,
+      "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/devstral-small-2505": {
+    "id": "mistral/devstral-small-2505",
+    "provider": "mistral",
+    "name": "Devstral Small 2505",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.1,
+      "output": 0.3,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/magistral-small": {
+    "id": "mistral/magistral-small",
+    "provider": "mistral",
+    "name": "Magistral Small",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.5,
+      "output": 1.5,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/mistral-medium-2604": {
+    "id": "mistral/mistral-medium-2604",
+    "provider": "mistral",
+    "name": "Mistral Medium 3.5",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 1.5,
+      "output": 7.5,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/mistral-small-latest": {
+    "id": "mistral/mistral-small-latest",
+    "provider": "mistral",
+    "name": "Mistral Small (latest)",
+    "contextWindow": 256000,
+    "maxOutput": 256000,
+    "cost": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/open-mixtral-8x7b": {
+    "id": "mistral/open-mixtral-8x7b",
+    "provider": "mistral",
+    "name": "Mixtral 8x7B",
+    "contextWindow": 32000,
+    "maxOutput": 32000,
+    "cost": {
+      "input": 0.7,
+      "output": 0.7,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/devstral-latest": {
+    "id": "mistral/devstral-latest",
+    "provider": "mistral",
+    "name": "Devstral 2",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.4,
+      "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/mistral-small-2603": {
+    "id": "mistral/mistral-small-2603",
+    "provider": "mistral",
+    "name": "Mistral Small 4",
+    "contextWindow": 256000,
+    "maxOutput": 256000,
+    "cost": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/mistral-medium-2505": {
+    "id": "mistral/mistral-medium-2505",
+    "provider": "mistral",
+    "name": "Mistral Medium 3",
+    "contextWindow": 131072,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.4,
+      "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/mistral-large-2411": {
+    "id": "mistral/mistral-large-2411",
+    "provider": "mistral",
+    "name": "Mistral Large 2.1",
+    "contextWindow": 131072,
+    "maxOutput": 16384,
+    "cost": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/mistral-medium-2508": {
+    "id": "mistral/mistral-medium-2508",
+    "provider": "mistral",
+    "name": "Mistral Medium 3.1",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.4,
+      "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/open-mistral-nemo": {
+    "id": "mistral/open-mistral-nemo",
+    "provider": "mistral",
+    "name": "Open Mistral Nemo",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.15,
+      "output": 0.15,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/magistral-medium-latest": {
+    "id": "mistral/magistral-medium-latest",
+    "provider": "mistral",
+    "name": "Magistral Medium (latest)",
+    "contextWindow": 128000,
+    "maxOutput": 16384,
+    "cost": {
+      "input": 2,
+      "output": 5,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/devstral-medium-latest": {
+    "id": "mistral/devstral-medium-latest",
+    "provider": "mistral",
+    "name": "Devstral 2 (latest)",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.4,
+      "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/devstral-2512": {
+    "id": "mistral/devstral-2512",
+    "provider": "mistral",
+    "name": "Devstral 2",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.4,
+      "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/labs-devstral-small-2512": {
+    "id": "mistral/labs-devstral-small-2512",
+    "provider": "mistral",
+    "name": "Devstral Small 2",
+    "contextWindow": 256000,
+    "maxOutput": 256000,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/pixtral-12b": {
+    "id": "mistral/pixtral-12b",
+    "provider": "mistral",
+    "name": "Pixtral 12B",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.15,
+      "output": 0.15,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/mistral-large-2512": {
+    "id": "mistral/mistral-large-2512",
+    "provider": "mistral",
+    "name": "Mistral Large 3",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.5,
+      "output": 1.5,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "mistral/devstral-medium-2507": {
+    "id": "mistral/devstral-medium-2507",
+    "provider": "mistral",
+    "name": "Devstral Medium",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.4,
+      "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/llama-3.3-70b-versatile": {
+    "id": "groq/llama-3.3-70b-versatile",
+    "provider": "groq",
+    "name": "Llama 3.3 70B",
+    "contextWindow": 131072,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 0.59,
+      "output": 0.79,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/llama-3.1-8b-instant": {
+    "id": "groq/llama-3.1-8b-instant",
+    "provider": "groq",
+    "name": "Llama 3.1 8B",
+    "contextWindow": 131072,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.05,
+      "output": 0.08,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/whisper-large-v3-turbo": {
+    "id": "groq/whisper-large-v3-turbo",
+    "provider": "groq",
+    "name": "Whisper Large V3 Turbo",
+    "contextWindow": 0,
+    "maxOutput": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "audio"
+    ],
+    "available": true
+  },
+  "groq/whisper-large-v3": {
+    "id": "groq/whisper-large-v3",
+    "provider": "groq",
+    "name": "Whisper",
+    "contextWindow": 0,
+    "maxOutput": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "audio"
+    ],
+    "available": true
+  },
+  "groq/meta-llama/llama-prompt-guard-2-86m": {
+    "id": "groq/meta-llama/llama-prompt-guard-2-86m",
+    "provider": "groq",
+    "name": "Prompt Guard 2 86M",
+    "contextWindow": 512,
+    "maxOutput": 512,
+    "cost": {
+      "input": 0.04,
+      "output": 0.04,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/meta-llama/llama-prompt-guard-2-22m": {
+    "id": "groq/meta-llama/llama-prompt-guard-2-22m",
+    "provider": "groq",
+    "name": "Llama Prompt Guard 2 22M",
+    "contextWindow": 512,
+    "maxOutput": 512,
+    "cost": {
+      "input": 0.03,
+      "output": 0.03,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/meta-llama/llama-4-scout-17b-16e-instruct": {
+    "id": "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+    "provider": "groq",
+    "name": "Llama 4 Scout 17B 16E",
+    "contextWindow": 131072,
+    "maxOutput": 8192,
+    "cost": {
+      "input": 0.11,
+      "output": 0.34,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "groq/openai/gpt-oss-safeguard-20b": {
+    "id": "groq/openai/gpt-oss-safeguard-20b",
+    "provider": "groq",
+    "name": "Safety GPT OSS 20B",
+    "contextWindow": 131072,
+    "maxOutput": 65536,
+    "cost": {
+      "input": 0.075,
+      "output": 0.3,
+      "cacheRead": 0.037,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/openai/gpt-oss-120b": {
+    "id": "groq/openai/gpt-oss-120b",
+    "provider": "groq",
+    "name": "GPT OSS 120B",
+    "contextWindow": 131072,
+    "maxOutput": 65536,
+    "cost": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0.075,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/openai/gpt-oss-20b": {
+    "id": "groq/openai/gpt-oss-20b",
+    "provider": "groq",
+    "name": "GPT OSS 20B",
+    "contextWindow": 131072,
+    "maxOutput": 65536,
+    "cost": {
+      "input": 0.075,
+      "output": 0.3,
+      "cacheRead": 0.0375,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/canopylabs/orpheus-v1-english": {
+    "id": "groq/canopylabs/orpheus-v1-english",
+    "provider": "groq",
+    "name": "Canopy Labs Orpheus V1 English",
+    "contextWindow": 4000,
+    "maxOutput": 50000,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/canopylabs/orpheus-arabic-saudi": {
+    "id": "groq/canopylabs/orpheus-arabic-saudi",
+    "provider": "groq",
+    "name": "Canopy Labs Orpheus Arabic Saudi",
+    "contextWindow": 4000,
+    "maxOutput": 50000,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/groq/compound": {
+    "id": "groq/groq/compound",
+    "provider": "groq",
+    "name": "Compound",
+    "contextWindow": 131072,
+    "maxOutput": 8192,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/groq/compound-mini": {
+    "id": "groq/groq/compound-mini",
+    "provider": "groq",
+    "name": "Compound Mini",
+    "contextWindow": 131072,
+    "maxOutput": 8192,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "groq/qwen/qwen3-32b": {
+    "id": "groq/qwen/qwen3-32b",
+    "provider": "groq",
+    "name": "Qwen3-32B",
+    "contextWindow": 131072,
+    "maxOutput": 40960,
+    "cost": {
+      "input": 0.29,
+      "output": 0.59,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "cerebras/gpt-oss-120b": {
+    "id": "cerebras/gpt-oss-120b",
+    "provider": "cerebras",
+    "name": "GPT OSS 120B",
+    "contextWindow": 131072,
+    "maxOutput": 40960,
+    "cost": {
+      "input": 0.35,
+      "output": 0.75,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "cerebras/zai-glm-4.7": {
+    "id": "cerebras/zai-glm-4.7",
+    "provider": "cerebras",
+    "name": "Z.AI GLM-4.7",
+    "contextWindow": 131072,
+    "maxOutput": 40960,
+    "cost": {
+      "input": 2.25,
+      "output": 2.75,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
   }
 }

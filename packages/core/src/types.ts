@@ -6,6 +6,12 @@ export type BuiltinProviderId =
     | "google"
     | "openrouter"
     | "github-copilot"
+    | "deepseek"
+    | "mistral"
+    | "glm"
+    | "zai"
+    | "groq"
+    | "cerebras"
     | "ollama";
 export type ProviderId = BuiltinProviderId | (string & {});
 
@@ -20,6 +26,12 @@ export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
     "google",
     "openrouter",
     "github-copilot",
+    "deepseek",
+    "mistral",
+    "glm",
+    "zai",
+    "groq",
+    "cerebras",
     "ollama",
 ];
 export const PROVIDER_IDS = BUILTIN_PROVIDER_IDS;

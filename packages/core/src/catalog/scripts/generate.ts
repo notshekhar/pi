@@ -10,7 +10,17 @@ import type { ModelInfo, ProviderId } from "../../types";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(HERE, "..", "generated");
 const SOURCE = "https://models.dev/api.json";
-const PROVIDERS: ProviderId[] = ["xai", "anthropic", "openai", "google", "openrouter"];
+const PROVIDERS: ProviderId[] = [
+    "xai",
+    "anthropic",
+    "openai",
+    "google",
+    "openrouter",
+    "deepseek",
+    "mistral",
+    "groq",
+    "cerebras",
+];
 
 interface RawModel {
     id?: string;

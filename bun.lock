@@ -12,7 +12,7 @@
     },
     "packages/cli": {
       "name": "@notshekhar/loop",
-      "version": "0.4.4",
+      "version": "0.5.3",
       "bin": {
         "loop": "./dist/cli.js",
         "lp": "./dist/cli.js",
@@ -31,8 +31,12 @@
       "version": "0.0.2",
       "dependencies": {
         "@ai-sdk/anthropic": "^3.0.0",
+        "@ai-sdk/cerebras": "^2.0.57",
+        "@ai-sdk/deepseek": "^2.0.39",
         "@ai-sdk/google": "^3.0.0",
+        "@ai-sdk/groq": "^3.0.42",
         "@ai-sdk/mcp": "^2.0.0-beta.10",
+        "@ai-sdk/mistral": "^3.0.40",
         "@ai-sdk/openai": "^3.0.0",
         "@ai-sdk/xai": "^3.0.0",
         "@notshekhar/loop-sandbox": "*",
@@ -43,6 +47,7 @@
         "ollama-ai-provider-v2": "^3.5.1",
         "proper-lockfile": "^4.1.2",
         "ulid": "^3.0.0",
+        "zhipu-ai-provider": "^0.3.1",
         "zod": "^4.3.5",
       },
       "devDependencies": {
@@ -73,11 +78,19 @@
   "packages": {
     "@ai-sdk/anthropic": ["@ai-sdk/anthropic@3.0.85", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-fNeDB644l5wbRNQU0FnI+F7UTtOenMnPtACfMPUJaS2zJfuBlseEa1TMg+otHkETZgaJB+6Na51NQEv0+m7czw=="],
 
+    "@ai-sdk/cerebras": ["@ai-sdk/cerebras@2.0.57", "", { "dependencies": { "@ai-sdk/openai-compatible": "2.0.51", "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-sf7zWCAKBK0vU3+BuJd3qYNZmEZ5FQHh5swKMaYzJ2pRByjT3xUDa41vxQa4z06SnCdV6k+fTm4swN+kZWdtmQ=="],
+
+    "@ai-sdk/deepseek": ["@ai-sdk/deepseek@2.0.39", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-3wUq1cvqSWkRadCSqcDXBLpOwUAe+JqfWQZS0fK0sWiqDeTIEzsse+r7xcN2x5XpJjefT0d7FQTa3u2lZ/yxbg=="],
+
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.133", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30", "@vercel/oidc": "3.2.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-Ebs+7iS9zUgJu5B0RlxM2JmDWzq79Cpd6YdiqcCzB5qFdpfQJPUDiXutqlQP89F2XGjOdDeidulBTXUdXWzOxw=="],
 
     "@ai-sdk/google": ["@ai-sdk/google@3.0.83", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-Pz7aCX0dy+5x+r4K/37HbLZNaPtPL4q2NduzJW64VffLv5sI9Nb478wAd7PlH2r2asiypJsz/Jerf9draTciUA=="],
 
+    "@ai-sdk/groq": ["@ai-sdk/groq@3.0.42", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-3qJSxYTSxCLIxArQSP5hvaRmo4DkqNrFatDzyosCTSCqzWBGP7Xu3zeYzf+HkGuY0gxI9f6C2aHoUXvUmTqEkA=="],
+
     "@ai-sdk/mcp": ["@ai-sdk/mcp@2.0.0-canary.65", "", { "dependencies": { "@ai-sdk/provider": "4.0.0-canary.18", "@ai-sdk/provider-utils": "5.0.0-canary.48", "pkce-challenge": "^5.0.1" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-giyTeWVykKbgE/VDOlzoq6igW0MbIp60KfFTaxW/NYdmK1sb221Ozb1PaSYEn362tmDv1cnvyBSsXhXahrYzkA=="],
+
+    "@ai-sdk/mistral": ["@ai-sdk/mistral@3.0.40", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-HzCV9jFsb04kpL/N+G7SCjFKJA0Q33p4Hc+1quYGGD8Ta37Pe5bzk9AjxaS8OYd//jmcny16yKhJ+e+h+P0AJg=="],
 
     "@ai-sdk/openai": ["@ai-sdk/openai@3.0.73", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-+3x9oxHv9Xp33Iv2L8D+e5hqmZi64jofBKig/9611JKyfV59NdkaDDajtwc0CxOEfARgCVq1BW7dP+526gKOKw=="],
 
@@ -178,6 +191,8 @@
     "when-exit": ["when-exit@2.1.5", "", {}, "sha512-VGkKJ564kzt6Ms1dbgPP/yuIoQCrsFAnRbptpC5wOEsDaNsbCB2bnfnaA8i/vRs5tjUSEOtIuvl9/MyVsvQZCg=="],
 
     "xdg-basedir": ["xdg-basedir@5.1.0", "", {}, "sha512-GCPAHLvrIH13+c0SuacwvRYj2SxJXQ4kaVTT5xgL3kPrz56XxkF21IGhjSE1+W0aw7gpBWRGXLCPnPby6lSpmQ=="],
+
+    "zhipu-ai-provider": ["zhipu-ai-provider@0.3.1", "", { "dependencies": { "@ai-sdk/provider": "^3.0.3", "@ai-sdk/provider-utils": "^4.0.6" } }, "sha512-3BGtV1RVLXU9GXFN7QGsoNZLkpp2E4Grt9GRWNcvYOQdUF7hvgZ59JxA4zys7j0gWuEq6Qvt9TlbzMAMwIyQyw=="],
 
     "zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
 

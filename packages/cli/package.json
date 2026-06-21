@@ -1,49 +1,49 @@
 {
-    "name": "@notshekhar/loop",
-    "version": "0.5.3",
-    "description": "loop — terminal coding agent. Multi-provider, fast, native TUI.",
-    "license": "MIT",
-    "type": "module",
-    "homepage": "https://github.com/notshekhar/loop#readme",
-    "bugs": {
-        "url": "https://github.com/notshekhar/loop/issues"
-    },
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/notshekhar/loop.git",
-        "directory": "packages/cli"
-    },
-    "keywords": [
-        "ai",
-        "agent",
-        "cli",
-        "tui",
-        "coding",
-        "claude",
-        "gpt",
-        "grok",
-        "gemini",
-        "openrouter",
-        "loop"
-    ],
-    "bin": {
-        "loop": "./dist/cli.js",
-        "lp": "./dist/cli.js",
-        "agent": "./dist/cli.js"
-    },
-    "files": [
-        "dist"
-    ],
-    "scripts": {
-        "build": "bun build.ts",
-        "clean": "rm -rf dist"
-    },
-    "dependencies": {
-        "@notshekhar/loop-core": "*",
-        "@notshekhar/loop-tui": "*",
-        "chalk": "^5.5.0",
-        "croner": "^10.0.1",
-        "highlight.js": "^11.11.1"
-    },
-    "devDependencies": {}
+  "name": "@notshekhar/loop",
+  "version": "0.5.11",
+  "description": "loop — terminal coding agent. Multi-provider, fast, native TUI.",
+  "license": "MIT",
+  "type": "module",
+  "homepage": "https://github.com/notshekhar/loop#readme",
+  "bugs": {
+    "url": "https://github.com/notshekhar/loop/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/notshekhar/loop.git",
+    "directory": "packages/cli"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "tui",
+    "coding",
+    "claude",
+    "gpt",
+    "grok",
+    "gemini",
+    "openrouter",
+    "loop"
+  ],
+  "bin": {
+    "loop": "./dist/cli.js",
+    "lp": "./dist/cli.js",
+    "agent": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun build.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@notshekhar/loop-core": "*",
+    "@notshekhar/loop-tui": "*",
+    "chalk": "^5.5.0",
+    "croner": "^10.0.1",
+    "highlight.js": "^11.11.1"
+  },
+  "devDependencies": {}
 }

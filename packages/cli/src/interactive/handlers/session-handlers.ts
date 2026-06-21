@@ -193,8 +193,9 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             try {
                 const selectedPath = pick.value;
                 state.session = await manager.open(pick.value);
-                if (state.session.info.model) {
-                    state.modelId = state.session.info.model;
+                const resumedModel = state.session.lastModel();
+                if (resumedModel) {
+                    state.modelId = resumedModel;
                     settingsStore.set("defaultModel", state.modelId);
                     setProjectModel(state.cwd, state.modelId);
                     footer.setModel(state.modelId);

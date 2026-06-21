@@ -131,7 +131,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     const manager = new SessionManager();
     const initialSession: Session | null = opts.sessionId ? await manager.open(opts.sessionId) : null;
-    if (initialSession?.info.model) initialModelId = initialSession.info.model;
+    const resumedModel = initialSession?.lastModel();
+    if (resumedModel) initialModelId = resumedModel;
     // Provider follows the restored model (project/session picks carry it);
     // otherwise the active provider, if any.
     let effectiveProvider = (opts.provider ?? getActiveProvider() ?? "") as ProviderId;

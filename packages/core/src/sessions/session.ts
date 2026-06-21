@@ -300,6 +300,22 @@ export class Session {
             .map((e) => ({ role: e.role, content: e.content }));
     }
 
+    /**
+     * The model in effect at the end of the current branch — the last assistant
+     * message's recorded model, falling back to the session's creation model.
+     * Used on resume so the picker pre-selects what you last ran with, not what
+     * the session started on.
+     */
+    lastModel(): string {
+        const path = this.getBranch();
+        for (let i = path.length - 1; i >= 0; i--) {
+            const e = path[i];
+            if (e.type === "model-change" && e.to) return e.to;
+            if (e.type === "message" && e.role === "assistant" && e.model) return e.model;
+        }
+        return this.info.model;
+    }
+
     lastCompactCutAt(): number {
         let cut = 0;
         for (const e of this.getBranch()) {

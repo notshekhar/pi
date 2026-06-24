@@ -1,6 +1,6 @@
 {
     "name": "@notshekhar/loop",
-    "version": "0.6.4",
+    "version": "0.6.5",
     "description": "loop — terminal coding agent. Multi-provider, fast, native TUI.",
     "license": "MIT",
     "type": "module",

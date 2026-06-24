@@ -14,6 +14,9 @@ import { buildInstructions, DEFAULT_MODE, isDeactivationCommand, MODES, normaliz
 export default {
     activate(api: LoopAPI) {
         const getMode = (): Mode => normalizeMode(api.settings.getOwn("mode", DEFAULT_MODE)) ?? DEFAULT_MODE;
+        // Surface the active mode in the startup banner / panel so the
+        // system-prompt injection is visible, not silent.
+        api.extension.setStatus(() => getMode());
 
         // Inject the persona while active. Scoped per-turn; default agent and any
         // custom agent get it (a planning/analyst agent that wants it can too).

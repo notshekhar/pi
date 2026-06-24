@@ -190,8 +190,14 @@ export interface ExtensionInfo {
     /** The extension's own directory (~/.loop/extensions/<name>). */
     readonly dir: string;
     readonly manifest: ExtensionManifest;
-    /** Namespaced logger (prefixes [<name>]). */
+    /** Namespaced logger (prefixes [<name>]). Routed into the chat as a note. */
     readonly log: (...args: unknown[]) => void;
+    /**
+     * Report a one-line status (e.g. current mode) for the startup banner and
+     * `/extensions` panel — so the user can see the extension is active and how.
+     * Pass a function; it's read fresh each time. Return undefined to show none.
+     */
+    readonly setStatus: (fn: () => string | undefined) => void;
 }
 
 /**

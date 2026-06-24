@@ -345,6 +345,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         history.addSystem(chalk.dim("· event trace ON (LOOP_DEBUG_EVENTS) — Shift+Ctrl+D to toggle"));
     }
 
+    // (Active-extensions banner is shown by showWorkspaceBanners, grouped with
+    // the workspace-context lines — see below.)
     // Surface any extension load failures (version mismatch, throw in activate),
     // so a broken extension is visible instead of silently missing.
     for (const w of getExtensionHost().getWarnings()) history.addError(`extension: ${w}`);

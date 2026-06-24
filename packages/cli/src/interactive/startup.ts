@@ -6,6 +6,7 @@ import type { SelectItem, TUI } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     getMcpManager,
+    getExtensionHost,
     isMcpEnabled,
     getTrustDecision,
     getTrustOptions,
@@ -84,6 +85,15 @@ export async function showWorkspaceBanners(history: ChatHistory, cwd: string): P
                 history.addSystem(chalk.dim(`  • ${s.name} — ${s.description.slice(0, 80)}`));
             }
         }
+    }
+    // Active extensions, grouped with the other startup status lines. Capped so a
+    // user with many installed doesn't get a wall of text.
+    const exts = getExtensionHost().activeStatuses();
+    if (exts.length > 0) {
+        const MAX = 8;
+        const shown = exts.slice(0, MAX).join(" · ");
+        const extra = exts.length > MAX ? ` · +${exts.length - MAX} more` : "";
+        history.addSystem(chalk.dim(`extensions: ${shown}${extra}`));
     }
 }
 

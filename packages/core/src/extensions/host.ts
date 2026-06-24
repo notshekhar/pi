@@ -115,6 +115,8 @@ function isCompatible(manifest: ExtensionManifest): boolean {
 
 export class ExtensionHost {
     private loaded = new Map<string, Loaded>();
+    /** Per-extension status reporters (api.extension.setStatus), for the banner/panel. */
+    private statusFns = new Map<string, () => string | undefined>();
     private initialized = false;
     private warnings: string[] = [];
 
@@ -203,7 +205,12 @@ export class ExtensionHost {
         };
         return {
             version: EXTENSION_API_VERSION,
-            extension: { dir: pkgDir, manifest, log },
+            extension: {
+                dir: pkgDir,
+                manifest,
+                log,
+                setStatus: (fn) => this.statusFns.set(record.name, fn),
+            },
             commands: {
                 register: (cmd) => c.commandOps.push({ kind: "register", cmd }),
                 unregister: (name) => c.commandOps.push({ kind: "unregister", name }),
@@ -246,6 +253,7 @@ export class ExtensionHost {
             this.warnings.push(`extension "${name}" deactivate threw: ${(err as Error).message}`);
         }
         this.loaded.delete(name);
+        this.statusFns.delete(name);
     }
 
     /** Reload one extension (pick up edits / re-enable). Handles built-ins too. */
@@ -348,6 +356,26 @@ export class ExtensionHost {
 
     getTurnMiddleware(): TurnMiddleware[] {
         return [...this.loaded.values()].flatMap((l) => l.contributions.turnMws);
+    }
+
+    /**
+     * One line per currently-loaded extension for the startup banner / panel:
+     * "displayName — status" (status from api.extension.setStatus, if set).
+     */
+    activeStatuses(): string[] {
+        const out: string[] = [];
+        for (const name of this.loaded.keys()) {
+            let status: string | undefined;
+            try {
+                status = this.statusFns.get(name)?.();
+            } catch {
+                status = undefined;
+            }
+            // Short name + terse status, e.g. "ponytail (full)" — stays compact
+            // even with many extensions loaded.
+            out.push(status ? `${name} (${status})` : name);
+        }
+        return out;
     }
 
     getWarnings(): string[] {

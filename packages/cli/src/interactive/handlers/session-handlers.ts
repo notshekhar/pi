@@ -18,6 +18,7 @@ import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { renderSessionBranch } from "../replay";
 import { showWelcomeBanner } from "../welcome";
+import { showWorkspaceBanners } from "../startup";
 
 type SessionHandlers = Pick<
     CommandContext,
@@ -83,6 +84,8 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             renderPending();
             history.reset();
             showWelcomeBanner(history, state, deps);
+            // Re-show workspace context + active extensions so /new matches startup.
+            await showWorkspaceBanners(history, state.cwd);
             tui.requestRender();
         },
         clearScreen() {
@@ -93,6 +96,8 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             refreshFooter();
             history.reset();
             showWelcomeBanner(history, state, deps);
+            // Fire-and-forget (clearScreen is sync): re-show context + extensions.
+            void showWorkspaceBanners(history, state.cwd).then(() => tui.requestRender());
             tui.invalidate();
             tui.requestRender(true);
         },

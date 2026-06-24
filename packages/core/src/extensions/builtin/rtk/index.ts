@@ -47,6 +47,8 @@ function rtkRewrite(command: string): string | null {
 export default {
     activate(api: LoopAPI) {
         const available = rtkAvailable();
+        const isOn = () => available && api.settings.getOwn<boolean>("enabled", true) !== false;
+        api.extension.setStatus(() => (!available ? "no binary" : isOn() ? "on" : "off"));
 
         api.commands.register({
             name: "rtk",
@@ -73,8 +75,13 @@ export default {
             },
         });
 
-        // Nothing to rewrite if rtk isn't installed — leave bash untouched.
-        if (!available) return;
+        // Nothing to rewrite if rtk isn't installed — leave bash untouched, but
+        // tell the user why (they enabled it expecting rewriting). Actionable, and
+        // only shown because they opted in.
+        if (!available) {
+            api.extension.log("enabled but the `rtk` binary isn't on PATH — install it (https://github.com/rtk-ai/rtk), then /reload. No commands are being rewritten.");
+            return;
+        }
 
         api.tools.onCall("bash", (input) => {
             if (api.settings.getOwn<boolean>("enabled", true) === false) return;
@@ -82,6 +89,9 @@ export default {
             if (typeof command !== "string" || !command) return;
             const rewritten = rtkRewrite(command);
             if (!rewritten) return;
+            // Make the rewrite visible (like the upstream hook did) — a dim note
+            // in the chat, plus the tool-call box updates to the new command.
+            api.extension.log(`${command}  →  ${rewritten}`);
             return { ...(input as object), command: rewritten };
         });
     },

@@ -15,6 +15,7 @@ import { buildInstructions, DEFAULT_MODE, isDeactivationCommand, MODES, normaliz
 export default {
     activate(api: LoopAPI) {
         const getMode = (): Mode => normalizeMode(api.settings.getOwn("mode", DEFAULT_MODE)) ?? DEFAULT_MODE;
+        api.extension.setStatus(() => getMode());
 
         api.turn.use({
             onSystemPrompt(prompt) {

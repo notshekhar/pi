@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.4] - 2026-06-25
+
+### Fixed
+
+- **"Update available" notice now sits under the welcome banner.** The async update check used to append its line to chat history, so it landed at the bottom (below the conversation) whenever the network resolved. It's now shown as a line in the welcome masthead, and is preserved across `/new` and `/clear`.
+
 ## [0.6.3] - 2026-06-25
 
 ### Added

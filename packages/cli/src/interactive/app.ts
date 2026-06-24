@@ -259,7 +259,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     tui.addChild(root);
 
     showWhatsNew(history, opts.version, Boolean(opts.sessionId));
-    startUpdateCheck(history, tui, opts.version);
+    // Routes its result to the welcome banner (top), not chat history; safe to
+    // kick off before the banner exists — the notice is remembered and applied.
+    startUpdateCheck(opts.version);
 
     // Force a catalog availability refresh on every startup — provider model
     // lists drift (new releases, deprecations, gating) and the cached list is

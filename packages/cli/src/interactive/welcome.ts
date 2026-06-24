@@ -10,6 +10,19 @@ import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 
 let activeBanner: WelcomeBanner | null = null;
+// Remembered so a banner recreated on /new or /clear keeps the notice, and so a
+// notice that arrives (network) before the banner exists still lands on it.
+let updateNotice: string | undefined;
+
+/**
+ * Set the "update available" line shown under the welcome masthead. Routed here
+ * (instead of appended to chat history) so it sits with the banner at the top
+ * rather than floating below the conversation when the async check resolves.
+ */
+export function setWelcomeUpdateNotice(text: string): void {
+    updateNotice = text;
+    activeBanner?.setUpdateNotice(text);
+}
 
 function username(): string {
     try {
@@ -36,6 +49,7 @@ export function showWelcomeBanner(history: ChatHistory, state: AppState, deps: A
         version: deps.version,
     });
     activeBanner = banner;
+    if (updateNotice) banner.setUpdateNotice(updateNotice);
     history.addChild(banner);
     banner.start();
     deps.tui.requestRender();

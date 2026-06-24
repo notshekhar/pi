@@ -67,11 +67,20 @@ export class WelcomeBanner implements Component {
     private settled = false;
     private cachedWidth?: number;
     private cachedLines?: string[];
+    /** Optional "update available" line, set asynchronously after the network check. */
+    private updateNotice?: string;
 
     constructor(
         private readonly tui: TUI,
         private readonly info: WelcomeBannerInfo,
     ) {}
+
+    /** Show (or clear) the update-available line under the masthead and repaint. */
+    setUpdateNotice(text: string | undefined): void {
+        this.updateNotice = text;
+        this.cachedLines = undefined;
+        this.tui.requestRender();
+    }
 
     start(): void {
         if (this.timer) return;
@@ -153,6 +162,11 @@ export class WelcomeBanner implements Component {
             const text = textRows[i] ?? "";
             // " " left margin + icon + gap + text
             lines.push(` ${icon[i]}${GAP}${text}`);
+        }
+        // Update-available line, aligned under the text column (no icon beside it).
+        if (this.updateNotice) {
+            const indent = " " + " ".repeat(GRID_SIZE * 2) + GAP;
+            lines.push(indent + chalk.yellow(this.updateNotice));
         }
         lines.push("");
 

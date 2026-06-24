@@ -25,6 +25,7 @@ import type { ChatHistory } from "./components/chat-history";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { checkForUpdate } from "../commands";
+import { setWelcomeUpdateNotice } from "./welcome";
 import { getNewEntries, loadChangelogEntries } from "../changelog";
 
 /**
@@ -52,14 +53,16 @@ export function showWhatsNew(history: ChatHistory, version: string | undefined, 
  * Silent background update check; suggest upgrade if a newer release exists.
  * Fire-and-forget so startup never blocks on the network.
  */
-export function startUpdateCheck(history: ChatHistory, tui: TUI, version: string | undefined): void {
+export function startUpdateCheck(version: string | undefined): void {
     if (!version) return;
     void checkForUpdate(version).then((latest) => {
         if (latest) {
-            history.addSystem(
+            // Routed to the welcome banner (top), not chat history, so it sits
+            // under the masthead instead of floating below the conversation when
+            // this async check resolves.
+            setWelcomeUpdateNotice(
                 `Update available: v${version} → ${latest}. Run /update (or \`loop update\`) to upgrade.`,
             );
-            tui.requestRender();
         }
     });
 }

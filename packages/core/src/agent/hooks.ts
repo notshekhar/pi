@@ -166,7 +166,7 @@ function remapClaudeMatcher(matcher: string | undefined): string | undefined {
  * <cwd>/.claude/settings.json, <cwd>/.claude/settings.local.json). The config
  * shape is identical; we keep only the events we support and remap tool-name
  * matchers to our tool names. Gated by the `importClaudeHooks` setting
- * (default on) since these are the user's own already-trusted hooks.
+ * (default off — opt in to pull your Claude Code hooks into loop).
  */
 /**
  * Allowlist for imported Claude Code hooks: `claudeHooksFilter` setting, an
@@ -283,7 +283,7 @@ export function loadHooksConfig(cwd: string): HooksConfig {
 
 function loadHooksConfigUnsafe(cwd: string): HooksConfig {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-    const importClaude = getSetting("importClaudeHooks") !== false;
+    const importClaude = getSetting("importClaudeHooks") === true;
     // User-global hooks (the user's own machine config) always load.
     const userPi = getSetting("hooks") ?? {};
     const userClaude = importClaude ? readClaudeHooks([join(home, ".claude", "settings.json")]) : {};
@@ -334,7 +334,7 @@ export function listHooksWithSources(cwd: string): HookSourceEntry[] {
     };
     try {
         const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-        const importClaude = getSetting("importClaudeHooks") !== false;
+        const importClaude = getSetting("importClaudeHooks") === true;
         if (importClaude) {
             collect(readClaudeHooks([join(home, ".claude", "settings.json")]), "claude-user");
             collect(readClaudePluginHooks(home), "claude-plugins");

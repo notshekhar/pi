@@ -31,6 +31,8 @@ export interface LoopSettings {
     projectModels?: Record<string, string>;
     /** cwd → provider → last model picked with that provider in that folder. */
     projectProviderModels?: Record<string, Record<string, string>>;
+    /** Pull in hooks from ~/.claude (settings + plugins) and project .claude.
+     * Default OFF — set true to opt in. */
     importClaudeHooks?: boolean;
     claudeHooksFilter?: string[];
     hooks?: HooksConfig;

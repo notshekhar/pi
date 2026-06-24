@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1] - 2026-06-25
+
+### Changed
+
+- **Active extensions are visible.** Enabled extensions show in the startup status block (with workspace context) — e.g. `extensions: lsp · ponytail (full) · caveman (full) · rtk (on)` — and reappear after `/new` and `/clear`. Extensions can report a one-line status via `api.extension.setStatus`.
+- `rtk` shows `rtk (no binary)` when the `rtk` CLI isn't installed, with `/rtk` linking to the installer.
+
 ## [0.6.0] - 2026-06-24
 
 ### Added

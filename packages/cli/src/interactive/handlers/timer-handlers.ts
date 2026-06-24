@@ -1,7 +1,7 @@
 /**
  * /timer and /reminder.
  *
- * Timer: in-memory countdown shown in the footer; the time's-up prompt is
+ * Timer: in-memory countdown shown in the status line; the time's-up prompt is
  * handled by the app ticker (app.ts). Reminders: persisted CRUD over
  * ~/.loop/reminders.json — one-time ("10m", "18:30", "2026-06-15 09:00") or
  * cron-scheduled (up to 6 fields, second-level), managed through the same
@@ -29,7 +29,7 @@ type TimerHandlers = Pick<CommandContext, "setTimer" | "openReminders">;
 const ADD = "\x00add";
 
 export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandlers {
-    const { tui, history, footer, selectOnce, searchOnce, promptOnce, syncTicker } = deps;
+    const { tui, history, statusLine, selectOnce, searchOnce, promptOnce, syncTicker } = deps;
 
     const say = (text: string) => {
         history.addSystem(text);
@@ -79,7 +79,7 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
             if (input === "off" || input === "cancel") {
                 state.timerEndsAt = null;
                 state.timerLabel = "";
-                footer.setTimer(null);
+                statusLine.setTimer(null);
                 syncTicker();
                 say("timer cancelled");
                 return;
@@ -99,7 +99,7 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
             }
             state.timerEndsAt = Date.now() + ms;
             state.timerLabel = input;
-            footer.setTimer(state.timerEndsAt);
+            statusLine.setTimer(state.timerEndsAt);
             syncTicker();
             say(`timer set — ${input}`);
         },

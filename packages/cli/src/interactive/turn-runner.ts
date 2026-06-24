@@ -25,7 +25,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         editor,
         commands,
         queuedMessages,
-        refreshFooter,
+        refreshStatusLine,
         renderPending,
         showWorking,
         hideWorking,
@@ -129,7 +129,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             turnProvider,
             subagentStream,
             showWorking,
-            refreshFooter,
+            refreshStatusLine,
         });
 
         const turnSignal = state.abort.signal;

@@ -11,7 +11,7 @@ import type { LoopSettings } from "../settings";
 import type { ModelInfo } from "../types";
 
 /** Current extension API version — bumped on breaking changes to this surface. */
-export const EXTENSION_API_VERSION = "0.1.0";
+export const EXTENSION_API_VERSION = "0.2.0";
 
 /** The `loop` field of an extension's package.json, plus the npm fields we read. */
 export interface ExtensionManifest {
@@ -81,10 +81,7 @@ export type ToolCallMiddleware = (
  * `<diagnostics>` block after `write`/`edit`). The ctx tells the extension which
  * agent/model/tool produced the result.
  */
-export type ToolResultMiddleware = (
-    result: string,
-    ctx: ToolCallContext,
-) => string | void | Promise<string | void>;
+export type ToolResultMiddleware = (result: string, ctx: ToolCallContext) => string | void | Promise<string | void>;
 
 /** SDK families loop knows how to drive declaratively (Vercel AI SDK). */
 export type ProviderSdk = "openai" | "anthropic" | "google" | "openai-compatible";
@@ -186,6 +183,133 @@ export interface TurnMiddleware {
     onAfterTurn?(ctx: TurnContext): void | Promise<void>;
 }
 
+/** One row in an interactive menu. Structurally identical to the TUI's SelectItem. */
+export interface UiSelectItem {
+    /** Returned to the caller when this row is chosen. */
+    value: string;
+    /** Primary text shown in the list. */
+    label: string;
+    /** Dimmed secondary text. */
+    description?: string;
+}
+
+/**
+ * Interactive terminal UI — the same menu/prompt primitives the built-in panels
+ * (e.g. `/mcp`) use, so an extension can build its own rich panels. Only
+ * available in the interactive TUI: every method THROWS in non-interactive
+ * (print / `loop -p`) mode, so interactive flows must be gated behind a real
+ * user session. `select`/`search`/`prompt` resolve to null/"" when the user
+ * cancels (Esc).
+ */
+export interface LoopUI {
+    /** Single-choice menu; arrow-key navigation. Resolves null on Esc. */
+    select(items: UiSelectItem[], title?: string, opts?: { initialIndex?: number }): Promise<UiSelectItem | null>;
+    /** Like select, but type-to-filter. Resolves null on Esc. */
+    search(items: UiSelectItem[], title?: string, opts?: { initialIndex?: number }): Promise<UiSelectItem | null>;
+    /** Free-text prompt. Resolves "" on empty/Esc. */
+    prompt(label?: string, initial?: string): Promise<string>;
+    /** Append a dim system line to the chat. */
+    note(text: string): void;
+    /** Append a red error line to the chat. */
+    error(text: string): void;
+}
+
+/** Options for {@link LoopAuth.loopbackOAuth}. */
+export interface LoopbackOAuthOptions {
+    /**
+     * Build the provider's authorize URL given the loopback `redirect_uri` loop
+     * is listening on (a `http://127.0.0.1:<port>/callback`). Set the URL's
+     * `redirect_uri` (and `state`/PKCE/etc.) to match.
+     */
+    buildAuthorizeUrl: (redirectUri: string) => string | Promise<string>;
+    /** How long to wait for the browser redirect before failing. Default 180s. */
+    timeoutMs?: number;
+}
+
+/** Result of a completed {@link LoopAuth.loopbackOAuth} round-trip. */
+export interface LoopbackOAuthResult {
+    /** The authorization code returned on the redirect. */
+    code: string;
+    /** The `state` echoed back, if the provider returned one. */
+    state?: string;
+    /** The exact redirect_uri loop listened on (needed for the token exchange). */
+    redirectUri: string;
+}
+
+/**
+ * Credentials + browser/OAuth helpers, so an extension can implement a full
+ * remote-auth flow (the part the MCP feature needed). Secrets are namespaced to
+ * the extension and persisted outside `settings.json`. Token *exchange* stays in
+ * the extension (provider-specific); loop only provides the loopback code-catch.
+ */
+export interface LoopAuth {
+    /** Read a secret previously stored by this extension. */
+    getSecret(key: string): string | undefined;
+    /** Persist a secret for this extension (e.g. an OAuth refresh token). */
+    setSecret(key: string, value: string): void;
+    /** Delete one of this extension's secrets. */
+    deleteSecret(key: string): void;
+    /** Open a URL in the user's browser. */
+    openExternal(url: string): void;
+    /**
+     * Run a localhost-loopback OAuth flow: start a callback server, open the
+     * browser to the URL from `buildAuthorizeUrl`, and resolve with the returned
+     * code once the provider redirects back. The extension then exchanges the
+     * code for tokens itself and stores them via {@link setSecret}.
+     */
+    loopbackOAuth(opts: LoopbackOAuthOptions): Promise<LoopbackOAuthResult>;
+}
+
+/**
+ * Everything an extension might want to render in the status line, built fresh
+ * each repaint. Passed to both contributors and transforms.
+ */
+export interface StatusLineContext {
+    /** "default" | "plan" | a custom/extension agent. */
+    agent: string;
+    /** Full id, e.g. "xai/composer-2.5". */
+    modelId: string;
+    /** Parsed halves of modelId. */
+    provider: string;
+    model: string;
+    /** Short session id, or null when the session is unsaved. */
+    sessionId: string | null;
+    cwd: string;
+    cost: { usd: number; inputTokens: number; outputTokens: number; cachedInputTokens: number };
+    context: { used: number; max: number };
+    /** Thinking level ("off" when none / model doesn't reason). */
+    thinking: string;
+    /** Columns available to the status line. */
+    width: number;
+}
+
+/** One piece an extension appends to the status line. */
+export interface StatusSegment {
+    /** Visible text; may contain ANSI color (e.g. from chalk). */
+    text: string;
+    /**
+     * Which row to append to: 0 = identity (agent/model), 1 = usage
+     * (session/cost/ctx). A larger number creates an extra row below. Default 1.
+     */
+    row?: number;
+}
+
+/**
+ * Contributes extra segment(s) to the status line. Return a segment, an array, a
+ * bare string (appended to the usage row), or null/undefined to add nothing.
+ * Called on every repaint — keep it cheap and synchronous.
+ */
+export type StatusLineContributor = (
+    ctx: StatusLineContext,
+) => StatusSegment | StatusSegment[] | string | null | undefined;
+
+/**
+ * Rewrites the fully-rendered status line. Receives the assembled rows (after
+ * built-in content + contributor segments) and returns replacement rows, or
+ * void to leave them unchanged — full control over the final look.
+ */
+export type StatusLineTransform = (lines: string[], ctx: StatusLineContext) => string[] | void;
+
 export interface ExtensionInfo {
     /** The extension's own directory (~/.loop/extensions/<name>). */
     readonly dir: string;
@@ -208,6 +332,11 @@ export interface ExtensionInfo {
 export interface LoopAPI {
     readonly extension: ExtensionInfo;
     readonly version: string;
+
+    /** Interactive menus/prompts. Throws in non-interactive (print) mode. */
+    readonly ui: LoopUI;
+    /** Secrets + browser/OAuth helpers. */
+    readonly auth: LoopAuth;
 
     commands: {
         register(cmd: SlashCommand): void;
@@ -244,6 +373,13 @@ export interface LoopAPI {
     agents: { register(agent: AgentPlugin): void };
     skills: { addDir(dir: string): void };
     turn: { use(mw: TurnMiddleware): void };
+    /** Customize the status line under the input box. */
+    statusLine: {
+        /** Append segment(s) to a row. */
+        add(fn: StatusLineContributor): void;
+        /** Rewrite the fully-rendered rows. */
+        transform(fn: StatusLineTransform): void;
+    };
 }
 
 /** The shape an extension's entry module must export (default or named). */

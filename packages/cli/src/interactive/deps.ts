@@ -1,7 +1,7 @@
 import type { Container, Editor, SelectItem, SelectList, TUI } from "@notshekhar/loop-tui";
 import type { CommandRegistry, CostTracker, Session, SessionManager, UsageBlock } from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
-import type { CostFooter } from "./components/cost-footer";
+import type { StatusLine } from "./components/status-line";
 
 /**
  * Stable references for handlers. Functions and objects here don't change
@@ -10,14 +10,14 @@ import type { CostFooter } from "./components/cost-footer";
 export interface AppDeps {
     tui: TUI;
     history: ChatHistory;
-    footer: CostFooter;
+    statusLine: StatusLine;
     tracker: CostTracker;
     editor: Editor;
     commands: CommandRegistry;
     manager: SessionManager;
     queuedMessages: string[];
-    refreshFooter: (usage?: UsageBlock) => void;
-    refreshFooterCtx: (usage?: UsageBlock) => void;
+    refreshStatusLine: (usage?: UsageBlock) => void;
+    refreshStatusLineCtx: (usage?: UsageBlock) => void;
     renderPending: () => void;
     showWorking: (msg?: string) => void;
     hideWorking: () => void;

@@ -27,13 +27,13 @@ import { listUsableProviders } from "../provider-availability";
 type ModelHandlers = Pick<CommandContext, "setModel" | "setProvider" | "openModelPicker" | "setThinking">;
 
 export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandlers {
-    const { tui, history, footer, refreshFooter, selectOnce, searchOnce, promptOnce, resolveModelId } = deps;
+    const { tui, history, statusLine, refreshStatusLine, selectOnce, searchOnce, promptOnce, resolveModelId } = deps;
 
     const applyModel = (id: string) => {
         state.modelId = id;
         settingsStore.set("defaultModel", id);
         setProjectModel(state.cwd, id);
-        footer.setModel(id);
+        statusLine.setModel(id);
         history.addSystem(`model → ${id}`);
         tui.requestRender();
     };
@@ -47,7 +47,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                 return;
             }
             applyModel(resolved);
-            refreshFooter();
+            refreshStatusLine();
         },
         async setProvider(p) {
             // logged-in providers + zero-login ollama + saved custom gateways
@@ -85,7 +85,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                 state.modelId = pick.id;
                 settingsStore.set("defaultModel", state.modelId);
                 setProjectModel(state.cwd, state.modelId);
-                footer.setModel(state.modelId);
+                statusLine.setModel(state.modelId);
             }
             history.addSystem(`provider → ${target}${pick ? `, model → ${pick.id}` : ""}`);
             tui.requestRender();
@@ -183,7 +183,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
             }
             state.thinkingLevel = target;
             settingsStore.set("thinkingLevel", target);
-            footer.setThinking(target);
+            statusLine.setThinking(target);
             history.addSystem(`thinking → ${target}`);
             tui.requestRender();
         },

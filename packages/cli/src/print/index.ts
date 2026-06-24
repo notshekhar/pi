@@ -15,6 +15,7 @@ import {
     settingsStore,
 } from "@notshekhar/loop-core";
 import type { ProviderId } from "@notshekhar/loop-core";
+import { openBrowser } from "../open-browser";
 
 export interface PrintOptions {
     prompt: string;
@@ -85,7 +86,9 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     if (mcpEnabled) await getMcpManager().init(opts.cwd);
 
     // Load extensions so their tools/middleware apply headlessly too. No-op
-    // when none are installed.
+    // when none are installed. Inject a browser opener but no `ui`: any
+    // api.ui call throws in print mode (interactive panels need a real session).
+    getExtensionHost().setServices({ openExternal: (url) => openBrowser(url) });
     await getExtensionHost().init();
 
     await runTurn({

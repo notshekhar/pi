@@ -17,7 +17,10 @@ export function normalizeMode(value: unknown): Mode | null {
 
 /** "stop caveman" / "normal mode" as a standalone message turns caveman off. */
 export function isDeactivationCommand(text: string): boolean {
-    const t = text.trim().toLowerCase().replace(/[.!?\s]+$/, "");
+    const t = text
+        .trim()
+        .toLowerCase()
+        .replace(/[.!?\s]+$/, "");
     return t === "stop caveman" || t === "normal mode";
 }
 

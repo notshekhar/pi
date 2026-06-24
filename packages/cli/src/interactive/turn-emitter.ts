@@ -19,7 +19,7 @@ export interface TurnEmitterDeps {
     turnProvider: string;
     subagentStream: SubagentStream;
     showWorking: (message?: string) => void;
-    refreshFooter: (usage?: UsageBlock) => void;
+    refreshStatusLine: (usage?: UsageBlock) => void;
 }
 
 /**
@@ -30,7 +30,7 @@ export interface TurnEmitterDeps {
  * wiring it replaces.
  */
 export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): void {
-    const { history, tui, state, turnProvider, subagentStream, showWorking, refreshFooter } = deps;
+    const { history, tui, state, turnProvider, subagentStream, showWorking, refreshStatusLine } = deps;
 
     emitter.on("text-delta", (t: string) => {
         history.appendAssistantDelta(t, turnProvider, state.modelId);
@@ -80,18 +80,18 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
     emitter.on("subagent-finish", (_e: { toolCallId: string }) => {
         // Buffer intentionally kept — tool-result composes it into the final
         // display, then clears it.
-        refreshFooter();
+        refreshStatusLine();
         showWorking("Generating");
         tui.requestRender();
     });
-    // Live cost: footer updates after every step (main and subagent), not just
+    // Live cost: status line updates after every step (main and subagent), not just
     // at turn end. Step usage also carries the current context size.
     emitter.on("step-usage", (e: { usage?: UsageBlock }) => {
-        refreshFooter(e.usage);
+        refreshStatusLine(e.usage);
     });
     emitter.on("subagent-step-usage", () => {
         // Cost only — a subagent's context is not the main context.
-        refreshFooter();
+        refreshStatusLine();
     });
     emitter.on("hook-message", (m: string) => {
         history.addHook(m);
@@ -112,13 +112,13 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
             if (r.aborted) history.addSystem("compact aborted");
             else if (r.summary) history.addCompactionSummary(r.summary, r.tokensBefore);
             if (typeof r.tokensAfter === "number") state.latestContextTokens = r.tokensAfter;
-            refreshFooter();
+            refreshStatusLine();
             tui.requestRender();
         },
     );
     emitter.on("finish", (event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }) => {
         history.finishAssistant();
-        refreshFooter(pickContextUsage(event));
+        refreshStatusLine(pickContextUsage(event));
         tui.requestRender();
     });
     emitter.on("error", (err: unknown) => {
@@ -129,7 +129,7 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
     // already false, and renders wherever the chat currently ends.
     emitter.on("data-recap", (e: { text: string }) => {
         history.addRecap(e.text);
-        refreshFooter();
+        refreshStatusLine();
         tui.requestRender();
     });
 }

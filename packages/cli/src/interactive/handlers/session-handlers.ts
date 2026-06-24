@@ -36,11 +36,11 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
     const {
         tui,
         history,
-        footer,
+        statusLine,
         tracker,
         manager,
         queuedMessages,
-        refreshFooter,
+        refreshStatusLine,
         renderPending,
         showWorking,
         hideWorking,
@@ -75,11 +75,11 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
         async newSession() {
             abortActiveTurn();
             state.session = null;
-            footer.setSession("unsaved");
+            statusLine.setSession("unsaved");
             tracker.reset();
             clearReadRegistry();
             state.latestContextTokens = 0;
-            refreshFooter();
+            refreshStatusLine();
             queuedMessages.length = 0;
             renderPending();
             history.reset();
@@ -93,7 +93,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
             tracker.reset();
             state.latestContextTokens = 0;
-            refreshFooter();
+            refreshStatusLine();
             history.reset();
             showWelcomeBanner(history, state, deps);
             // Fire-and-forget (clearScreen is sync): re-show context + extensions.
@@ -203,12 +203,12 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                     state.modelId = resumedModel;
                     settingsStore.set("defaultModel", state.modelId);
                     setProjectModel(state.cwd, state.modelId);
-                    footer.setModel(state.modelId);
+                    statusLine.setModel(state.modelId);
                 }
-                footer.setSession(state.session.id);
+                statusLine.setSession(state.session.id);
                 // Restore cost/usage/ctx from the resumed transcript.
                 state.latestContextTokens = tracker.seedFromSession(state.session).ctxTokens;
-                refreshFooter();
+                refreshStatusLine();
                 history.reset();
                 if (state.session.path !== selectedPath) {
                     history.addSystem(`resumed fork ${state.session.id}`);
@@ -278,7 +278,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                     } catch {}
                 }
                 state.session = ns;
-                footer.setSession(state.session.id);
+                statusLine.setSession(state.session.id);
                 history.addSystem(`imported ${lines.length} entries → session ${state.session.id}`);
             } catch (err) {
                 history.addError(`import failed: ${(err as Error).message}`);

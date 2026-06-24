@@ -25,7 +25,8 @@ import { currentBashDeny, runBashDenyManager } from "./bashdeny-handlers";
 type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload">;
 
 export function createSettingsHandlers(state: AppState, deps: AppDeps): SettingsHandlers {
-    const { tui, history, footer, commands, showWorking, hideWorking, searchOnce, promptOnce, refreshCommands } = deps;
+    const { tui, history, statusLine, commands, showWorking, hideWorking, searchOnce, promptOnce, refreshCommands } =
+        deps;
 
     // Boolean settings toggle in place; unset falls back to the default here.
     const BOOLEAN_DEFAULTS: Record<string, boolean> = {
@@ -73,7 +74,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     {
                         value: "clock",
                         label: `clock: ${boolSetting("clock") ? "on" : "off"}`,
-                        description: "live date + hh:mm:ss in the footer",
+                        description: "live date + hh:mm:ss in the status line",
                     },
                     {
                         value: "reminders",
@@ -107,7 +108,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 if (pick.value in BOOLEAN_DEFAULTS) {
                     const next = !boolSetting(pick.value);
                     settingsStore.set(pick.value, next);
-                    deps.syncTicker(); // clock toggle starts/stops the 1s footer pulse
+                    deps.syncTicker(); // clock toggle starts/stops the 1s status line pulse
                     history.addSystem(`${pick.value} → ${next ? "on" : "off"}`);
                     // MCP toggle connects/tears down servers live so the change
                     // takes effect this session without a /reload. startMcpServers
@@ -181,7 +182,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     state.agent = DEFAULT_AGENT_NAME;
                     settingsStore.set("agent", DEFAULT_AGENT_NAME);
                 }
-                footer.setAgent(state.agent);
+                statusLine.setAgent(state.agent);
 
                 // Models: force-refresh availability + model definitions.
                 bustCatalogCache();

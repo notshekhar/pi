@@ -9,7 +9,14 @@
  * (`getOwn`/`setOwn`), and `onBeforeTurn` for the "stop ponytail" phrase.
  */
 import type { LoopAPI } from "../../api";
-import { buildInstructions, DEFAULT_MODE, isDeactivationCommand, MODES, normalizeMode, type Mode } from "./instructions";
+import {
+    buildInstructions,
+    DEFAULT_MODE,
+    isDeactivationCommand,
+    MODES,
+    normalizeMode,
+    type Mode,
+} from "./instructions";
 
 export default {
     activate(api: LoopAPI) {

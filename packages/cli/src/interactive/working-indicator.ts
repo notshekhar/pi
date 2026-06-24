@@ -11,7 +11,7 @@ export interface WorkingIndicator {
 /**
  * Drives the fixed-height status slot above the editor: a Loader while a turn
  * (or hook) is working, the idle spacer otherwise. The slot keeps a constant
- * height so the editor/footer block never jumps a row.
+ * height so the editor/status line block never jumps a row.
  */
 export function createWorkingIndicator(
     tui: TUI,

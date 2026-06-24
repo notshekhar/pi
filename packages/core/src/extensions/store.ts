@@ -23,9 +23,13 @@ export interface ExtensionRecord {
 
 type Records = Record<string, ExtensionRecord>;
 
-const store = new CachedStore("loop-agent-extensions", { extensions: {} }, {
-    configPath: join(getLoopDir(), "extensions.json"),
-});
+const store = new CachedStore(
+    "loop-agent-extensions",
+    { extensions: {} },
+    {
+        configPath: join(getLoopDir(), "extensions.json"),
+    },
+);
 
 /** Root dir holding each extension's own directory. */
 export function extensionsDir(): string {

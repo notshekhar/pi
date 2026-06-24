@@ -42,16 +42,16 @@ my-loop-ext/
 
 ```jsonc
 {
-  "name": "loop-ext-myvendor",
-  "version": "1.2.0",
-  "type": "module",
-  "dependencies": { "@ai-sdk/openai-compatible": "^1" },
-  "loop": {
-    "entry": "./index.ts",                 // default: module → main → index.ts
-    "displayName": "My Vendor",
-    "engines": { "loop": "^0.1" },          // host API range (major-compat checked)
-    "permissions": ["net", "fs"]            // advisory in v1
-  }
+    "name": "loop-ext-myvendor",
+    "version": "1.2.0",
+    "type": "module",
+    "dependencies": { "@ai-sdk/openai-compatible": "^1" },
+    "loop": {
+        "entry": "./index.ts", // default: module → main → index.ts
+        "displayName": "My Vendor",
+        "engines": { "loop": "^0.1" }, // host API range (major-compat checked)
+        "permissions": ["net", "fs"], // advisory in v1
+    },
 }
 ```
 
@@ -59,8 +59,12 @@ The entry default-exports an `ExtensionModule`:
 
 ```ts
 export default {
-  activate(api) { /* register contributions */ },
-  deactivate() { /* optional; host already tears down contributions */ },
+    activate(api) {
+        /* register contributions */
+    },
+    deactivate() {
+        /* optional; host already tears down contributions */
+    },
 };
 ```
 
@@ -74,11 +78,11 @@ unwind their own contributions.
 
 `loop install <spec>` accepts three source kinds:
 
-| Spec | Kind | Resolution |
-| --- | --- | --- |
-| `camelcase`, `@scope/pkg@1.2` | npm | `bun add <spec>` in a wrapper dir |
-| `github:owner/repo`, `https://github.com/owner/repo`, `owner/repo` | github | `bun add github:…` (pulls transitive deps) |
-| `./path`, `/abs`, `file:…` | local | `loop link` — loaded in place after `bun install` |
+| Spec                                                               | Kind   | Resolution                                        |
+| ------------------------------------------------------------------ | ------ | ------------------------------------------------- |
+| `camelcase`, `@scope/pkg@1.2`                                      | npm    | `bun add <spec>` in a wrapper dir                 |
+| `github:owner/repo`, `https://github.com/owner/repo`, `owner/repo` | github | `bun add github:…` (pulls transitive deps)        |
+| `./path`, `/abs`, `file:…`                                         | local  | `loop link` — loaded in place after `bun install` |
 
 **Install model (wrapper dir):** each non-local extension gets
 `~/.loop/extensions/<name>/`, whose `package.json` declares the extension as its
@@ -101,17 +105,17 @@ deps for all installed extensions. In-session: the `/extensions` panel +
 
 One object handed to `activate(api)`. Stable, additive contract.
 
-| Group | Methods | Notes |
-| --- | --- | --- |
-| `api.commands` | `register` · `unregister` · `override` | add/remove/replace any slash command, incl. builtins |
-| `api.tools` | `add` · `remove` · `grant(agent, tool)` · `onCall(match, mw)` · `onResult(match, mw)` | add/remove any tool (default gets it automatically); `grant` lets a restricted agent use it; `onCall` rewrites/blocks a matched tool's input pre-exec (e.g. sanitize `bash`); `onResult` transforms its result post-exec (LSP/linters/formatters). Both target a specific tool via `match` and receive `ToolCallContext` — **see §5** |
-| `api.settings` | `get`/`set` (core keys) · `getOwn`/`setOwn` (namespaced) | own keys stored under one `extensionSettings` bag |
-| `api.providers` | `register(provider)` | **see §4** |
-| `api.models` | `add(...ModelInfo)` | contribute catalog entries directly |
-| `api.agents` | `register(agent)` | named agent; omit `tools` → all tools, supply `tools` → restricted (may name extension tools) — **see §5** |
-| `api.skills` | `addDir(dir)` | contribute a skills directory |
-| `api.turn` | `use(middleware)` | **see §5** |
-| `api.extension` | `dir` · `manifest` · `log` | the extension's own context |
+| Group           | Methods                                                                               | Notes                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `api.commands`  | `register` · `unregister` · `override`                                                | add/remove/replace any slash command, incl. builtins                                                                                                                                                                                                                                                                                  |
+| `api.tools`     | `add` · `remove` · `grant(agent, tool)` · `onCall(match, mw)` · `onResult(match, mw)` | add/remove any tool (default gets it automatically); `grant` lets a restricted agent use it; `onCall` rewrites/blocks a matched tool's input pre-exec (e.g. sanitize `bash`); `onResult` transforms its result post-exec (LSP/linters/formatters). Both target a specific tool via `match` and receive `ToolCallContext` — **see §5** |
+| `api.settings`  | `get`/`set` (core keys) · `getOwn`/`setOwn` (namespaced)                              | own keys stored under one `extensionSettings` bag                                                                                                                                                                                                                                                                                     |
+| `api.providers` | `register(provider)`                                                                  | **see §4**                                                                                                                                                                                                                                                                                                                            |
+| `api.models`    | `add(...ModelInfo)`                                                                   | contribute catalog entries directly                                                                                                                                                                                                                                                                                                   |
+| `api.agents`    | `register(agent)`                                                                     | named agent; omit `tools` → all tools, supply `tools` → restricted (may name extension tools) — **see §5**                                                                                                                                                                                                                            |
+| `api.skills`    | `addDir(dir)`                                                                         | contribute a skills directory                                                                                                                                                                                                                                                                                                         |
+| `api.turn`      | `use(middleware)`                                                                     | **see §5**                                                                                                                                                                                                                                                                                                                            |
+| `api.extension` | `dir` · `manifest` · `log`                                                            | the extension's own context                                                                                                                                                                                                                                                                                                           |
 
 ---
 
@@ -130,19 +134,31 @@ an SDK kind, a base URL, auth, and a model list:
 
 ```ts
 api.providers.register({
-  id: "myvendor",
-  name: "My Vendor",
-  sdk: "openai-compatible",                 // "openai" | "anthropic" | "google" | "openai-compatible"
-  baseURL: "https://api.myvendor.com/v1",
-  auth: { mode: "apikey", envVar: "MYVENDOR_API_KEY", loginUrl: "https://myvendor.com/keys" },
-  models: [
-    { id: "fast-1",  name: "Fast 1",  contextWindow: 128_000, maxOutput: 16_000,
-      reasoning: false, modalities: ["text"],
-      cost: { input: 0.2, output: 0.6, cacheRead: 0.05, cacheWrite: 0.25 } },
-    { id: "think-1", name: "Think 1", contextWindow: 256_000, maxOutput: 32_000,
-      reasoning: true,  modalities: ["text", "image"],
-      cost: { input: 1.0, output: 3.0, cacheRead: 0.1, cacheWrite: 1.25 } },
-  ],
+    id: "myvendor",
+    name: "My Vendor",
+    sdk: "openai-compatible", // "openai" | "anthropic" | "google" | "openai-compatible"
+    baseURL: "https://api.myvendor.com/v1",
+    auth: { mode: "apikey", envVar: "MYVENDOR_API_KEY", loginUrl: "https://myvendor.com/keys" },
+    models: [
+        {
+            id: "fast-1",
+            name: "Fast 1",
+            contextWindow: 128_000,
+            maxOutput: 16_000,
+            reasoning: false,
+            modalities: ["text"],
+            cost: { input: 0.2, output: 0.6, cacheRead: 0.05, cacheWrite: 0.25 },
+        },
+        {
+            id: "think-1",
+            name: "Think 1",
+            contextWindow: 256_000,
+            maxOutput: 32_000,
+            reasoning: true,
+            modalities: ["text", "image"],
+            cost: { input: 1.0, output: 3.0, cacheRead: 0.1, cacheWrite: 1.25 },
+        },
+    ],
 });
 ```
 
@@ -155,14 +171,16 @@ directly and return an ai-sdk `LanguageModel`:
 
 ```ts
 api.providers.register({
-  id: "myvendor",
-  name: "My Vendor",
-  auth: { mode: "oauth" },
-  async getModel(modelId, ctx) {
-    const { createOpenAI } = await import("@ai-sdk/openai");        // extension's own dep
-    return createOpenAI({ apiKey: ctx.apiKey, baseURL: "…", fetch: ctx.fetch })(modelId);
-  },
-  async listModels() { /* fetch /models, map to ModelInfo[] */ },
+    id: "myvendor",
+    name: "My Vendor",
+    auth: { mode: "oauth" },
+    async getModel(modelId, ctx) {
+        const { createOpenAI } = await import("@ai-sdk/openai"); // extension's own dep
+        return createOpenAI({ apiKey: ctx.apiKey, baseURL: "…", fetch: ctx.fetch })(modelId);
+    },
+    async listModels() {
+        /* fetch /models, map to ModelInfo[] */
+    },
 });
 ```
 
@@ -172,7 +190,7 @@ env) and a `fetch` helper.
 ### 4.3 How it threads through (seams)
 
 - **Model construction** — `providers/getModel(fullId)` (exported as
-  `getLanguageModel`) gains one branch *before* the builtin switch: if the host
+  `getLanguageModel`) gains one branch _before_ the builtin switch: if the host
   has a provider for the parsed id, use it (declarative → reuse `customModel`;
   imperative → call its `getModel`). Order: `custom:` config → host provider →
   builtin switch.
@@ -182,7 +200,7 @@ env) and a `fetch` helper.
   windows, reasoning/modality flags all "just work" in the footer and picker.
 - **Auth** — the auth store is already generic over arbitrary provider ids
   (`getApiKey(provider: ProviderId)`, `ProviderId = BuiltinProviderId | (string
-  & {})`). So `loop login myvendor` (apikey) stores and `getApiKey("myvendor")`
+& {})`). So `loop login myvendor` (apikey) stores and `getApiKey("myvendor")`
   retrieves with zero new storage. Provider extensions just need to appear in the
   login provider list (today `PROVIDER_IDS` in `login-flow.ts`) — the host will
   expose registered provider ids + their `auth` descriptor so the picker and
@@ -196,19 +214,22 @@ env) and a `fetch` helper.
 
 ```ts
 interface ProviderPlugin {
-  id: string;
-  name?: string;
-  auth?: { mode: "apikey" | "oauth" | "none"; envVar?: string; loginUrl?: string };
-  // Declarative:
-  sdk?: "openai" | "anthropic" | "google" | "openai-compatible";
-  baseURL?: string;
-  headers?: Record<string, string>;
-  models?: ModelInfo[];
-  // Imperative (overrides declarative if present):
-  getModel?(modelId: string, ctx: ProviderRuntime): LanguageModel | Promise<LanguageModel>;
-  listModels?(): ModelInfo[] | Promise<ModelInfo[]>;
+    id: string;
+    name?: string;
+    auth?: { mode: "apikey" | "oauth" | "none"; envVar?: string; loginUrl?: string };
+    // Declarative:
+    sdk?: "openai" | "anthropic" | "google" | "openai-compatible";
+    baseURL?: string;
+    headers?: Record<string, string>;
+    models?: ModelInfo[];
+    // Imperative (overrides declarative if present):
+    getModel?(modelId: string, ctx: ProviderRuntime): LanguageModel | Promise<LanguageModel>;
+    listModels?(): ModelInfo[] | Promise<ModelInfo[]>;
 }
-interface ProviderRuntime { apiKey?: string; fetch: typeof fetch }
+interface ProviderRuntime {
+    apiKey?: string;
+    fetch: typeof fetch;
+}
 ```
 
 (The current `api.ts` has a minimal `ProviderPlugin`; P3 expands it to the
@@ -246,15 +267,15 @@ Two capabilities this requires (both are gaps in the current code, fixed in P5):
    restricted agent's allowlist without the user editing the agent file:
 
 ```ts
-api.tools.add("myext_review", reviewTool);     // registered; default has it automatically
-api.tools.grant("plan", "myext_review");       // also let the read-only plan agent use it
+api.tools.add("myext_review", reviewTool); // registered; default has it automatically
+api.tools.grant("plan", "myext_review"); // also let the read-only plan agent use it
 ```
 
 **Agents via extensions.** `api.agents.register({ name, prompt, tools? })` adds a
 named agent (merged into `listAgents()`, gets a `/<name>` command like any
 other). Omit `tools` → that agent gets all tools (like default); supply a
 `tools` allowlist → restricted, and the allowlist may name extension tools
-(capability #1 above). So an extension can ship *both* a tool and an agent wired
+(capability #1 above). So an extension can ship _both_ a tool and an agent wired
 to use it.
 
 ---
@@ -266,17 +287,23 @@ extension always knows what is running — which agent, model, tool, and step:
 
 ```ts
 interface TurnContext {
-  sessionId: string; transcriptPath: string; cwd: string;
-  agent: string;          // "default" | "plan" | custom/extension agent
-  modelId: string; provider: string; model: string;
-  tools: string[];        // tool names available this turn (post agent-filter + extensions)
-  isSubagent: boolean;    // true inside a task subagent run
-  step?: number;          // current step index within the turn
+    sessionId: string;
+    transcriptPath: string;
+    cwd: string;
+    agent: string; // "default" | "plan" | custom/extension agent
+    modelId: string;
+    provider: string;
+    model: string;
+    tools: string[]; // tool names available this turn (post agent-filter + extensions)
+    isSubagent: boolean; // true inside a task subagent run
+    step?: number; // current step index within the turn
 }
 
 // tool hooks (onResult, future onCall) extend it with the live call:
 interface ToolCallContext extends TurnContext {
-  toolName: string; toolCallId: string; input: unknown;
+    toolName: string;
+    toolCallId: string;
+    input: unknown;
 }
 ```
 
@@ -292,17 +319,27 @@ into `TurnContext` threaded through the seams.
 ## 7. Turn middleware
 
 In-process middleware at the real assembly points of `runTurn`
-(`agent/index.ts`), able to *mutate*, not just observe, each receiving the
+(`agent/index.ts`), able to _mutate_, not just observe, each receiving the
 `TurnContext` from §6. Complements the existing Claude-compatible **subprocess**
 hooks (`agent/hooks.ts`), which stay for portability.
 
 ```ts
 api.turn.use({
-  onBeforeTurn(ctx)      { /* inspect/replace input; return false to block */ },
-  onSystemPrompt(p, ctx) { return p + "\n<extra/>" },          // agent/index.ts:332
-  onAssembleTools(t,ctx) { return { ...t, extra: myTool } },   // agent/index.ts:287
-  onProviderOptions(o,c) { /* tweak thinking/caching */ },     // agent/index.ts:391
-  onAfterTurn(ctx)       { /* post-turn side effects */ },
+    onBeforeTurn(ctx) {
+        /* inspect/replace input; return false to block */
+    },
+    onSystemPrompt(p, ctx) {
+        return p + "\n<extra/>";
+    }, // agent/index.ts:332
+    onAssembleTools(t, ctx) {
+        return { ...t, extra: myTool };
+    }, // agent/index.ts:287
+    onProviderOptions(o, c) {
+        /* tweak thinking/caching */
+    }, // agent/index.ts:391
+    onAfterTurn(ctx) {
+        /* post-turn side effects */
+    },
 });
 ```
 
@@ -361,7 +398,7 @@ api.turn.use({
   `getAgentPrompt` / `getAgentTools` / `agentExists` (can't shadow builtin/file
   agents); `agentToolNames()` is dynamic (builtins + registered ext tools) so
   allowlists/`parseAgentFile`/`saveAgent` accept ext tool names; `api.tools.grant
-  (agent, tool)` augments a restricted agent's allowlist; `default` stays all-tools.
+(agent, tool)` augments a restricted agent's allowlist; `default` stays all-tools.
   `host.init()` reordered before `registerBuiltins` so ext agents get `/<name>`
   commands. Zero-regression unit-tested; suite 146 pass / 0 fail.
 - **P6 — `/extensions` panel + `/install` (DONE, verified).** Interactive panel
@@ -379,17 +416,17 @@ api.turn.use({
   failures (version mismatch, throw in `activate`) are collected and **surfaced**
   in the interactive startup. Suite 150 pass / 0 fail; binary build verified.
 
-  The core system is functionally complete: commands, tools (+grants, +subagents),
-  settings, providers + models + login, agents, skills, turn middleware +
-  `TurnContext`, the `/extensions` panel, and full lifecycle (activate / reload /
-  deactivate / close). Deliberate deferrals (with rationale, not gaps):
-  - **Project-local auto-load** (`<cwd>/.loop/extensions`) — auto-running JS from a
-    cloned repo is a security decision; folded into P7, not rushed. Extensions are
-    global-install-only for now (explicit `loop install`).
-  - **Imperative `listModels()` in the catalog** — declarative `models` is the
-    catalog/picker path; imperative providers declare `models` for visibility.
-  - **Turn-prompt middleware on subagents** — `onResult` applies; the prompt-level
-    seams stay main-turn only.
+    The core system is functionally complete: commands, tools (+grants, +subagents),
+    settings, providers + models + login, agents, skills, turn middleware +
+    `TurnContext`, the `/extensions` panel, and full lifecycle (activate / reload /
+    deactivate / close). Deliberate deferrals (with rationale, not gaps):
+    - **Project-local auto-load** (`<cwd>/.loop/extensions`) — auto-running JS from a
+      cloned repo is a security decision; folded into P7, not rushed. Extensions are
+      global-install-only for now (explicit `loop install`).
+    - **Imperative `listModels()` in the catalog** — declarative `models` is the
+      catalog/picker path; imperative providers declare `models` for visibility.
+    - **Turn-prompt middleware on subagents** — `onResult` applies; the prompt-level
+      seams stay main-turn only.
 
 - **P7 — Permissions / sandboxing / project-local / GUI.** Capability enforcement,
   project-trust auto-load, future UI.

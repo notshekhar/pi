@@ -210,7 +210,11 @@ export function getAgentTools(name: string): string[] | undefined {
         base = BUILTINS[name].tools;
     } else {
         const file = readAgentFile(name);
-        base = file ? file.tools : getExtensionHost().getAgents().find((a) => a.name === name)?.tools;
+        base = file
+            ? file.tools
+            : getExtensionHost()
+                  .getAgents()
+                  .find((a) => a.name === name)?.tools;
     }
     if (base === undefined) return undefined; // all tools — grants already covered
     const grants = getExtensionHost().getToolGrants(name);

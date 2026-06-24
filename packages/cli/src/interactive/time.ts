@@ -1,5 +1,5 @@
 /**
- * Time parsing/formatting for /timer, /reminder, and the footer clock.
+ * Time parsing/formatting for /timer, /reminder, and the status line clock.
  */
 
 const DURATION_UNIT_MS: Record<string, number> = {
@@ -63,7 +63,7 @@ export function formatCountdown(remainingMs: number): string {
     return `${seconds}s`;
 }
 
-/** "2026-06-13 21:48:32" — the footer clock. */
+/** "2026-06-13 21:48:32" — the status line clock. */
 export function formatClock(date = new Date()): string {
     const pad = (n: number) => String(n).padStart(2, "0");
     const ymd = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;

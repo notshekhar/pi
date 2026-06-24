@@ -45,7 +45,7 @@ import {
 } from "@notshekhar/loop-core";
 import { getSelectListTheme, initTheme } from "./ui/theme";
 import { ChatHistory } from "./components/chat-history";
-import { CostFooter } from "./components/cost-footer";
+import { StatusLine } from "./components/status-line";
 import {
     selectOnce as selectOnceShared,
     searchSelectOnce as searchSelectOnceShared,
@@ -56,7 +56,7 @@ import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
 import { isEventTraceEnabled, setEventTraceSink, toggleEventTrace } from "./debug-log";
 import { createTurnRunner } from "./turn-runner";
-import { createFooterRefresher } from "./footer-refresh";
+import { createStatusLineRefresher } from "./status-line-refresh";
 import { createWorkingIndicator } from "./working-indicator";
 import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
@@ -64,6 +64,7 @@ import { installConsoleBridge } from "./console-bridge";
 import { runStartupTrustAndHooks, showWhatsNew, showWorkspaceBanners, startUpdateCheck } from "./startup";
 import { showWelcomeBanner } from "./welcome";
 import { listUsableProviders } from "./provider-availability";
+import { openBrowser } from "../open-browser";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 
@@ -153,6 +154,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // agents) sees extension-registered agents and gives them /<name> commands.
     // With nothing installed this is a no-op, so the command set is exactly the
     // builtins.
+    // Give extensions a browser opener before activate() runs. The interactive
+    // `ui` bridge is injected later, once the TUI selector helpers exist.
+    getExtensionHost().setServices({ openExternal: (url) => openBrowser(url) });
     await getExtensionHost().init();
     const commands = new CommandRegistry();
     await registerBuiltins(commands, { cwd: opts.cwd });
@@ -162,12 +166,14 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const tui = new TUI(terminal, true);
 
     const history = new ChatHistory(tui, opts.cwd);
-    const footer = new CostFooter();
-    footer.setModel(initialModelId);
-    footer.setSession(initialSession?.id ?? "unsaved");
-    footer.setCost(tracker.format());
+    const statusLine = new StatusLine();
+    statusLine.setModel(initialModelId);
+    statusLine.setSession(initialSession?.id ?? "unsaved");
+    statusLine.setCost(tracker.format());
+    statusLine.setCostData(tracker.sessionBreakdown());
+    statusLine.setCwd(opts.cwd);
     const initialThinking: ThinkingLevel = (settingsStore.get("thinkingLevel") as ThinkingLevel | undefined) ?? "off";
-    footer.setThinking(initialThinking);
+    statusLine.setThinking(initialThinking);
 
     // Plan is a per-session mode, not a sticky preference: a new loop always
     // boots in the default agent even if the last session ended in plan.
@@ -192,10 +198,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         timerEndsAt: null,
         timerLabel: "",
     };
-    footer.setAgent(state.agent);
+    statusLine.setAgent(state.agent);
 
-    const { refreshFooter, refreshFooterCtx } = createFooterRefresher(footer, tracker, tui, state);
-    refreshFooterCtx();
+    const { refreshStatusLine, refreshStatusLineCtx } = createStatusLineRefresher(statusLine, tracker, tui, state);
+    refreshStatusLineCtx();
 
     const editor = new Editor(tui, editorTheme, { paddingX: 1 });
 
@@ -224,7 +230,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     // Fixed-height status slot above editor so editor never shifts.
     // Loader renders 2 rows (leading blank + spinner line) — the idle spacer
-    // must match, or the editor/footer block jumps a row on every turn start.
+    // must match, or the editor/status line block jumps a row on every turn start.
     const statusContainer = new Container();
     const statusIdleSpacer = new Spacer(2);
     statusContainer.addChild(statusIdleSpacer);
@@ -246,8 +252,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     root.addChild(statusContainer);
     root.addChild(pendingContainer);
     root.addChild(editorContainer);
-    root.addChild(footer);
-    // Constant breathing room below the footer — without it the status block
+    root.addChild(statusLine);
+    // Constant breathing room below the status line — without it the status block
     // sits flush with the terminal's bottom row once the screen fills up.
     root.addChild(new Spacer(1));
     tui.addChild(root);
@@ -292,10 +298,30 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const toggleOnce = (values: string[], initial: Set<string>, title?: string) =>
         toggleSelectOnce(selectorHost, values, initial, title);
 
+    // Expose the interactive menus/prompts to extensions (api.ui). SelectItem is
+    // structurally identical to the extension API's UiSelectItem, so the lists
+    // pass straight through. Used by extension command handlers, which only run
+    // once the app is interactive — so wiring it here (after init) is fine.
+    getExtensionHost().setServices({
+        ui: {
+            select: (items, title, opts) => selectOnce(items, title, opts),
+            search: (items, title, opts) => searchOnce(items, title, opts),
+            prompt: (label, initial) => promptOnce(label, initial),
+            note: (text) => {
+                history.addSystem(text);
+                tui.requestRender();
+            },
+            error: (text) => {
+                history.addError(text);
+                tui.requestRender();
+            },
+        },
+    });
+
     async function ensureSession(): Promise<Session> {
         if (state.session) return state.session;
         state.session = await manager.create({ cwd: state.cwd, provider: state.provider, model: state.modelId });
-        footer.setSession(state.session.id);
+        statusLine.setSession(state.session.id);
         return state.session;
     }
 
@@ -317,11 +343,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         }
     }
 
-    // Shared 1s ticker (footer clock, /timer countdown, reminder scheduler);
+    // Shared 1s ticker (status line clock, /timer countdown, reminder scheduler);
     // owns its own timer/reminder/notice state and runs only while needed.
     const { syncTicker, stopTicker } = createTicker({
         state,
-        footer,
+        statusLine,
         tui,
         getSelectorDepth: () => selectorDepth,
         selectOnce,
@@ -375,14 +401,14 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const deps: AppDeps = {
         tui,
         history,
-        footer,
+        statusLine,
         tracker,
         editor,
         commands,
         manager,
         queuedMessages,
-        refreshFooter,
-        refreshFooterCtx,
+        refreshStatusLine,
+        refreshStatusLineCtx,
         renderPending,
         showWorking,
         hideWorking,

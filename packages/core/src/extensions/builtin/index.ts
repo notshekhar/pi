@@ -11,6 +11,7 @@ import lsp from "./lsp/index";
 import ponytail from "./ponytail/index";
 import caveman from "./caveman/index";
 import rtk from "./rtk/index";
+import statuslineThemes from "./statusline-themes/index";
 
 export interface BuiltinExtension {
     name: string;
@@ -48,6 +49,13 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
         displayName: "RTK Token Optimizer",
         description: "Rewrites bash commands to compress output 60-90% (needs the rtk binary). /rtk",
         module: rtk,
+        defaultEnabled: false,
+    },
+    {
+        name: "statusline-themes",
+        displayName: "Status Line Themes",
+        description: "Recolor the status line — pick a theme (matrix/ocean/sunset/heat/neon/rainbow…). /statusline",
+        module: statuslineThemes,
         defaultEnabled: false,
     },
 ];

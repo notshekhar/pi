@@ -10,7 +10,14 @@
  * switch modes and the "stop caveman" phrase to disable.
  */
 import type { LoopAPI } from "../../api";
-import { buildInstructions, DEFAULT_MODE, isDeactivationCommand, MODES, normalizeMode, type Mode } from "./instructions";
+import {
+    buildInstructions,
+    DEFAULT_MODE,
+    isDeactivationCommand,
+    MODES,
+    normalizeMode,
+    type Mode,
+} from "./instructions";
 
 export default {
     activate(api: LoopAPI) {
@@ -43,7 +50,10 @@ export default {
                     return;
                 }
                 api.settings.setOwn("mode", mode);
-                ctx.emit("help", mode === "off" ? "caveman off — normal mode." : `caveman ${mode} — me talk short now.`);
+                ctx.emit(
+                    "help",
+                    mode === "off" ? "caveman off — normal mode." : `caveman ${mode} — me talk short now.`,
+                );
             },
         });
     },

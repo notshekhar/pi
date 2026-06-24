@@ -19,8 +19,18 @@ import { extractText, rejectWhileBusy, replayCurrentBranch } from "./shared";
 type SessionTreeHandlers = Pick<CommandContext, "forkFromMessage" | "cloneSession" | "showTree">;
 
 export function createSessionTreeHandlers(state: AppState, deps: AppDeps): SessionTreeHandlers {
-    const { tui, history, footer, tracker, editor, manager, refreshFooter, showWorking, hideWorking, showSelector } =
-        deps;
+    const {
+        tui,
+        history,
+        statusLine,
+        tracker,
+        editor,
+        manager,
+        refreshStatusLine,
+        showWorking,
+        hideWorking,
+        showSelector,
+    } = deps;
     const { selectOnce, promptOnce } = deps;
 
     /**
@@ -50,9 +60,9 @@ export function createSessionTreeHandlers(state: AppState, deps: AppDeps): Sessi
               await manager.create({ cwd: state.cwd, provider: state.provider, model: state.modelId });
 
         state.session = forked;
-        footer.setSession(forked.id);
+        statusLine.setSession(forked.id);
         state.latestContextTokens = tracker.seedFromSession(forked).ctxTokens;
-        refreshFooter();
+        refreshStatusLine();
         return { selectedText };
     };
 
@@ -203,7 +213,7 @@ export function createSessionTreeHandlers(state: AppState, deps: AppDeps): Sessi
                 replayCurrentBranch(state, deps);
                 if (editorText && !editor.getText().trim()) editor.setText(editorText);
                 state.latestContextTokens = estimateContextTokens(session);
-                refreshFooter();
+                refreshStatusLine();
                 history.addSystem("Navigated to selected point");
             } catch (err) {
                 if (err instanceof BranchSummaryAbortedError) {

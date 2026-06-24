@@ -1,5 +1,7 @@
 /**
- * Localhost HTTP listener that catches the OAuth redirect (`?code=&state=`).
+ * Localhost HTTP listener that catches an OAuth redirect (`?code=&state=`).
+ * Shared by the MCP OAuth flow and the extension `api.auth.loopbackOAuth` helper
+ * (so third-party extensions can run a browser login without reinventing this).
  * Mirrors the xAI OAuth callback pattern in auth/xai-oauth.ts.
  */
 import { createServer, type Server } from "node:http";

@@ -79,7 +79,9 @@ export default {
         // tell the user why (they enabled it expecting rewriting). Actionable, and
         // only shown because they opted in.
         if (!available) {
-            api.extension.log("enabled but the `rtk` binary isn't on PATH — install it (https://github.com/rtk-ai/rtk), then /reload. No commands are being rewritten.");
+            api.extension.log(
+                "enabled but the `rtk` binary isn't on PATH — install it (https://github.com/rtk-ai/rtk), then /reload. No commands are being rewritten.",
+            );
             return;
         }
 

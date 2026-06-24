@@ -6,7 +6,7 @@
 import { auth } from "@ai-sdk/mcp";
 import { isHttpServer, type McpServerConfig } from "./config";
 import { clearMcpAuth, oauthClientOptions, LoopOAuthProvider } from "./oauth";
-import { startCallbackServer } from "./oauth-callback";
+import { startCallbackServer } from "../auth/oauth-callback";
 
 const LOGIN_TIMEOUT_MS = 180_000;
 

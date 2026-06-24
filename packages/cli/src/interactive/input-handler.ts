@@ -36,7 +36,7 @@ function droppedImagePaths(data: string, cwd: string): string[] | null {
 }
 
 export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandContext): InputListener {
-    const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, footer } = deps;
+    const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, statusLine } = deps;
 
     return (data) => {
         // Trace raw input: shows the press/release pair, modifiers, and which
@@ -91,7 +91,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             const next = cycle[(cycle.indexOf(state.agent) + 1) % cycle.length];
             state.agent = next;
             settingsStore.set("agent", next);
-            footer.setAgent(next);
+            statusLine.setAgent(next);
             tui.requestRender();
             return { consume: true };
         }

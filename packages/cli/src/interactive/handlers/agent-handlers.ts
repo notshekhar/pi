@@ -26,7 +26,7 @@ import type { AppState } from "../state";
 type AgentHandlers = Pick<CommandContext, "useAgent" | "manageAgents">;
 
 export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandlers {
-    const { tui, history, footer, editor, commands, selectOnce, toggleOnce, promptOnce, refreshCommands } = deps;
+    const { tui, history, statusLine, editor, commands, selectOnce, toggleOnce, promptOnce, refreshCommands } = deps;
 
     return {
         useAgent(name, message) {
@@ -158,7 +158,7 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                 if (action.value === "use") {
                     state.agent = name;
                     settingsStore.set("agent", name);
-                    footer.setAgent(name);
+                    statusLine.setAgent(name);
                     // Custom agents — and hidden built-ins like data-analyst —
                     // join the Tab cycle once explicitly selected.
                     if (!isBuiltin || isHiddenAgent(name)) state.cycleCustomAgent = name;
@@ -204,7 +204,7 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                     if (state.agent === name && !isBuiltin) {
                         state.agent = DEFAULT_AGENT_NAME;
                         settingsStore.set("agent", DEFAULT_AGENT_NAME);
-                        footer.setAgent(DEFAULT_AGENT_NAME);
+                        statusLine.setAgent(DEFAULT_AGENT_NAME);
                     }
                     if (!isBuiltin) commands.unregister(name);
                     refreshCommands();

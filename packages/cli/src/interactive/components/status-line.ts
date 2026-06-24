@@ -1,4 +1,5 @@
-import { getModelSync } from "@notshekhar/loop-core";
+import { getExtensionHost, getModelSync, parseModelId } from "@notshekhar/loop-core";
+import type { StatusLineContext, StatusSegment } from "@notshekhar/loop-core";
 import type { Component } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import { formatClock, formatCountdown } from "../time";
@@ -44,7 +45,7 @@ function ansiSlice(s: string, width: number): string {
     return out;
 }
 
-export class CostFooter implements Component {
+export class StatusLine implements Component {
     private modelId = "";
     private sessionId = "";
     private cost = "$0.0000";
@@ -57,6 +58,10 @@ export class CostFooter implements Component {
     private agent = "default";
     private timerEndsAt: number | null = null;
     private clockEnabled = false;
+    private cwd = "";
+    // Structured cost snapshot for the extension status-line context (the `cost`
+    // string above is the pre-formatted display version).
+    private costData = { usd: 0, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
 
     setModel(id: string) {
         this.modelId = id;
@@ -83,6 +88,12 @@ export class CostFooter implements Component {
     }
     setClockEnabled(enabled: boolean) {
         this.clockEnabled = enabled;
+    }
+    setCwd(cwd: string) {
+        this.cwd = cwd;
+    }
+    setCostData(d: { usd: number; inputTokens: number; outputTokens: number; cachedInputTokens: number }) {
+        this.costData = d;
     }
 
     invalidate(): void {}
@@ -114,10 +125,69 @@ export class CostFooter implements Component {
             usage.push(remaining < 60_000 ? chalk.yellow(body) : chalk.dim(body));
         }
         if (this.clockEnabled) usage.push(chalk.dim(formatClock()));
+
+        // Extension contributions: rows[0]=identity, rows[1]=usage, >1 = extra.
+        const { contributors, transforms } = getExtensionHost().getStatusLine();
+        const rows: string[][] = [identity, usage];
+        if (contributors.length > 0 || transforms.length > 0) {
+            const ctx = this.buildContext(width);
+            for (const fn of contributors) {
+                try {
+                    for (const seg of normalizeSegments(fn(ctx))) {
+                        const r = seg.row ?? 1;
+                        (rows[r] ??= []).push(seg.text);
+                    }
+                } catch {
+                    // A throwing contributor must never break the UI render.
+                }
+            }
+            let lines = rows.flatMap((parts) => (parts && parts.length ? wrapParts(parts, width) : []));
+            for (const fn of transforms) {
+                try {
+                    lines = fn(lines, ctx) ?? lines;
+                } catch {
+                    // Same: a bad transform leaves the prior lines intact.
+                }
+            }
+            return lines.map((l) => (ansiLen(l) > width ? ansiSlice(l, width) : l));
+        }
+
         const lines = [...wrapParts(identity, width), ...wrapParts(usage, width)];
         // Hard-clip any single part that still exceeds width (rare).
         return lines.map((l) => (ansiLen(l) > width ? ansiSlice(l, width) : l));
     }
+
+    private buildContext(width: number): StatusLineContext {
+        let provider = "";
+        let model = this.modelId;
+        try {
+            const parsed = parseModelId(this.modelId);
+            provider = parsed.provider;
+            model = parsed.model;
+        } catch {
+            // Unparseable id (e.g. "no-model") — leave provider empty.
+        }
+        return {
+            agent: this.agent,
+            modelId: this.modelId,
+            provider,
+            model,
+            sessionId: this.sessionId || null,
+            cwd: this.cwd,
+            cost: { ...this.costData },
+            context: { used: this.ctxUsed, max: this.ctxMax },
+            thinking: this.thinking,
+            width,
+        };
+    }
+}
+
+/** Coerce a contributor's return into a segment array. */
+function normalizeSegments(out: StatusSegment | StatusSegment[] | string | null | undefined): StatusSegment[] {
+    if (out == null) return [];
+    if (typeof out === "string") return out ? [{ text: out }] : [];
+    if (Array.isArray(out)) return out.filter((s) => s && s.text);
+    return out.text ? [out] : [];
 }
 
 function wrapParts(parts: string[], width: number): string[] {

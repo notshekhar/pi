@@ -18,7 +18,10 @@ export function normalizeMode(value: unknown): Mode | null {
 
 /** "stop ponytail" / "normal mode" as a standalone message turns ponytail off. */
 export function isDeactivationCommand(text: string): boolean {
-    const t = text.trim().toLowerCase().replace(/[.!?\s]+$/, "");
+    const t = text
+        .trim()
+        .toLowerCase()
+        .replace(/[.!?\s]+$/, "");
     return t === "stop ponytail" || t === "normal mode";
 }
 

@@ -11,13 +11,18 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { settingsStore } from "../auth/storage";
+import Configstore from "configstore";
+import { getLoopDir, settingsStore } from "../auth/storage";
+import { startCallbackServer } from "../auth/oauth-callback";
 import type {
     AgentPlugin,
     ExtensionManifest,
     ExtensionModule,
     LoopAPI,
+    LoopUI,
     ProviderPlugin,
+    StatusLineContributor,
+    StatusLineTransform,
     ToolCallMiddleware,
     ToolResultMiddleware,
     TurnMiddleware,
@@ -30,6 +35,25 @@ import { BUILTIN_EXTENSIONS, getBuiltin, type BuiltinExtension } from "./builtin
 type Tool = unknown; // ai-sdk Tool; kept loose here to avoid a hard ai import in the host
 type SlashCommand = import("../commands").SlashCommand;
 type ModelInfo = import("../types").ModelInfo;
+
+/**
+ * UI/browser capabilities the host can't implement itself — they live in the
+ * CLI/TUI layer, which core cannot import. The CLI injects them via
+ * `setServices` before `init()`. Absent in headless/print mode, where `ui` is
+ * undefined (so `api.ui` throws) and `openExternal` is a no-op.
+ */
+export interface HostServices {
+    ui?: LoopUI;
+    openExternal?: (url: string) => void;
+}
+
+/**
+ * Per-extension secrets (OAuth tokens, API keys). Kept out of settings.json in
+ * its own file, mirroring the MCP auth store (mcp/oauth.ts). Shape:
+ * `{ <extension>: { <key>: <value> } }`.
+ */
+const extAuthStore = new Configstore("loop-agent-ext-auth", {}, { configPath: join(getLoopDir(), "ext-auth.json") });
+type SecretBag = Record<string, Record<string, string>>;
 
 type CommandOp =
     | { kind: "register"; cmd: SlashCommand }
@@ -48,6 +72,8 @@ interface Contributions {
     agents: AgentPlugin[];
     skillDirs: string[];
     turnMws: TurnMiddleware[];
+    statusContributors: StatusLineContributor[];
+    statusTransforms: StatusLineTransform[];
 }
 
 interface Loaded {
@@ -71,6 +97,8 @@ function emptyContributions(): Contributions {
         agents: [],
         skillDirs: [],
         turnMws: [],
+        statusContributors: [],
+        statusTransforms: [],
     };
 }
 
@@ -119,6 +147,19 @@ export class ExtensionHost {
     private statusFns = new Map<string, () => string | undefined>();
     private initialized = false;
     private warnings: string[] = [];
+    /** CLI-injected UI/browser bridge (see HostServices). Set before init(). */
+    private services: HostServices = {};
+
+    /**
+     * Inject UI/browser capabilities from the CLI layer. Call before `init()`:
+     * the interactive app passes a real `ui`; print mode passes only
+     * `openExternal`, leaving `api.ui` to throw.
+     */
+    setServices(services: HostServices): void {
+        // Merge so the CLI can inject `openExternal` before init() and the
+        // interactive `ui` later (once the TUI/deps exist) without clobbering.
+        this.services = { ...this.services, ...services };
+    }
 
     /** Load every enabled extension. Safe to call once per session. */
     async init(): Promise<void> {
@@ -167,9 +208,7 @@ export class ExtensionHost {
         if (!existsSync(pkgJsonPath)) throw new Error(`missing package.json at ${pkgDir}`);
         const manifest = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as ExtensionManifest;
         if (!isCompatible(manifest)) {
-            throw new Error(
-                `requires loop API ${manifest.loop?.engines?.loop}, host is ${EXTENSION_API_VERSION}`,
-            );
+            throw new Error(`requires loop API ${manifest.loop?.engines?.loop}, host is ${EXTENSION_API_VERSION}`);
         }
         const entry = resolveEntry(pkgDir, manifest);
         if (!existsSync(entry)) throw new Error(`entry not found: ${entry}`);
@@ -183,12 +222,7 @@ export class ExtensionHost {
         this.loaded.set(record.name, { record, manifest, pkgDir, module, contributions });
     }
 
-    private makeApi(
-        record: ExtensionRecord,
-        manifest: ExtensionManifest,
-        pkgDir: string,
-        c: Contributions,
-    ): LoopAPI {
+    private makeApi(record: ExtensionRecord, manifest: ExtensionManifest, pkgDir: string, c: Contributions): LoopAPI {
         // Info-level: routes to the chat as a dim system line, not a red error.
         const log = (...args: unknown[]) => console.log(`[${record.name}]`, ...args);
         // Per-extension settings live under one un-dotted top-level key as a
@@ -203,8 +237,60 @@ export class ExtensionHost {
             bag[record.name] = { ...(bag[record.name] ?? {}), [k]: v };
             settingsStore.set(OWN, bag);
         };
+
+        // api.ui — proxy to the CLI-injected bridge; throw when absent (print
+        // mode) so an extension never silently no-ops an interactive flow.
+        const requireUi = (): LoopUI => {
+            if (!this.services.ui) {
+                throw new Error(
+                    `api.ui is not available in this context (non-interactive / print mode); ` +
+                        `extension "${record.name}" tried to open an interactive UI`,
+                );
+            }
+            return this.services.ui;
+        };
+        const ui: LoopUI = {
+            select: (items, title, opts) => requireUi().select(items, title, opts),
+            search: (items, title, opts) => requireUi().search(items, title, opts),
+            prompt: (label, initial) => requireUi().prompt(label, initial),
+            note: (text) => requireUi().note(text),
+            error: (text) => requireUi().error(text),
+        };
+
+        // api.auth — per-extension secrets + browser/OAuth helpers.
+        const readSecret = (k: string) => ((extAuthStore.get("secrets") as SecretBag)?.[record.name] ?? {})[k];
+        const writeSecrets = (mutate: (bag: Record<string, string>) => void) => {
+            const all = { ...((extAuthStore.get("secrets") as SecretBag) ?? {}) };
+            const mine = { ...(all[record.name] ?? {}) };
+            mutate(mine);
+            all[record.name] = mine;
+            extAuthStore.set("secrets", all);
+        };
+        const openExternal = (url: string) => {
+            if (this.services.openExternal) this.services.openExternal(url);
+            else log(`cannot open browser (no opener in this context): ${url}`);
+        };
+        const auth: LoopAPI["auth"] = {
+            getSecret: (key) => readSecret(key),
+            setSecret: (key, value) => writeSecrets((bag) => void (bag[key] = value)),
+            deleteSecret: (key) => writeSecrets((bag) => void delete bag[key]),
+            openExternal,
+            loopbackOAuth: async (opts) => {
+                const server = await startCallbackServer();
+                try {
+                    openExternal(await opts.buildAuthorizeUrl(server.redirectUri));
+                    const { code, state } = await server.waitForCode(opts.timeoutMs ?? 180_000);
+                    return { code, state, redirectUri: server.redirectUri };
+                } finally {
+                    server.close();
+                }
+            },
+        };
+
         return {
             version: EXTENSION_API_VERSION,
+            ui,
+            auth,
             extension: {
                 dir: pkgDir,
                 manifest,
@@ -240,6 +326,10 @@ export class ExtensionHost {
             agents: { register: (agent) => c.agents.push(agent) },
             skills: { addDir: (dir) => c.skillDirs.push(dir) },
             turn: { use: (mw) => c.turnMws.push(mw) },
+            statusLine: {
+                add: (fn) => c.statusContributors.push(fn),
+                transform: (fn) => c.statusTransforms.push(fn),
+            },
         };
     }
 
@@ -282,7 +372,12 @@ export class ExtensionHost {
             for (const op of l.contributions.commandOps) {
                 if (op.kind === "register") reg.register(op.cmd);
                 else if (op.kind === "unregister") reg.unregister(op.name);
-                else reg.register({ name: op.name, description: op.cmd.description ?? op.name, handler: op.cmd.handler });
+                else
+                    reg.register({
+                        name: op.name,
+                        description: op.cmd.description ?? op.name,
+                        handler: op.cmd.handler,
+                    });
             }
         }
     }
@@ -304,6 +399,14 @@ export class ExtensionHost {
 
     getToolResultMiddleware(): { match: (name: string) => boolean; mw: ToolResultMiddleware }[] {
         return [...this.loaded.values()].flatMap((l) => l.contributions.toolResultMws);
+    }
+
+    /** Status-line contributors + transforms, aggregated across extensions. */
+    getStatusLine(): { contributors: StatusLineContributor[]; transforms: StatusLineTransform[] } {
+        return {
+            contributors: [...this.loaded.values()].flatMap((l) => l.contributions.statusContributors),
+            transforms: [...this.loaded.values()].flatMap((l) => l.contributions.statusTransforms),
+        };
     }
 
     /** Tool names extensions granted to a specific agent's allowlist. */

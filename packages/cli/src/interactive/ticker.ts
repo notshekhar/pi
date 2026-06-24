@@ -1,12 +1,12 @@
 import { deleteReminder, listReminders, settingsStore } from "@notshekhar/loop-core";
 import { Cron } from "croner";
 import type { SelectItem, TUI } from "@notshekhar/loop-tui";
-import type { CostFooter } from "./components/cost-footer";
+import type { StatusLine } from "./components/status-line";
 import type { AppState } from "./state";
 
 export interface TickerDeps {
     state: AppState;
-    footer: CostFooter;
+    statusLine: StatusLine;
     tui: TUI;
     /** Open count of selectors — notices wait until the input slot is free. */
     getSelectorDepth: () => number;
@@ -22,13 +22,13 @@ export interface Ticker {
 }
 
 /**
- * Shared 1s ticker: footer clock, /timer countdown, reminder scheduler. Runs
+ * Shared 1s ticker: status line clock, /timer countdown, reminder scheduler. Runs
  * only while one of them needs it, so idle sessions hold no timers. Pulled out
  * of the app orchestrator — it owns all timer/reminder/notice state internally
  * and exposes only syncTicker() to wire up.
  */
 export function createTicker(deps: TickerDeps): Ticker {
-    const { state, footer, tui, getSelectorDepth, selectOnce } = deps;
+    const { state, statusLine, tui, getSelectorDepth, selectOnce } = deps;
 
     let ticker: ReturnType<typeof setInterval> | null = null;
     let lastTickAt = Date.now();
@@ -48,7 +48,7 @@ export function createTicker(deps: TickerDeps): Ticker {
     }
 
     function syncTicker(): void {
-        footer.setClockEnabled(settingsStore.get("clock") === true);
+        statusLine.setClockEnabled(settingsStore.get("clock") === true);
         const needed = tickerNeeded();
         if (needed && ticker === null) {
             lastTickAt = Date.now();
@@ -74,7 +74,7 @@ export function createTicker(deps: TickerDeps): Ticker {
         const label = state.timerLabel;
         state.timerEndsAt = null;
         state.timerLabel = "";
-        footer.setTimer(null);
+        statusLine.setTimer(null);
         ring(`Timer over — ${label}`);
     }
 

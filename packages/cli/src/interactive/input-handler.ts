@@ -1,7 +1,7 @@
 import type { CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
-import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc, isShiftTab, isTab } from "./keys";
+import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc, isShiftTab } from "./keys";
 import { isKeyRelease } from "@notshekhar/loop-tui";
 import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
@@ -72,12 +72,12 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
                 return { consume: true };
             }
         }
-        // Agent cycling: Shift+Tab and plain Tab both cycle, even with text in
-        // the prompt (files are reached via the "@"/"#"
-        // triggers, not Tab). With the autocomplete popup open, Tab still
-        // applies the selected completion. Cycle = active custom agent (if
+        // Agent cycling: Shift+Tab only. Plain Tab is reserved for the editor's
+        // completion — slash-command autocomplete and "@" file completion — so
+        // we never consume it here; it falls through to the focused editor,
+        // which triggers/applies the completion. Cycle = active custom agent (if
         // selected via /agents) plus all built-ins.
-        const wantsAgentCycle = isShiftTab(data) || (isTab(data) && !editor.isShowingAutocomplete());
+        const wantsAgentCycle = isShiftTab(data);
         if (wantsAgentCycle && editorFocused) {
             // Cycle = visible built-ins, plus the one extra agent the user has
             // opted into (a custom agent or a revealed hidden built-in like

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.2] - 2026-06-25
+
+### Fixed
+
+- **Tab is now reserved for completion.** While typing a slash command (or an `@` file reference), Tab completes it. Cycling through agents is now **Shift+Tab** only — plain Tab no longer cycles. This also fixes a bug where pressing Tab on terminals without the Kitty keyboard protocol opened the macOS file picker (Tab and Ctrl+I share the same byte, `0x09`).
+
 ## [0.6.1] - 2026-06-25
 
 ### Changed
@@ -12,16 +18,16 @@
 ### Added
 
 - **Extensions.** loop now has a JavaScript/TypeScript extension system — write or install extensions that add or override almost everything: slash commands, tools, providers and the models inside them, agents, skills, settings, the system prompt, and the turn loop. Extensions are plain Bun/TS packages (no build step) and may carry their own npm dependencies, resolved by the Bun runtime shipped inside the loop binary.
-  - Install from npm, GitHub (`github:owner/repo`), or a local path: `loop install <spec>`, `loop link <path>` (dev), `loop list`, `loop enable`/`disable`, `loop remove`. In-session: the `/extensions` panel and `/install`.
-  - Tool control: add/remove any tool (the default agent gets every tool automatically), `onCall` to rewrite or block a tool's input pre-execution, `onResult` to transform its output, and grant a tool to a restricted agent.
-  - Providers: register a whole provider plus its models — declarative (OpenAI/Anthropic/Google-compatible) or imperative — appearing in `/model`, `/login`, and cost tracking like a built-in.
-  - Turn middleware can shape the system prompt per agent, add/remove tools, and tweak provider options each turn.
-  - Authoring guide: `read loop://docs/extensions.md`.
+    - Install from npm, GitHub (`github:owner/repo`), or a local path: `loop install <spec>`, `loop link <path>` (dev), `loop list`, `loop enable`/`disable`, `loop remove`. In-session: the `/extensions` panel and `/install`.
+    - Tool control: add/remove any tool (the default agent gets every tool automatically), `onCall` to rewrite or block a tool's input pre-execution, `onResult` to transform its output, and grant a tool to a restricted agent.
+    - Providers: register a whole provider plus its models — declarative (OpenAI/Anthropic/Google-compatible) or imperative — appearing in `/model`, `/login`, and cost tracking like a built-in.
+    - Turn middleware can shape the system prompt per agent, add/remove tools, and tweak provider options each turn.
+    - Authoring guide: `read loop://docs/extensions.md`.
 - **Built-in extensions** (pre-installed, disabled by default — enable with `loop enable <name>` or `/extensions`):
-  - `lsp` — appends type/lint diagnostics after `write`/`edit` via auto-provisioned language servers.
-  - `ponytail` — the "lazy senior dev" persona: write the minimal solution (`/ponytail lite|full|ultra`).
-  - `caveman` — ultra-terse replies for fewer tokens (`/caveman lite|full|ultra|wenyan-…`).
-  - `rtk` — rewrites bash commands through the `rtk` binary to compress output (no-op if `rtk` isn't installed).
+    - `lsp` — appends type/lint diagnostics after `write`/`edit` via auto-provisioned language servers.
+    - `ponytail` — the "lazy senior dev" persona: write the minimal solution (`/ponytail lite|full|ultra`).
+    - `caveman` — ultra-terse replies for fewer tokens (`/caveman lite|full|ultra|wenyan-…`).
+    - `rtk` — rewrites bash commands through the `rtk` binary to compress output (no-op if `rtk` isn't installed).
 
 ## [0.5.3] - 2026-06-19
 

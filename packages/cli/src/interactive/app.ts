@@ -33,6 +33,7 @@ import {
     hookBus,
     closeAllPools,
     getMcpManager,
+    getExtensionHost,
     agentExists,
     isBuiltinAgent,
     isHiddenAgent,
@@ -148,8 +149,14 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // Resumed sessions restore their cost/usage/ctx from the transcript's
     // usage entries instead of showing zeros until the next message.
     const seededCtxTokens = initialSession ? tracker.seedFromSession(initialSession).ctxTokens : 0;
+    // Load extensions BEFORE building commands so registerBuiltins (which lists
+    // agents) sees extension-registered agents and gives them /<name> commands.
+    // With nothing installed this is a no-op, so the command set is exactly the
+    // builtins.
+    await getExtensionHost().init();
     const commands = new CommandRegistry();
     await registerBuiltins(commands, { cwd: opts.cwd });
+    getExtensionHost().applyCommands(commands);
 
     const terminal = new ProcessTerminal();
     const tui = new TUI(terminal, true);
@@ -338,11 +345,17 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         history.addSystem(chalk.dim("· event trace ON (LOOP_DEBUG_EVENTS) — Shift+Ctrl+D to toggle"));
     }
 
+    // Surface any extension load failures (version mismatch, throw in activate),
+    // so a broken extension is visible instead of silently missing.
+    for (const w of getExtensionHost().getWarnings()) history.addError(`extension: ${w}`);
+
     const cleanExit = (code = 0) => {
         stopTicker();
         tui.stop();
         // Tear down MCP transports (stdio subprocesses, sockets) on the way out.
         void getMcpManager().close();
+        // Run extensions' deactivate() so they can release resources.
+        void getExtensionHost().close();
         // Close any open datasource connection pools.
         void closeAllPools();
         // SessionEnd hooks: give them a moment, then exit regardless.

@@ -7,6 +7,7 @@ import {
     runHooks,
     getActiveProvider,
     getMcpManager,
+    getExtensionHost,
     getProjectModel,
     isMcpEnabled,
     isTrusted,
@@ -83,6 +84,10 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     const mcpEnabled = isMcpEnabled() && isTrusted(opts.cwd);
     if (mcpEnabled) await getMcpManager().init(opts.cwd);
 
+    // Load extensions so their tools/middleware apply headlessly too. No-op
+    // when none are installed.
+    await getExtensionHost().init();
+
     await runTurn({
         session,
         modelId,
@@ -97,6 +102,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     });
 
     if (mcpEnabled) await getMcpManager().close();
+    await getExtensionHost().close();
 
     // SessionEnd hooks: give them a moment, then finish regardless.
     await Promise.race([

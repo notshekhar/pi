@@ -13,6 +13,7 @@ import {
     logout,
     listOllamaModels,
     ollamaBaseURL,
+    getExtensionHost,
     PROVIDER_IDS,
     saveCustomProvider,
     setActiveProvider,
@@ -42,6 +43,20 @@ function presentAuth(deps: LoginDeps, label: string, url: string, instructions?:
     tui.requestRender();
 }
 
+/**
+ * Extension-registered providers that authenticate with an API key. They use
+ * the generic apiKeyLogin path (the auth store is keyed by provider id). OAuth
+ * extension providers self-manage via an imperative getModel + their own
+ * command, so they're not listed here. Empty when no extensions are loaded.
+ */
+function extensionProviderItems(): SelectItem[] {
+    const builtin = new Set(PROVIDER_IDS as readonly string[]);
+    return getExtensionHost()
+        .getProviderDescriptors()
+        .filter((d) => (d.auth?.mode ?? "apikey") === "apikey" && !builtin.has(d.id))
+        .map((d) => ({ value: d.id, label: d.id, description: `${d.name} (extension)` }));
+}
+
 async function pickProvider(deps: LoginDeps): Promise<ProviderId | null> {
     const items: SelectItem[] = [
         ...PROVIDER_IDS.map((id) => ({
@@ -49,6 +64,7 @@ async function pickProvider(deps: LoginDeps): Promise<ProviderId | null> {
             label: id as string,
             description: providerLabel(id),
         })),
+        ...extensionProviderItems(),
         {
             value: "custom",
             label: "custom",
@@ -329,9 +345,13 @@ async function loginForProvider(deps: LoginDeps, p: ProviderId): Promise<StepRes
 export async function startLogin(deps: LoginDeps, target?: string): Promise<void> {
     const { tui, history } = deps;
 
-    // Validate explicit `target` once; if invalid, surface and exit.
+    // Validate explicit `target` once; if invalid, surface and exit. Extension
+    // providers (apikey) are valid targets too.
     if (target) {
-        if (!(PROVIDER_IDS as readonly string[]).includes(target) && target !== "custom") {
+        const isExtProvider = getExtensionHost()
+            .getProviderDescriptors()
+            .some((d) => d.id === target && (d.auth?.mode ?? "apikey") === "apikey");
+        if (!(PROVIDER_IDS as readonly string[]).includes(target) && target !== "custom" && !isExtProvider) {
             history.addSystem(`unknown provider: ${target}. options: ${[...PROVIDER_IDS, "custom"].join(", ")}`);
             tui.requestRender();
             return;

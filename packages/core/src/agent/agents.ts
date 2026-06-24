@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { getLoopDir } from "../auth/storage";
 import { TOOL_NAMES } from "../tools";
 import { DEFAULT_BASE_PROMPT } from "./system-prompt";
+import { getExtensionHost } from "../extensions";
 import { isSandboxSupported } from "@notshekhar/loop-sandbox";
 
 export const DEFAULT_AGENT_NAME = "default";
@@ -119,6 +120,16 @@ export function isValidAgentName(name: string): boolean {
 /** Names selectable as agent tools: the file tools plus "task" (subagents). */
 export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task"] as const;
 
+/**
+ * Tool names valid in an agent allowlist: the builtins/task plus any tools
+ * extensions have registered. Dynamic so a custom agent can name an extension
+ * tool without it being silently dropped. Equals AGENT_TOOL_NAMES when no
+ * extensions are loaded (zero-regression).
+ */
+function agentToolNames(): string[] {
+    return [...AGENT_TOOL_NAMES, ...getExtensionHost().getTools().add.keys()];
+}
+
 function sanitizeTools(tools: string[] | undefined, valid: readonly string[]): string[] | undefined {
     if (!tools) return undefined;
     const kept = tools.filter((t) => valid.includes(t));
@@ -134,7 +145,7 @@ export function parseAgentFile(raw: string): { prompt: string; tools?: string[] 
     const tools = toolsLine ? toolsLine[1].split(",").map((s) => s.trim()) : undefined;
     // `subagent-tools:` (removed) is ignored if present in older files —
     // subagents now inherit the spawning turn's tools instead of a config cap.
-    return { prompt, tools: sanitizeTools(tools, AGENT_TOOL_NAMES) };
+    return { prompt, tools: sanitizeTools(tools, agentToolNames()) };
 }
 
 function readAgentFile(name: string): { prompt: string; tools?: string[] } | undefined {
@@ -157,31 +168,63 @@ export function listAgents(): AgentInfo[] {
         hidden: b.hidden,
     }));
     const dir = agentsDir();
-    if (!existsSync(dir)) return agents;
-    for (const f of readdirSync(dir).sort()) {
-        if (!f.endsWith(".md")) continue;
-        const name = f.slice(0, -3);
-        if (name in BUILTINS || !isValidAgentName(name)) continue;
-        const parsed = readAgentFile(name);
-        if (parsed) {
-            agents.push({ name, prompt: parsed.prompt, builtin: false, tools: parsed.tools });
+    if (existsSync(dir)) {
+        for (const f of readdirSync(dir).sort()) {
+            if (!f.endsWith(".md")) continue;
+            const name = f.slice(0, -3);
+            if (name in BUILTINS || !isValidAgentName(name)) continue;
+            const parsed = readAgentFile(name);
+            if (parsed) {
+                agents.push({ name, prompt: parsed.prompt, builtin: false, tools: parsed.tools });
+            }
         }
+    }
+    // Extension-registered agents, last — they cannot shadow a builtin or a
+    // user's file-based agent of the same name. None when no extensions loaded.
+    const existing = new Set(agents.map((a) => a.name));
+    for (const ea of getExtensionHost().getAgents()) {
+        if (existing.has(ea.name) || !isValidAgentName(ea.name)) continue;
+        agents.push({ name: ea.name, prompt: ea.prompt, builtin: false, tools: ea.tools });
+        existing.add(ea.name);
     }
     return agents;
 }
 
 export function getAgentPrompt(name: string): string | undefined {
-    return readAgentFile(name)?.prompt ?? BUILTINS[name]?.prompt;
+    const own = readAgentFile(name)?.prompt ?? BUILTINS[name]?.prompt;
+    if (own) return own;
+    return getExtensionHost()
+        .getAgents()
+        .find((a) => a.name === name)?.prompt;
 }
 
-/** Allowed tools for an agent (may include "task"); undefined = all. Built-in tool sets are fixed. */
+/**
+ * Allowed tools for an agent (may include "task"); undefined = all. Built-in
+ * tool sets are fixed. Extension `api.tools.grant(agent, tool)` augments a
+ * restricted agent's allowlist; an all-tools agent already has everything, so
+ * grants don't apply there. No grants/ext agents → identical to before.
+ */
 export function getAgentTools(name: string): string[] | undefined {
-    if (name in BUILTINS) return BUILTINS[name].tools;
-    return readAgentFile(name)?.tools;
+    let base: string[] | undefined;
+    if (name in BUILTINS) {
+        base = BUILTINS[name].tools;
+    } else {
+        const file = readAgentFile(name);
+        base = file ? file.tools : getExtensionHost().getAgents().find((a) => a.name === name)?.tools;
+    }
+    if (base === undefined) return undefined; // all tools — grants already covered
+    const grants = getExtensionHost().getToolGrants(name);
+    return grants.length === 0 ? base : [...new Set([...base, ...grants])];
 }
 
 export function agentExists(name: string): boolean {
-    return name in BUILTINS || existsSync(agentPath(name));
+    return (
+        name in BUILTINS ||
+        existsSync(agentPath(name)) ||
+        getExtensionHost()
+            .getAgents()
+            .some((a) => a.name === name)
+    );
 }
 
 /**
@@ -219,7 +262,7 @@ export function saveAgent(name: string, prompt: string, tools?: string[]): void 
     mkdirSync(agentsDir(), { recursive: true });
     // Built-in tool sets are fixed — only the prompt is persisted for them.
     const isBuiltin = name in BUILTINS;
-    const effectiveTools = isBuiltin ? undefined : sanitizeTools(tools, AGENT_TOOL_NAMES);
+    const effectiveTools = isBuiltin ? undefined : sanitizeTools(tools, agentToolNames());
     const fm = effectiveTools ? `---\ntools: ${effectiveTools.join(", ")}\n---\n\n` : "";
     writeFileSync(agentPath(name), fm + prompt.trim() + "\n");
 }

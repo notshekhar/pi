@@ -18,6 +18,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { getLoopDir } from "../auth/storage";
+import { getExtensionHost } from "../extensions";
 
 const MAX_NAME_LENGTH = 64;
 const MAX_DESCRIPTION_LENGTH = 1024;
@@ -209,6 +210,9 @@ export async function loadProjectSkills(cwd: string): Promise<LoadedSkills & { p
 
     addSkills(loadSkillsFromDir(join(getLoopDir(), "agent", "skills"), true));
     addSkills(loadSkillsFromDir(resolve(cwd, ".loop", "skills"), true));
+    // Extension-contributed skill directories (api.skills.addDir). None when no
+    // extensions are loaded, so discovery is unchanged in a clean install.
+    for (const dir of getExtensionHost().getSkillDirs()) addSkills(loadSkillsFromDir(dir, true));
 
     const skills = Array.from(skillMap.values());
     return { skills, diagnostics, promptBlock: formatSkillsForPrompt(skills) };

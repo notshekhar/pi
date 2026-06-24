@@ -5,6 +5,7 @@
  */
 import type { TurnEmitter } from "./events";
 import { runHooks } from "./hooks";
+import type { ToolCallMiddleware, ToolResultMiddleware, ToolCallContext, TurnContext } from "../extensions/api";
 
 type AnyTool = { execute?: (input: unknown, options: unknown) => Promise<unknown> };
 
@@ -31,6 +32,17 @@ export interface ToolHookCtx {
     emitter: TurnEmitter;
     /** Set for subagent tool calls — tags hook payloads with agent_id. */
     agentId?: string;
+    /**
+     * Extension-contributed result transforms (api.tools.onResult). Applied to
+     * string tool results after execute, before PostToolUse. Empty/undefined →
+     * the wrapper is a pure pass-through and tool output is untouched (the
+     * zero-extensions case must be behaviorally identical to before).
+     */
+    resultMiddleware?: { match: (name: string) => boolean; mw: ToolResultMiddleware }[];
+    /** Extension input intercepts (api.tools.onCall): rewrite args or block, pre-execute. */
+    callMiddleware?: { match: (name: string) => boolean; mw: ToolCallMiddleware }[];
+    /** Turn info given to call/result middleware (which agent/model/tools are running). */
+    turnContext?: TurnContext;
 }
 
 /**
@@ -82,7 +94,7 @@ export function withToolHooks<T extends object>(tools: T, ctx: ToolHookCtx): T {
                     });
                     return { error: `blocked by PreToolUse hook: ${pre.reason}` };
                 }
-                const effectiveInput = pre.updatedInput !== undefined ? pre.updatedInput : input;
+                let effectiveInput = pre.updatedInput !== undefined ? pre.updatedInput : input;
                 // Hook rewrote the input (e.g. rtk): update the rendered tool call in
                 // place so the chat shows what actually executed — no separate line.
                 // Main agent only: subagent tool calls aren't rendered as own
@@ -91,7 +103,63 @@ export function withToolHooks<T extends object>(tools: T, ctx: ToolHookCtx): T {
                     const toolCallId = (options as { toolCallId?: string } | undefined)?.toolCallId;
                     ctx.emitter.emit("tool-input-updated", { toolCallId, toolName: name, input: effectiveInput });
                 }
+                // Extension onCall middleware: rewrite the input or block the call,
+                // before execute. Runs after PreToolUse so the two compose. Skipped
+                // (and effectiveInput untouched) when no extensions are loaded.
+                const callMws = ctx.callMiddleware;
+                if (callMws && callMws.length > 0) {
+                    const toolCallId = (options as { toolCallId?: string } | undefined)?.toolCallId;
+                    let changed = false;
+                    for (const { match, mw } of callMws) {
+                        if (!match(name)) continue;
+                        try {
+                            const r = await mw(effectiveInput, {
+                                ...(ctx.turnContext ?? ({} as TurnContext)),
+                                cwd: ctx.cwd,
+                                toolName: name,
+                                toolCallId,
+                                input: effectiveInput,
+                            });
+                            if (r === false) return { error: `blocked by extension onCall: ${name}` };
+                            if (r !== undefined) {
+                                effectiveInput = r;
+                                changed = true;
+                            }
+                        } catch {
+                            // a misbehaving intercept must never break a tool call
+                        }
+                    }
+                    if (changed && !ctx.agentId) {
+                        ctx.emitter.emit("tool-input-updated", { toolCallId, toolName: name, input: effectiveInput });
+                    }
+                }
                 const output = await t.execute!(effectiveInput, options);
+                // Extension result middleware (api.tools.onResult). Operates on
+                // string results only (append/transform text, e.g. LSP
+                // diagnostics). When none are registered this whole block is
+                // skipped and `result === output` by reference — identical to
+                // the pre-extensions path.
+                let result = output;
+                const mws = ctx.resultMiddleware;
+                if (mws && mws.length > 0 && typeof result === "string") {
+                    const toolCallId = (options as { toolCallId?: string } | undefined)?.toolCallId;
+                    const callCtx: ToolCallContext = {
+                        ...(ctx.turnContext ?? ({} as TurnContext)),
+                        cwd: ctx.cwd,
+                        toolName: name,
+                        toolCallId,
+                        input: effectiveInput,
+                    };
+                    for (const { match, mw } of mws) {
+                        if (!match(name)) continue;
+                        try {
+                            const next = await mw(result as string, callCtx);
+                            if (typeof next === "string") result = next;
+                        } catch {
+                            // A misbehaving extension transform must never break a tool call.
+                        }
+                    }
+                }
                 const post = await runHooks(
                     "PostToolUse",
                     name,
@@ -102,8 +170,8 @@ export function withToolHooks<T extends object>(tools: T, ctx: ToolHookCtx): T {
                         tool_input: effectiveInput,
                         // Claude Code sends `tool_response`; keep `tool_output` too for
                         // any loop hooks already written against it.
-                        tool_response: output,
-                        tool_output: output,
+                        tool_response: result,
+                        tool_output: result,
                         ...agentFields,
                     },
                     ctx.cwd,
@@ -113,8 +181,8 @@ export function withToolHooks<T extends object>(tools: T, ctx: ToolHookCtx): T {
                 const feedback = [post.block ? `BLOCKED: ${post.reason}` : null, post.additionalContext]
                     .filter(Boolean)
                     .join("\n");
-                if (feedback) return attachHookFeedback(output, feedback);
-                return output;
+                if (feedback) return attachHookFeedback(result, feedback);
+                return result;
             },
         };
     }

@@ -16,6 +16,7 @@ import { anthropicCachedSystem, moveAnthropicCacheTail } from "./model-messages"
 import { getSetting } from "../settings";
 import { createTools } from "../tools";
 import { getMcpManager } from "../mcp";
+import { getExtensionHost } from "../extensions";
 import type { Session } from "../sessions";
 import type { SubagentActivityPart, UsageBlock } from "../types";
 import { buildSystemPrompt } from "./system-prompt";
@@ -199,19 +200,25 @@ async function runSubagent(
         // rule files get. They already carry per-call timeouts (set when the
         // manager built them) and run the same hooks below.
         const mcpTools = getMcpManager().getTools();
+        // Extension tools (and removals) are candidates too, exactly like MCP —
+        // the resolver's parentTools cap then keeps them for a fork and drops
+        // them for a named agent that doesn't list them. Empty when no
+        // extensions are loaded, so the candidate pool is unchanged.
+        const extTools = getExtensionHost().getTools();
         const fileToolNames = Object.keys(createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal }));
-        const effective = resolveSubagentTools(
-            [...fileToolNames, ...Object.keys(mcpTools)],
-            getAgentTools(name),
-            ctx.parentTools,
+        const candidateNames = [...fileToolNames, ...Object.keys(mcpTools), ...extTools.add.keys()].filter(
+            (n) => !extTools.remove.has(n),
         );
+        const effective = resolveSubagentTools(candidateNames, getAgentTools(name), ctx.parentTools);
         // A subagent allowed bash but not write/edit (e.g. a plan fork) gets the
         // same fail-closed read-only sandbox guarantee as the top-level agent.
         const readOnlyFs = isReadOnlyBashAgent(effective);
         const full: Record<string, unknown> = {
             ...createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal, readOnlyFs }),
             ...mcpTools,
+            ...Object.fromEntries(extTools.add),
         };
+        for (const n of extTools.remove) delete full[n];
         // Cast mirrors the main turn (toolsForTurn → fullToolSet): the merged
         // map is structurally a ToolSet; MCP entries are AI-SDK tools too.
         const subTools = Object.fromEntries(
@@ -219,12 +226,28 @@ async function runSubagent(
         ) as unknown as ReturnType<typeof createTools>;
         // Subagent tool calls run the same PreToolUse/PostToolUse hooks,
         // tagged with agent_id so watchers can tell them apart.
+        const { provider: subProvider, model: subModel } = parseModelId(ctx.modelId);
         const hooked = withToolHooks(subTools, {
             cwd: ctx.cwd,
             sessionId: ctx.sessionId,
             transcriptPath: ctx.transcriptPath,
             emitter: ctx.emitter,
             agentId: toolCallId,
+            // Extension onCall/onResult middleware applies in subagents too
+            // (isSubagent: true lets a transform scope itself). Empty → pass-through.
+            callMiddleware: getExtensionHost().getToolCallMiddleware(),
+            resultMiddleware: getExtensionHost().getToolResultMiddleware(),
+            turnContext: {
+                sessionId: ctx.sessionId,
+                transcriptPath: ctx.transcriptPath,
+                cwd: ctx.cwd,
+                agent: name,
+                modelId: ctx.modelId,
+                provider: subProvider,
+                model: subModel,
+                tools: Object.keys(subTools),
+                isSubagent: true,
+            },
         });
         const maxSteps = getSetting("subagentMaxSteps") || 50;
         // Same composition as the parent's system prompt (workspace context +

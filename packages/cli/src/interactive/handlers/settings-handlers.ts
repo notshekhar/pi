@@ -11,6 +11,7 @@ import {
     bustCatalogCache,
     getCatalog,
     getMcpManager,
+    getExtensionHost,
     registerBuiltins,
     settingsStore,
     type CommandContext,
@@ -167,6 +168,9 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 // Commands: prompts, skills, agents — rebuilt from disk.
                 const fresh = new CommandRegistry();
                 await registerBuiltins(fresh, { cwd: state.cwd });
+                // Re-apply extension command contributions so /reload keeps them
+                // (no-op when no extensions are loaded).
+                getExtensionHost().applyCommands(fresh);
                 (commands as unknown as { commands: Map<string, unknown> }).commands = (
                     fresh as unknown as { commands: Map<string, unknown> }
                 ).commands;

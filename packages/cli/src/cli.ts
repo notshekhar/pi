@@ -9,6 +9,7 @@ import { parseArgs } from "./args";
 // and core (~400ms of module eval). Dynamic-import them per command so
 // --version/--help stay instant and each command only loads what it needs.
 const commands = () => import("./commands");
+const extCommands = () => import("./ext-commands");
 const interactive = () => import("./interactive/app");
 
 // injected at build time via tsup define
@@ -65,6 +66,25 @@ async function main(): Promise<void> {
             return;
         case "whoami":
             (await commands()).cmdWhoami();
+            return;
+        case "install":
+            await (await extCommands()).cmdInstall(args);
+            return;
+        case "link":
+            await (await extCommands()).cmdLink(args);
+            return;
+        case "remove":
+        case "uninstall":
+            await (await extCommands()).cmdRemoveExtension(args);
+            return;
+        case "extensions":
+            (await extCommands()).cmdListExtensions();
+            return;
+        case "enable":
+            (await extCommands()).cmdSetExtensionEnabled(args, true);
+            return;
+        case "disable":
+            (await extCommands()).cmdSetExtensionEnabled(args, false);
             return;
         case undefined:
         default:

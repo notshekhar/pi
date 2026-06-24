@@ -6,6 +6,7 @@ import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fa
 import { getLoopDir } from "../auth/storage";
 import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders } from "../auth";
 import { listOllamaModels, showOllamaModel } from "../providers";
+import { getExtensionHost } from "../extensions";
 import type { ModelInfo, ProviderId } from "../types";
 
 const cacheStore = new Configstore(
@@ -361,6 +362,14 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
                 available: true,
             };
         }
+    }
+
+    // Extension-registered provider models (api.providers.register declarative
+    // `models`, plus api.models.add). Empty when no extensions are loaded, so
+    // the catalog is byte-identical to before in a clean install. Placed before
+    // user overrides so a user models.json patch still wins.
+    for (const info of getExtensionHost().getProviderModelInfos()) {
+        out[info.id] = info;
     }
 
     // Ollama: dynamic, machine-local, zero-login. fetchOllamaCatalog probes the

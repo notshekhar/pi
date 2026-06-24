@@ -7,6 +7,7 @@ import { SessionManager, type Session } from "../sessions";
 import { runTurn, CostTracker, runCompact } from "../agent";
 import { getCatalog } from "../catalog";
 import { CommandRegistry, registerBuiltins } from "../commands";
+import { getExtensionHost } from "../extensions";
 import { listAuthorizedProviders, getActiveProvider, loginApiKey } from "../auth";
 import { RpcErrorCode, type RpcNotification, type RpcRequest, type RpcResponse } from "./protocol";
 import type { ProviderId } from "../types";
@@ -29,8 +30,14 @@ export class RpcServer {
     private commands = new CommandRegistry();
 
     constructor() {
-        // fire-and-forget: registry is only read after the event loop turns
-        void registerBuiltins(this.commands);
+        // fire-and-forget: registry is only read after the event loop turns.
+        // Extensions load after builtins and may add/override commands; a clean
+        // install with no extensions leaves the registry exactly as builtins.
+        void (async () => {
+            await getExtensionHost().init();
+            await registerBuiltins(this.commands);
+            getExtensionHost().applyCommands(this.commands);
+        })();
     }
 
     attach(transport: Transport): { feed: (chunk: Buffer | string) => void } {

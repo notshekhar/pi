@@ -22,6 +22,8 @@ export interface DocEntry {
 /** One-line descriptions for the `loop://docs` index, keyed by filename. */
 const SUMMARIES: Record<string, string> = {
     "config.md": "Configure loop: add models, custom providers, hooks, MCP servers, and custom agents.",
+    "extensions.md":
+        "Write a loop extension (Bun/TS): add or override slash commands, tools, providers + models, agents, skills, settings, the system prompt, and the turn loop.",
 };
 
 export const DOCS: Record<string, DocEntry> = Object.fromEntries(

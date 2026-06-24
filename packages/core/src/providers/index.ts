@@ -11,6 +11,7 @@ import {
 import { COPILOT_HEADERS, getCopilotBaseUrl } from "../auth/oauth/github-copilot";
 import { accountIdFromIdToken, CODEX_BASE_URL, OPENAI_CHATGPT_HEADERS } from "../auth/oauth/openai-chatgpt";
 import type { CustomProviderConfig, ProviderId } from "../types";
+import { getExtensionHost, type ProviderPlugin } from "../extensions";
 
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
@@ -323,6 +324,42 @@ export async function fetchCustomProviderModels(
     }
 }
 
+/** Interpolate `$VAR` / `${VAR}` from the environment; leave literals as-is. */
+function interpolateEnv(value: string): string {
+    return value.replace(/\$\{(\w+)\}|\$(\w+)/g, (_m, a, b) => process.env[a ?? b] ?? "");
+}
+
+/**
+ * Resolve an extension provider's API key, in order: explicit config (with env
+ * interpolation) → loop's auth store (`loop login <id>`) → the declared env var.
+ * Returns undefined for keyless providers (e.g. auth.mode "none" / local).
+ */
+function resolveExtProviderKey(plugin: ProviderPlugin): string | undefined {
+    if (plugin.apiKey) return interpolateEnv(plugin.apiKey);
+    const stored = getApiKey(plugin.id);
+    if (stored) return stored;
+    if (plugin.auth?.envVar) return process.env[plugin.auth.envVar];
+    return undefined;
+}
+
+/**
+ * Build the ai-sdk model for a host-registered extension provider. Imperative
+ * `getModel` wins; otherwise the declarative fields reuse loop's existing
+ * custom-provider builder, so an extension provider behaves exactly like a
+ * built-in or gateway provider at the call site (Liskov).
+ */
+async function extensionModel(plugin: ProviderPlugin, model: string): Promise<LanguageModel> {
+    const apiKey = resolveExtProviderKey(plugin);
+    if (plugin.getModel) return plugin.getModel(model, { apiKey, fetch });
+    if (!plugin.sdk || !plugin.baseURL) {
+        throw new Error(`extension provider "${plugin.id}" needs sdk + baseURL (or an imperative getModel)`);
+    }
+    return customModel(
+        { name: plugin.id, sdk: plugin.sdk, baseURL: plugin.baseURL, apiKey: apiKey ?? "", headers: plugin.headers },
+        model,
+    );
+}
+
 export async function getModel(fullId: string): Promise<LanguageModel> {
     const { provider, model } = parseModelId(fullId);
     if (isCustomProvider(provider)) {
@@ -331,6 +368,11 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
         if (!cfg) throw new Error(`Custom provider not configured: ${name}`);
         return customModel(cfg, model);
     }
+    // Extension-registered providers are consulted before the builtin switch, so
+    // adding a provider never touches the switch (Open/Closed). With no
+    // extensions loaded getProvider() returns undefined and this is skipped.
+    const extProvider = getExtensionHost().getProvider(provider);
+    if (extProvider) return extensionModel(extProvider, model);
     switch (provider) {
         case "xai": {
             const { createXai } = await import("@ai-sdk/xai");

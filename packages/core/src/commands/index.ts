@@ -35,6 +35,8 @@ export interface CommandContext {
     manageBashDeny(): Promise<void>;
     /** /mcp — list servers, or `reconnect [name]` to (re)connect. */
     manageMcp(args: string): Promise<void> | void;
+    /** /extensions — panel; `install <spec>` non-interactive shortcut (also /install). */
+    manageExtensions(args: string): Promise<void> | void;
     /** /datasource — manage database connections for the data-analyst agent. */
     manageDatasources(): Promise<void> | void;
     /** With message: run that one message under this agent's prompt (one-shot). */
@@ -310,6 +312,16 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             name: "mcp",
             description: "List MCP servers and their tools (mcp reconnect [name])",
             handler: (ctx, args) => ctx.manageMcp(args.trim()),
+        },
+        {
+            name: "extensions",
+            description: "Manage extensions: enable/disable, uninstall, info, reload",
+            handler: (ctx, args) => ctx.manageExtensions(args.trim()),
+        },
+        {
+            name: "install",
+            description: "Install an extension: /install <npm|github|path>",
+            handler: (ctx, args) => ctx.manageExtensions(`install ${args}`.trim()),
         },
         {
             name: "datasource",

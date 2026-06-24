@@ -22,6 +22,14 @@ import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
 import { isAbortError } from "./abort";
 import { getMcpManager, isMcpEnabled } from "../mcp";
+import { getExtensionHost } from "../extensions";
+import {
+    applyAssembleTools,
+    applyProviderOptions,
+    applySystemPrompt,
+    runAfterTurn,
+    runBeforeTurn,
+} from "./turn-middleware";
 import type { Session } from "../sessions";
 import type { UsageBlock } from "../types";
 
@@ -220,6 +228,22 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         return;
     }
 
+    // Extension turn middleware (onBeforeTurn) may block the turn. No-op when no
+    // extensions are loaded.
+    if (
+        !(await runBeforeTurn({
+            input: userInput,
+            cwd,
+            sessionId: session.id,
+            agent: opts.agent ?? "default",
+            modelId,
+        }))
+    ) {
+        emitter.emit("error", "turn blocked by extension");
+        emitter.emit("finish", { usage: undefined });
+        return;
+    }
+
     // Persist user message verbatim (paths intact for reference in transcripts)
     await session.append({ type: "message", ts: Date.now(), role: "user", content: userInput });
 
@@ -284,7 +308,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // tools are capped to this turn's file tools, so delegation never widens
     // access. Subagents never get task themselves (no nesting).
     const subagentsEnabled = getSetting("subagents") !== false;
-    const toolsForTurn: Record<string, unknown> = { ...toolSet };
+    let toolsForTurn: Record<string, unknown> = { ...toolSet };
 
     // MCP tools (already namespaced mcp__server__tool) join the turn for
     // unrestricted agents only — a restricted agent (e.g. plan) keeps its
@@ -298,6 +322,18 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const mcpEnabled = isMcpEnabled() && isTrusted(cwd);
     if (mcpEnabled && !allowedTools?.length) {
         Object.assign(toolsForTurn, getMcpManager().getTools());
+    }
+
+    // Extension tools — same gating as MCP: unrestricted agents only (a
+    // restricted agent like plan keeps its explicit allowlist), trust-gated.
+    // With no extensions loaded both maps are empty, so this is a no-op and the
+    // turn's toolset is byte-for-byte the builtin set. `default` (unrestricted)
+    // therefore gets every extension tool automatically; removals drop builtins
+    // an extension explicitly overrode.
+    if (!allowedTools?.length && isTrusted(cwd)) {
+        const ext = getExtensionHost().getTools();
+        for (const [name, tool] of ext.add) toolsForTurn[name] = tool as never;
+        for (const name of ext.remove) delete toolsForTurn[name];
     }
 
     if (subagentsEnabled && (!allowedTools?.length || allowedTools.includes("task"))) {
@@ -318,6 +354,28 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             skillsPrompt: skills.promptBlock,
         });
     }
+    // TurnContext carries which agent/model/tools are running. It's handed to
+    // every turn-middleware seam (so an extension can scope by ctx.agent — e.g.
+    // update one specific agent's system prompt) and to tool call/result
+    // middleware. Built here, then refreshed after onAssembleTools so its tool
+    // list reflects any additions/removals.
+    let turnContext = {
+        sessionId: session.id,
+        transcriptPath: session.path,
+        cwd,
+        agent: opts.agent ?? "default",
+        modelId,
+        provider,
+        model: modelShortId,
+        tools: Object.keys(toolsForTurn),
+        isSubagent: false,
+    };
+    // Extension turn middleware may add/remove/wrap tools before the prompt is
+    // built (so the tool list the model sees reflects any changes). No-op when no
+    // extensions are loaded.
+    toolsForTurn = await applyAssembleTools(toolsForTurn, turnContext);
+    turnContext = { ...turnContext, tools: Object.keys(toolsForTurn) };
+
     // System prompt is built AFTER the task tool decision so the model's tool
     // list matches reality, plus explicit delegation guidance when present.
     const subagentNote =
@@ -329,7 +387,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                   .map((a) => a.name)
                   .join(", ")}.`
             : "";
-    const system =
+    let system =
         buildSystemPrompt({
             cwd,
             workspaceContext: workspaceContext.text,
@@ -338,11 +396,18 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         }) +
         subagentNote +
         (skills.promptBlock ?? "");
+    // Extension turn middleware may transform the system prompt, scoped by
+    // ctx.agent (update any specific agent's prompt). No-op when none.
+    system = await applySystemPrompt(system, turnContext);
     const tools = withToolHooks(toolsForTurn as typeof fullToolSet, {
         cwd,
         sessionId: session.id,
         transcriptPath: session.path,
         emitter,
+        turnContext,
+        // Empty when no extensions are loaded → withToolHooks is a pass-through.
+        callMiddleware: getExtensionHost().getToolCallMiddleware(),
+        resultMiddleware: getExtensionHost().getToolResultMiddleware(),
     });
     const model = await getModel(modelId);
 
@@ -405,6 +470,10 @@ Write complete prompts: the subagent knows nothing about this conversation — i
             ollama: { ...existing, options: { ...existingOpts, num_ctx: numCtx } },
         };
     }
+
+    // Extension turn middleware may tweak provider options (thinking/caching).
+    // No-op when no extensions are loaded.
+    providerOptions = applyProviderOptions(providerOptions, turnContext) as typeof providerOptions;
 
     const anthropicCaching = effectiveProvider === "anthropic";
     // Incremental persistence: each completed step's messages
@@ -629,4 +698,8 @@ Write complete prompts: the subagent knows nothing about this conversation — i
             await runTurn({ ...opts, userInput: `[stop hook] ${stopHooks.reason}`, hookDepth: hookDepth + 1 });
         }
     }
+
+    // Extension turn middleware (onAfterTurn) — best-effort, never fails a turn.
+    // No-op when no extensions are loaded.
+    await runAfterTurn(turnContext);
 }

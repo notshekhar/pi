@@ -19,3 +19,4 @@ export * from "./settings";
 export * from "./reminders";
 export * from "./mcp";
 export * from "./datasources";
+export * from "./extensions";

@@ -1,33 +1,33 @@
 {
-  "name": "@notshekhar/loop-tui",
-  "version": "0.6.2",
-  "description": "TUI renderer for loop — differential rendering, editor, markdown, select lists. Port of @earendil-works/pi-tui (MIT, Mario Zechner / earendil-works).",
-  "license": "MIT",
-  "type": "module",
-  "homepage": "https://github.com/notshekhar/loop#readme",
-  "bugs": {
-    "url": "https://github.com/notshekhar/loop/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/notshekhar/loop.git",
-    "directory": "packages/tui"
-  },
-  "main": "./dist/index.js",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js"
+    "name": "@notshekhar/loop-tui",
+    "version": "0.6.3",
+    "description": "TUI renderer for loop — differential rendering, editor, markdown, select lists. Port of @earendil-works/pi-tui (MIT, Mario Zechner / earendil-works).",
+    "license": "MIT",
+    "type": "module",
+    "homepage": "https://github.com/notshekhar/loop#readme",
+    "bugs": {
+        "url": "https://github.com/notshekhar/loop/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/notshekhar/loop.git",
+        "directory": "packages/tui"
+    },
+    "main": "./dist/index.js",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "bun build.ts",
+        "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "get-east-asian-width": "^1.6.0",
+        "marked": "^15.0.12"
     }
-  },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "bun build.ts",
-    "clean": "rm -rf dist"
-  },
-  "dependencies": {
-    "get-east-asian-width": "^1.6.0",
-    "marked": "^15.0.12"
-  }
 }

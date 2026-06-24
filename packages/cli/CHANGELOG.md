@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.3] - 2026-06-25
+
+### Added
+
+- **Extensions can drive interactive UI and auth.** New `api.ui` (`select` / `search` / `prompt` / `note` / `error`) gives extensions the same menus/prompts the built-in panels use, and `api.auth` (`getSecret` / `setSecret` / `openExternal` / `loopbackOAuth`) adds namespaced secret storage plus a localhost OAuth flow — enough to build the whole MCP feature as an extension. `api.ui` throws in non-interactive (`-p`) mode.
+- **Customizable status line.** The block under the input box (formerly `CostFooter`, now `StatusLine`) is extensible via `api.statusLine.add(fn)` (append segments to a row) and `api.statusLine.transform(fn)` (rewrite the rendered rows). Contributors get a `StatusLineContext` (agent, model, session, cost, context, cwd, width) and are sandboxed so a throwing extension can't break the render.
+- **New built-in extension: `statusline-themes`.** Enable it for a `/statusline` command that opens a searchable menu to recolor the status line — 12 themes including `matrix`, `ocean`, `sunset`, `synthwave`, `fire`, `rainbow`, plus `heat`/`neon`/`gold`/`cyber` adapted from the AKCodez status-line palette. `/statusline <name>` switches directly. Disabled by default.
+
 ## [0.6.2] - 2026-06-25
 
 ### Fixed

@@ -4,8 +4,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
 import { getLoopDir } from "../auth/storage";
-import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders } from "../auth";
-import { listOllamaModels, showOllamaModel } from "../providers";
+import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders, saveCustomProvider } from "../auth";
+import { listOllamaModels, showOllamaModel, fetchCustomProviderModels } from "../providers";
 import { getExtensionHost } from "../extensions";
 import type { ModelInfo, ProviderId } from "../types";
 
@@ -233,16 +233,61 @@ export function listCustomModelIds(): string[] {
     return Object.keys(readUserOverrides());
 }
 
+/**
+ * Re-discover each custom provider's models from its `/models` endpoint and
+ * persist them back into the provider config, so /reload (and the hourly
+ * background revalidate) picks up models the gateway gained/lost since the
+ * provider was added.
+ *
+ * Two invariants:
+ *  - Endpoint with no model list (null/empty: 404, timeout, manual-only
+ *    gateway) → the existing `cfg.models` are left untouched. Manually-entered
+ *    models are never wiped by a transient outage.
+ *  - Endpoint that DOES list models → refresh to that list, but merge each
+ *    entry over the stored one so a user's name/pricing overrides survive.
+ */
+async function refreshCustomProviderModels(): Promise<void> {
+    await Promise.all(
+        listCustomProviders().map(async (cfg) => {
+            try {
+                const discovered = await fetchCustomProviderModels(cfg);
+                if (!discovered?.length) return; // keep existing models
+                const prev = new Map((cfg.models ?? []).map((m) => [m.id, m]));
+                const models = discovered.map((m) => {
+                    const p = prev.get(m.id);
+                    const name = p?.name ?? m.name;
+                    const contextWindow = p?.contextWindow ?? m.contextWindow;
+                    const maxOutput = p?.maxOutput ?? m.maxOutput;
+                    return {
+                        id: m.id,
+                        ...(name ? { name } : {}),
+                        ...(contextWindow ? { contextWindow } : {}),
+                        ...(maxOutput ? { maxOutput } : {}),
+                        ...(p?.cost ? { cost: p.cost } : {}),
+                    };
+                });
+                saveCustomProvider({ ...cfg, models });
+            } catch {
+                // any failure → leave cfg.models as-is
+            }
+        }),
+    );
+}
+
 let refreshInFlight: Promise<Record<string, string[]>> | null = null;
 
 async function refreshAvailability(): Promise<Record<string, string[]>> {
     if (refreshInFlight) return refreshInFlight;
     refreshInFlight = (async () => {
         const providers: ProviderId[] = ["xai", "anthropic", "openai", "openrouter"];
+        // Custom-provider rediscovery runs alongside the availability fetches;
+        // it persists cfg.models, which getCatalog re-reads when it rebuilds.
+        const customRefresh = refreshCustomProviderModels();
         const [results, modelDefs] = await Promise.all([
             Promise.all(providers.map((p) => fetchAvailability(p))),
             fetchModelDefs(),
         ]);
+        await customRefresh;
         const availability: Record<string, string[]> = {};
         for (let i = 0; i < providers.length; i++) {
             const set = results[i];

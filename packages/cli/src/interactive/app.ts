@@ -318,6 +318,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
                 tui.requestRender();
             },
         },
+        // Lets a live status line (e.g. the vitals layout's clock/CPU) repaint
+        // itself between user actions.
+        requestRender: () => tui.requestRender(),
     });
 
     async function ensureSession(): Promise<Session> {

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.1] - 2026-06-26
+
+### Added
+
+- **Status-line layouts in the `statusline-themes` extension.** Beyond recoloring, the built-in now offers full custom layouts via `/statusline`: `compact` (model · context bar · tokens), `vitals` (a live dashboard with ctx% · tokens · cached · cache-hit% · cost · clock · cpu · mem · battery), `tokens` (in/out/cached/total economics), `flex` (a three-row powerline dashboard), `powerline`, `minimal`, and `bar`. Color themes (now `/statuscolor`) compose on top of any layout. Every layout leads with the selected agent and the model, gates the thinking level on whether the model actually reasons, and is responsive — dense layouts wrap onto extra rows and others shed lowest-priority segments so nothing runs off a narrow terminal.
+- **`api.statusLine.refresh()`** lets an extension request a repaint for live fields (e.g. the vitals clock/CPU) that change without user action; no-op in print mode. `StatusLineContext` gained a `reasoning` flag. Extension API bumped to `0.3.0`.
+
+### Fixed
+
+- **No more stray escape sequences in the shell after Ctrl+C.** On teardown the terminal now resets the kitty keyboard protocol and modifyOtherKeys unconditionally instead of gating on tracked flags, which a fast exit racing the startup negotiation could leave out of sync — stranding modifyOtherKeys enabled so the shell echoed raw escapes like `^[[27;5;13~` on the next keypress.
+
 ## [0.6.4] - 2026-06-25
 
 ### Fixed

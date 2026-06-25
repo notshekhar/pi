@@ -177,6 +177,7 @@ export class StatusLine implements Component {
             cost: { ...this.costData },
             context: { used: this.ctxUsed, max: this.ctxMax },
             thinking: this.thinking,
+            reasoning: this.modelReasoning,
             width,
         };
     }

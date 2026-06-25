@@ -45,6 +45,8 @@ type ModelInfo = import("../types").ModelInfo;
 export interface HostServices {
     ui?: LoopUI;
     openExternal?: (url: string) => void;
+    /** Ask the interactive UI to repaint (e.g. a live status line). No-op in print mode. */
+    requestRender?: () => void;
 }
 
 /**
@@ -329,6 +331,7 @@ export class ExtensionHost {
             statusLine: {
                 add: (fn) => c.statusContributors.push(fn),
                 transform: (fn) => c.statusTransforms.push(fn),
+                refresh: () => this.services.requestRender?.(),
             },
         };
     }

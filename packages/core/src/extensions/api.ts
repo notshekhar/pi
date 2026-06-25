@@ -11,7 +11,7 @@ import type { LoopSettings } from "../settings";
 import type { ModelInfo } from "../types";
 
 /** Current extension API version — bumped on breaking changes to this surface. */
-export const EXTENSION_API_VERSION = "0.2.0";
+export const EXTENSION_API_VERSION = "0.3.0";
 
 /** The `loop` field of an extension's package.json, plus the npm fields we read. */
 export interface ExtensionManifest {
@@ -277,8 +277,10 @@ export interface StatusLineContext {
     cwd: string;
     cost: { usd: number; inputTokens: number; outputTokens: number; cachedInputTokens: number };
     context: { used: number; max: number };
-    /** Thinking level ("off" when none / model doesn't reason). */
+    /** Thinking level ("off" when none). Only meaningful when `reasoning` is true. */
     thinking: string;
+    /** Whether the current model reasons — gate any thinking display on this. */
+    reasoning: boolean;
     /** Columns available to the status line. */
     width: number;
 }
@@ -379,6 +381,13 @@ export interface LoopAPI {
         add(fn: StatusLineContributor): void;
         /** Rewrite the fully-rendered rows. */
         transform(fn: StatusLineTransform): void;
+        /**
+         * Request a status-line repaint — needed for live fields (a clock, CPU,
+         * etc.) that change without any user action. No-op in print mode. Call
+         * sparingly (e.g. once a second from your own timer); each call triggers
+         * a render.
+         */
+        refresh(): void;
     };
 }
 

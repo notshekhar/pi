@@ -53,8 +53,9 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
     },
     {
         name: "statusline-themes",
-        displayName: "Status Line Themes",
-        description: "Recolor the status line — pick a theme (matrix/ocean/sunset/heat/neon/rainbow…). /statusline",
+        displayName: "Status Line",
+        description:
+            "Custom status line — pick a layout (/statusline: compact/vitals/tokens/flex/powerline/bar) and a color (/statuscolor).",
         module: statuslineThemes,
         defaultEnabled: false,
     },

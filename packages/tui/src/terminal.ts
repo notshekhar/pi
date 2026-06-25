@@ -411,17 +411,20 @@ export class ProcessTerminal implements Terminal {
         // Disable bracketed paste mode
         process.stdout.write("\x1b[?2004l");
 
-        const shouldDisableKittyProtocol = this.keyboardProtocolPushed || this._kittyProtocolActive;
         this.clearKeyboardProtocolNegotiationBuffer();
 
-        // Disable Kitty keyboard protocol if not already done by drainInput()
-        if (shouldDisableKittyProtocol) {
-            process.stdout.write("\x1b[<u");
-            this.keyboardProtocolPushed = false;
-            this._kittyProtocolActive = false;
-            setKittyProtocolActive(false);
-        }
-        this.disableModifyOtherKeys();
+        // Reset BOTH keyboard protocols unconditionally on teardown, regardless of
+        // the tracked flags. A Ctrl+C that races the startup kitty/DA negotiation
+        // can leave a flag out of sync with the terminal's real state, stranding
+        // modifyOtherKeys (or kitty) enabled — the shell then echoes raw escapes
+        // like `\x1b[27;5;13~` on the next keypress. Both resets are idempotent
+        // (a no-op when the mode is already off), so always emitting them is safe.
+        process.stdout.write("\x1b[<u"); // pop kitty keyboard protocol
+        this.keyboardProtocolPushed = false;
+        this._kittyProtocolActive = false;
+        setKittyProtocolActive(false);
+        process.stdout.write("\x1b[>4;0m"); // disable modifyOtherKeys
+        this._modifyOtherKeysActive = false;
 
         // Clean up StdinBuffer
         if (this.stdinBuffer) {

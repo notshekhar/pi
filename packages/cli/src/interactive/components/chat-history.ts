@@ -174,10 +174,6 @@ export class ChatHistory extends Container {
         this.liveComponent = null;
     }
 
-    updateToolCallInput(toolCallId: string, args: Record<string, unknown>): void {
-        this.toolComponents.get(toolCallId)?.updateArgs(args);
-    }
-
     addToolCall(toolName: string, toolCallId: string, args: Record<string, unknown>): void {
         if (this.liveMsg) {
             this.liveMsg.content.push({ type: "toolCall", id: toolCallId, name: toolName, arguments: args });

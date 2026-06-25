@@ -91,9 +91,7 @@ export default {
             if (typeof command !== "string" || !command) return;
             const rewritten = rtkRewrite(command);
             if (!rewritten) return;
-            // Make the rewrite visible (like the upstream hook did) — a dim note
-            // in the chat, plus the tool-call box updates to the new command.
-            api.extension.log(`${command}  →  ${rewritten}`);
+            // Rewrite silently — the command runs as `rtk …`, no chat note.
             return { ...(input as object), command: rewritten };
         });
     },

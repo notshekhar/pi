@@ -46,10 +46,6 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
         showWorking(`Running ${part.toolName}…`);
         tui.requestRender();
     });
-    emitter.on("tool-input-updated", (e: { toolCallId?: string; input?: unknown }) => {
-        if (e.toolCallId) history.updateToolCallInput(e.toolCallId, (e.input ?? {}) as Record<string, unknown>);
-        tui.requestRender();
-    });
     emitter.on("tool-result", (part: { output?: unknown; toolCallId?: string }) => {
         const id = part.toolCallId ?? "";
         subagentStream.clear(id);

@@ -89,6 +89,11 @@ export interface UsageBlock {
         textTokens?: number;
         reasoningTokens?: number;
     };
+    /** True when this block is an estimate, not provider-reported — set for the
+     * in-flight request of an interrupted turn (the AI SDK reports no usage on
+     * abort; vercel/ai#7805). Estimated usage is summed into the session total
+     * only, never the persistent lifetime/daily/cwd cost store. */
+    estimated?: boolean;
 }
 
 export interface CostBreakdown {
@@ -96,6 +101,10 @@ export interface CostBreakdown {
     outputTokens: number;
     cachedInputTokens: number;
     usd: number;
+    /** True when the session total includes an estimated (interrupted-turn)
+     * amount — the footer renders a leading `~` so the number isn't read as
+     * exact. */
+    estimated?: boolean;
 }
 
 export interface XaiOAuthCredentials {
@@ -161,6 +170,11 @@ export type Entry = EntryTreeFields &
               /** Model that produced this message — pins cost to the right pricing
                * even after a mid-session model switch. */
               model?: string;
+              /** True when the user interrupted before the turn completed. The
+               * content holds whatever streamed; toModelMessages appends an
+               * interruption note so the next turn's context reflects it (and
+               * never silently drops an empty aborted turn). */
+              interrupted?: boolean;
           }
         | {
               type: "subagent";

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2] - 2026-06-26
+
+### Fixed
+
+- **Reopened sessions no longer lose most of a turn's content.** A turn that used a tool (so the model answered across multiple steps) only ever persisted its first step — the final answer, and its token usage, were dropped on the way to disk. Reopening the session (or even the next turn in it) showed the turn truncated to the tool call. Every step's messages are now persisted, so the full turn survives a reopen and feeds back into the model's context intact.
+- **Interrupting a response is now remembered.** When you interrupt mid-answer, the partial response is kept and the turn is marked interrupted, so the next turn's context tells the model its previous answer was cut off instead of silently dropping it. The `interrupted` flag (and the per-message model stamp used for cost) now survive a reload from disk.
+- **Interrupted responses are no longer billed at $0.** The model provider charges for the input and the partial output of a request you interrupt, but the SDK reports no usage on abort, so loop counted it as free. The interrupted request's cost is now estimated — output from the partial text, input anchored to the adjacent real step's actual token/cache split — added to the session total (never the persistent lifetime/daily totals) and shown with a leading `~` so it reads as an estimate.
+
 ## [0.7.1] - 2026-06-26
 
 ### Added

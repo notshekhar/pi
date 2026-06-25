@@ -198,6 +198,58 @@ function stepMessagesToEntries(
     return out;
 }
 
+/** Most recent provider-reported (non-estimated) usage in the transcript — the
+ * input/cache profile to anchor an interrupted-step estimate to when the
+ * current turn has no finished step yet (an interrupt on the very first step). */
+function lastUsageInSession(session: Session): UsageBlock | undefined {
+    const all = session.entries();
+    for (let i = all.length - 1; i >= 0; i--) {
+        const e = all[i];
+        if (e.type === "message" && e.role === "assistant" && e.usage && !e.usage.estimated) return e.usage;
+        if (e.type === "subagent" && e.usage && !e.usage.estimated) return e.usage;
+    }
+    return undefined;
+}
+
+/**
+ * Estimate usage for the in-flight request of an interrupted turn. The AI SDK
+ * records a step only on its `finish-step` chunk and reports no usage on abort
+ * (vercel/ai#7805), so the cut-off round-trip has no provider numbers — yet the
+ * provider billed it (input + the output streamed before the cut).
+ *
+ * Output is the only estimated part: the partial text + reasoning at chars/4
+ * (loop's house heuristic; small, since an interrupt lands early). Input — the
+ * expensive, cache-split-sensitive part — is NOT guessed: it's taken from the
+ * adjacent real step (`basis`), since the interrupted request resent
+ * essentially the same context, so its input count and cache-read/write split
+ * match within a few hundred tokens. Marked `estimated` → session total only,
+ * rendered with a leading `~`.
+ */
+function estimateInterruptedUsage(
+    tailText: string,
+    tailReasoning: string,
+    basis: UsageBlock | undefined,
+    session: Session,
+): UsageBlock | undefined {
+    const textTokens = Math.ceil(tailText.length / 4);
+    const reasoningTokens = Math.ceil(tailReasoning.length / 4);
+    const outputTokens = textTokens + reasoningTokens;
+    // No output streamed and no real basis to anchor to → fabricate nothing.
+    if (outputTokens === 0 && !basis) return undefined;
+    const inputTokens = basis?.inputTokens ?? estimateContextTokens(session);
+    const inputTokenDetails = basis?.inputTokenDetails ? { ...basis.inputTokenDetails } : undefined;
+    const cachedInputTokens = basis?.inputTokenDetails?.cacheReadTokens ?? basis?.cachedInputTokens;
+    return {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        cachedInputTokens,
+        inputTokenDetails,
+        outputTokenDetails: { textTokens, reasoningTokens },
+        estimated: true,
+    };
+}
+
 export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const { session, modelId, userInput, cwd, abortSignal, tracker, emitter } = opts;
     // Step cap is only an upper safety bound — the loop ends naturally when the
@@ -485,26 +537,23 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     providerOptions = applyProviderOptions(providerOptions, turnContext) as typeof providerOptions;
 
     const anthropicCaching = effectiveProvider === "anthropic";
-    // Incremental persistence: each completed step's messages
-    // are written as they finish, so tool calls/results survive turn boundaries
-    // and aborts. `step.response.messages` is CUMULATIVE (it regrows the whole
-    // turn each step), so we persist only the new tail — otherwise messages and
-    // their usage would be saved repeatedly, doubling resumed cost.
+    // Incremental persistence: each completed step's messages are written as it
+    // finishes, so tool calls/results AND the final answer survive turn
+    // boundaries and aborts. `step.response.messages` holds only THIS step's new
+    // messages — the AI SDK resets its per-step content buffer on every
+    // `start-step`, so it is NOT cumulative. Persist all of them; there is no
+    // overlap across steps to dedupe. (Slicing against a running count, on the
+    // mistaken assumption it was cumulative, dropped every step after the first
+    // — losing the final answer and its usage on reopen.)
     let persistedAnyMessage = false;
-    let persistedMsgCount = 0;
-    // Serialize appends so cumulative-tail slices land in order even if
-    // onStepEnd callbacks overlap.
+    // Serialize appends so each step's messages land in order even if onStepEnd
+    // callbacks overlap.
     let persistChain: Promise<void> = Promise.resolve();
     const persistStep = (step: {
         response: { messages: ReadonlyArray<{ role: string; content: unknown }> };
         usage?: UsageBlock;
     }): Promise<void> => {
-        // Slice + counter update happen synchronously, before any await, so each
-        // call sees the correct boundary regardless of overlap.
-        const all = step.response.messages;
-        const newMessages = all.slice(persistedMsgCount);
-        persistedMsgCount = all.length;
-        const entries = stepMessagesToEntries(newMessages, step.usage);
+        const entries = stepMessagesToEntries(step.response.messages, step.usage);
         if (entries.length > 0) persistedAnyMessage = true;
         persistChain = persistChain
             .then(async () => {
@@ -564,10 +613,6 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     });
 
     let assistantText = "";
-    // Reasoning is accumulated too (not just emitted) so an interrupt during the
-    // model's "thinking" phase — before any answer text streams — still persists
-    // what it produced instead of losing the whole partial turn.
-    let assistantReasoning = "";
     const toolsUsed: string[] = [];
     let lastUsage: UsageBlock | undefined;
     let lastStepUsage: UsageBlock | undefined;
@@ -575,6 +620,12 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     // completed steps were billed; persisting the sum keeps resumed-session
     // cost seeding honest (same pattern as the subagent loop).
     let stepUsageSum: UsageBlock | undefined;
+    // Text/reasoning streamed since the last FINISHED step (reset on each
+    // finish-step). On abort this is the un-persisted tail of the interrupted
+    // step — the only part not already saved/billed — used to recover its
+    // partial output and estimate its cost.
+    let textSinceStep = "";
+    let reasoningSinceStep = "";
 
     let lastYieldAt = Date.now();
     // The interrupt can land between parts (caught by the `break` below) or while
@@ -588,11 +639,12 @@ Write complete prompts: the subagent knows nothing about this conversation — i
             switch (part.type) {
                 case "text-delta":
                     assistantText += part.text;
+                    textSinceStep += part.text;
                     emitter.emit("text-delta", part.text);
                     break;
                 case "reasoning-delta": {
                     const rt = (part as { text: string }).text;
-                    assistantReasoning += rt;
+                    reasoningSinceStep += rt;
                     emitter.emit("reasoning-delta", rt);
                     break;
                 }
@@ -631,6 +683,13 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                         const breakdown = tracker.add(modelId, u, cwd);
                         emitter.emit("step-usage", { usage: u, breakdown });
                     }
+                    // This step's text/reasoning is now persisted via onStepEnd
+                    // and billed via the usage above — reset the tail so it
+                    // tracks only what streams in the NEXT (possibly aborted)
+                    // step. Keeps multi-step aborts from re-persisting or
+                    // double-counting finished text.
+                    textSinceStep = "";
+                    reasoningSinceStep = "";
                     break;
                 }
                 case "finish": {
@@ -660,21 +719,64 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     // returning, so the session file is complete and ordered.
     await persistChain;
 
-    // Steps persist incrementally via onStepEnd (above). Fallback: if a turn
-    // was aborted before any step finished, keep whatever streamed — the
-    // reasoning AND the answer text — so nothing is lost from the transcript or
-    // the next turn's context, and cost seeding stays honest. Structured parts
-    // preserve both; Anthropic rejects empty text blocks, so a usage-only turn
-    // keeps the legacy empty string (dropped later by toModelMessages).
-    const partialParts: Array<{ type: "reasoning"; text: string } | { type: "text"; text: string }> = [];
-    if (assistantReasoning.trim() !== "") partialParts.push({ type: "reasoning", text: assistantReasoning });
-    if (assistantText.trim() !== "") partialParts.push({ type: "text", text: assistantText });
-    if (!persistedAnyMessage && (partialParts.length > 0 || lastUsage || stepUsageSum)) {
+    const aborted = abortSignal?.aborted === true;
+
+    // The un-persisted tail: reasoning + text streamed since the last FINISHED
+    // step. Finished steps already persisted (onStepEnd) and billed (finish-step
+    // usage) their own content, so this is exactly the interrupted step's
+    // partial output — nothing finished is lost or duplicated. Reasoning is kept
+    // (an interrupt during the thinking phase still records what it produced)
+    // and the answer text after it; both also count toward the cost estimate.
+    const tailParts: Array<{ type: "reasoning"; text: string } | { type: "text"; text: string }> = [];
+    if (reasoningSinceStep.trim() !== "") tailParts.push({ type: "reasoning", text: reasoningSinceStep });
+    if (textSinceStep.trim() !== "") tailParts.push({ type: "text", text: textSinceStep });
+    const streamedTail = tailParts.length > 0;
+
+    if (aborted) {
+        // Estimate the interrupted in-flight request's usage — the SDK reports
+        // none on abort (vercel/ai#7805). Only when output actually streamed in
+        // an unfinished step: a clean step-boundary interrupt left every
+        // finished step already billed via finish-step, so there's nothing to
+        // add. Input is anchored to the adjacent real step (this turn's last, or
+        // the previous turn's); only the small output tail is approximated.
+        // Session total only (never the persistent cost store), shown with `~`.
+        let est: UsageBlock | undefined;
+        if (streamedTail) {
+            est = estimateInterruptedUsage(
+                textSinceStep,
+                reasoningSinceStep,
+                lastStepUsage ?? lastUsageInSession(session),
+                session,
+            );
+            if (est) {
+                tracker.addEstimated(modelId, est, cwd);
+                emitter.emit("step-usage", { usage: est, breakdown: tracker.sessionBreakdown() });
+            }
+        }
+        // Persist the interrupted turn so the transcript AND the next turn's
+        // context both reflect it. `interrupted: true` makes toModelMessages
+        // append a note (and never silently drop an empty aborted turn). Only
+        // text/usage here — never tool-call parts (those persist on finished
+        // steps only), so there's no orphaned tool_use to break the next turn.
+        if (streamedTail || !persistedAnyMessage) {
+            await session.append({
+                type: "message",
+                ts: Date.now(),
+                role: "assistant",
+                content: tailParts.length > 0 ? tailParts : "",
+                interrupted: true,
+                ...(est ? { usage: est, model: modelId } : {}),
+            });
+        }
+    } else if (!persistedAnyMessage && (tailParts.length > 0 || lastUsage || stepUsageSum)) {
+        // Non-abort edge: the stream ended without any step persisting (e.g. a
+        // provider error after partial output). Keep what streamed, with the
+        // real usage we did capture.
         await session.append({
             type: "message",
             ts: Date.now(),
             role: "assistant",
-            content: partialParts.length > 0 ? partialParts : "",
+            content: tailParts.length > 0 ? tailParts : "",
             usage: lastUsage ?? stepUsageSum,
             model: modelId,
         });

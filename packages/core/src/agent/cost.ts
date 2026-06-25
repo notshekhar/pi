@@ -61,6 +61,9 @@ export function sumUsage(a: UsageBlock | undefined, b: UsageBlock): UsageBlock {
 
 export class CostTracker {
     private session: CostBreakdown = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, usd: 0 };
+    /** Sticky once any estimated (interrupted-turn) usage lands in the session
+     * total — drives the leading `~` in format()/sessionBreakdown(). */
+    private estimated = false;
 
     private computeUsd(modelId: string, provider: string, usage: UsageBlock): number {
         if (typeof usage.cost === "number" && provider === "openrouter") return usage.cost;
@@ -119,6 +122,19 @@ export class CostTracker {
         costStore.all = all;
 
         return { ...this.session };
+    }
+
+    /**
+     * Accumulate an *estimated* usage block into the session total only — never
+     * the persistent lifetime/daily/cwd store. Used for the in-flight request
+     * of an interrupted turn, whose real usage the AI SDK never reports
+     * (vercel/ai#7805). Sets the `estimated` flag so the footer shows a `~`.
+     */
+    addEstimated(modelId: string, usage: UsageBlock, _cwd?: string): CostBreakdown {
+        const { provider } = parseModelId(modelId);
+        this.accumulateSession(modelId, provider, usage);
+        this.estimated = true;
+        return { ...this.session, estimated: true };
     }
 
     stats(cwd?: string): CostStats {
@@ -185,6 +201,7 @@ export class CostTracker {
             const modelId = "usage" in item ? item.model : fallbackModelId;
             const { provider } = parseModelId(modelId);
             this.accumulateSession(modelId, provider, usage);
+            if (usage.estimated) this.estimated = true;
             last = usage;
         }
         const ctxTokens = last
@@ -196,7 +213,7 @@ export class CostTracker {
     }
 
     sessionBreakdown(): CostBreakdown {
-        return { ...this.session };
+        return { ...this.session, estimated: this.estimated };
     }
 
     lifetimeBreakdown(): { usd: number; byProvider: Record<ProviderId, number> } {
@@ -205,10 +222,14 @@ export class CostTracker {
 
     reset(): void {
         this.session = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, usd: 0 };
+        this.estimated = false;
     }
 
     format(): string {
         const s = this.session;
-        return `$${s.usd.toFixed(4)} · in:${s.inputTokens} out:${s.outputTokens} cache:${s.cachedInputTokens}`;
+        // Leading `~` flags that the session total includes an estimated
+        // (interrupted-turn) amount, so the figure isn't read as exact.
+        const prefix = this.estimated ? "~" : "";
+        return `${prefix}$${s.usd.toFixed(4)} · in:${s.inputTokens} out:${s.outputTokens} cache:${s.cachedInputTokens}`;
     }
 }

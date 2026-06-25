@@ -65,17 +65,18 @@ describe("partial output is persisted when a turn is aborted mid-stream", () => 
             seen += t;
             if (seen.length >= opts.afterChars) abort.abort();
         });
+        const tracker = new CostTracker();
         await runTurn({
             session,
             modelId: MODEL,
             userInput: "write me a 1000 line poem",
             cwd: dir,
             abortSignal: abort.signal,
-            tracker: new CostTracker(),
+            tracker,
             emitter: em,
         });
         const assistant = session.entries().find((e: any) => e.type === "message" && e.role === "assistant") as any;
-        return { assistant, seen };
+        return { assistant, seen, tracker, session };
     }
 
     test("aborting during the thinking phase persists the partial reasoning", async () => {
@@ -109,5 +110,40 @@ describe("partial output is persisted when a turn is aborted mid-stream", () => 
         expect(text).toBeDefined();
         expect(text!.text.length).toBeGreaterThan(0);
         expect("Roses are red and violets are blue".startsWith(text!.text)).toBe(true);
+    });
+
+    test("an interrupted turn is flagged and its cut-off request cost is estimated", async () => {
+        const { assistant, tracker } = await runUntilAborted({
+            reasoning: "Short think",
+            text: "Roses are red and violets are blue",
+            abortOn: "text",
+            afterChars: 8,
+        });
+        // #2: the turn is marked interrupted so the next request's context
+        // reflects it (and toModelMessages never silently drops it).
+        expect(assistant.interrupted).toBe(true);
+        // #1: no finish-step fired for the cut-off request, so the SDK reports
+        // no usage (vercel/ai#7805) — loop attaches an estimate, flagged as one.
+        expect(assistant.usage?.estimated).toBe(true);
+        expect(assistant.usage?.outputTokens).toBeGreaterThan(0);
+        // The estimate lands in the session total only, surfaced with a `~`.
+        expect(tracker.format().startsWith("~$")).toBe(true);
+        expect(tracker.sessionBreakdown().estimated).toBe(true);
+    });
+
+    test("the interruption is surfaced in the model context, not dropped", async () => {
+        const { session } = await runUntilAborted({
+            reasoning: "Short think",
+            text: "Roses are red",
+            abortOn: "text",
+            afterChars: 4,
+        });
+        const { toModelMessages } = await import("../src/agent/model-messages");
+        const msgs = toModelMessages(session);
+        const last = msgs[msgs.length - 1];
+        expect(last.role).toBe("assistant");
+        // The next turn's context carries the interruption note rather than a
+        // gap, so the agent knows its previous answer was cut off.
+        expect(JSON.stringify(last.content)).toContain("interrupted this response");
     });
 });

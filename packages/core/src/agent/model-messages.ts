@@ -82,6 +82,11 @@ export function moveAnthropicCacheTail(messages: ModelMessage[]): ModelMessage[]
     return out;
 }
 
+/** Appended to an interrupted assistant turn so the next request's context
+ * reflects that the user cut the previous answer off (and an empty aborted turn
+ * is never silently dropped, leaving the user's question unanswered). */
+const INTERRUPT_NOTE = "[The user interrupted this response before it finished.]";
+
 export function toModelMessages(session: Session): ModelMessage[] {
     const out: ModelMessage[] = [];
     for (const m of compactedContextEntries(session)) {
@@ -101,15 +106,29 @@ export function toModelMessages(session: Session): ModelMessage[] {
         // Assistant/user with structured content (text + tool-call parts) pass
         // through as real parts; legacy string content stays a string. Anthropic
         // rejects empty text blocks, so drop empty string entries (older aborted
-        // turns left these).
+        // turns left these) — unless the turn was interrupted, where an empty
+        // body becomes the interruption note so the model still sees the turn.
         if (typeof m.content === "string") {
-            if (m.content.trim() === "") continue;
-            out.push({ role: m.role as "user" | "assistant", content: m.content });
+            if (m.content.trim() === "") {
+                if (m.interrupted) out.push({ role: "assistant", content: INTERRUPT_NOTE });
+                continue;
+            }
+            const content = m.interrupted ? `${m.content}\n\n${INTERRUPT_NOTE}` : m.content;
+            out.push({ role: m.role as "user" | "assistant", content });
         } else if (Array.isArray(m.content) && m.content.length > 0) {
             // Pass structured content through verbatim — text, reasoning (with
             // its preserved provider signature), and tool-call parts. Nothing
-            // stripped; the SDK round-trips its own response messages.
-            out.push({ role: m.role as "user" | "assistant", content: m.content } as ModelMessage);
+            // stripped; the SDK round-trips its own response messages. An
+            // interrupted turn gets a trailing text note so the model knows the
+            // answer was cut off.
+            const content = m.interrupted
+                ? [...(m.content as unknown[]), { type: "text", text: INTERRUPT_NOTE }]
+                : m.content;
+            out.push({ role: m.role as "user" | "assistant", content } as ModelMessage);
+        } else if (m.interrupted) {
+            // Interrupted before any reasoning/text streamed (empty content) —
+            // still surface the interruption so the turn isn't a silent gap.
+            out.push({ role: "assistant", content: INTERRUPT_NOTE });
         }
     }
     return out;

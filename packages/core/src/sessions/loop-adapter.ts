@@ -61,6 +61,12 @@ export function adaptLoopEntry(raw: unknown): Entry | null {
                 role: mappedRole,
                 content,
                 usage: obj.usage as UsageBlock | undefined,
+                // model: per-message pricing stamp (correct cost re-seeding after
+                // a mid-session model switch). interrupted: marks a turn the user
+                // cut off, so toModelMessages surfaces the interruption note
+                // instead of dropping the turn. Both must survive the reload.
+                ...(typeof obj.model === "string" ? { model: obj.model } : {}),
+                ...(obj.interrupted === true ? { interrupted: true } : {}),
                 ...tree,
             };
         }
@@ -73,6 +79,7 @@ export function adaptLoopEntry(raw: unknown): Entry | null {
                 result: String(obj.result ?? ""),
                 activity: parseActivity(obj.activity),
                 usage: obj.usage as UsageBlock | undefined,
+                ...(typeof obj.model === "string" ? { model: obj.model } : {}),
                 ...tree,
             };
         case "model-change":

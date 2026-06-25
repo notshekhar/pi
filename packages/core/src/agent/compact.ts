@@ -61,7 +61,7 @@ export function compactedContextMessages(
 }
 
 export type ContextEntry =
-    | { kind: "message"; role: "user" | "assistant" | "tool"; content: unknown }
+    | { kind: "message"; role: "user" | "assistant" | "tool"; content: unknown; interrupted?: boolean }
     | { kind: "subagent"; agent: string; result: string };
 
 /**
@@ -82,7 +82,7 @@ export function compactedContextEntries(session: Session): ContextEntry[] {
         if (e.type === "message") {
             const idx = messageIndex++;
             if (compact && idx < compact.cutAt) continue;
-            out.push({ kind: "message", role: e.role, content: e.content });
+            out.push({ kind: "message", role: e.role, content: e.content, interrupted: e.interrupted });
         } else if (e.type === "subagent") {
             if (compact && messageIndex < compact.cutAt) continue;
             out.push({ kind: "subagent", agent: e.agent, result: e.result });

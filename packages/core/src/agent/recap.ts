@@ -65,7 +65,7 @@ export async function runRecap(opts: {
     const model = await getModel(opts.modelId);
     const result = await generateText({
         model,
-        system: RECAP_PROMPT,
+        instructions: RECAP_PROMPT,
         prompt,
         abortSignal: opts.abortSignal,
     });

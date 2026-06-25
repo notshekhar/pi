@@ -13,29 +13,24 @@ export const THINKING_LEVEL_DESCRIPTIONS: Record<ThinkingLevel, string> = {
     xhigh: "Maximum reasoning (~32k tokens)",
 };
 
-const BUDGETS: Record<Exclude<ThinkingLevel, "off">, number> = {
-    minimal: 1024,
-    low: 2048,
-    medium: 8192,
-    high: 16384,
-    xhigh: 32768,
-};
+/**
+ * AI SDK v7's portable `reasoning` effort value. Our ThinkingLevel maps onto it
+ * 1:1 (`off` → `none`), so first-party providers translate the level into the
+ * right provider-specific request themselves — no hand-rolled per-provider
+ * budget/effort tables needed (the SDK owns anthropic adaptive-thinking,
+ * openai reasoningEffort, google thinkingConfig, etc).
+ */
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
-const OPENAI_EFFORT: Record<Exclude<ThinkingLevel, "off">, "minimal" | "low" | "medium" | "high"> = {
-    minimal: "minimal",
-    low: "low",
-    medium: "medium",
-    high: "high",
-    xhigh: "high",
-};
-
-const XAI_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "high"> = {
-    minimal: "low",
-    low: "low",
-    medium: "high",
-    high: "high",
-    xhigh: "high",
-};
+/**
+ * Providers reached through a community AI-SDK package (not a first-party
+ * @ai-sdk provider) — the portable `reasoning` param doesn't flow through them,
+ * so they keep the hand-built `providerOptions` path in buildProviderOptions.
+ * Everything else (anthropic/openai/google/xai/groq/mistral/deepseek/cerebras,
+ * plus the openai-compatible routes: zenmux/github-copilot/chatgpt) uses the
+ * native `reasoning` param.
+ */
+const COMMUNITY_REASONING_PROVIDERS = new Set(["ollama", "glm", "zai", "openrouter"]);
 
 const OPENROUTER_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "medium" | "high"> = {
     minimal: "low",
@@ -46,18 +41,6 @@ const OPENROUTER_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "medium" 
 };
 
 /**
- * Translate a generic ThinkingLevel into AI-SDK v6 `providerOptions` for the
- * given provider. Returns undefined when no provider-specific options apply.
- *
- * Provider-specific keys:
- *  - anthropic: `thinking: { type, budgetTokens }` + `sendReasoning`
- *  - openai:    `reasoningEffort: minimal|low|medium|high`
- *  - google:    `thinkingConfig: { thinkingBudget, includeThoughts }`
- *  - xai:       `reasoningEffort: low|high`
- *  - openrouter:`reasoning: { effort } | { exclude: true }`
- *  - glm/zai:   `thinking: { type: enabled|disabled }` (boolean, no budget)
- */
-/**
  * xAI only honors `reasoning_effort` on grok-3-mini-class models. Grok-4 and
  * preview models (grok-build, grok-4.20-*) reason internally and reject the
  * parameter with a 400 (see x.ai/api error: "Model X does not support
@@ -67,64 +50,54 @@ function xaiSupportsEffort(modelShortId: string): boolean {
     return /mini/i.test(modelShortId);
 }
 
-export function buildProviderOptions(
+/**
+ * The portable v7 `reasoning` value for a provider + level, or undefined when
+ * this provider should NOT use the native param:
+ *  - community providers (ollama/glm/zai) → handled by buildProviderOptions;
+ *  - non-mini xAI models that 400 on reasoning effort → omit entirely.
+ */
+export function reasoningEffort(
     provider: ProviderId | string,
     level: ThinkingLevel,
     modelShortId = "",
+): ReasoningEffort | undefined {
+    if (COMMUNITY_REASONING_PROVIDERS.has(provider)) return undefined;
+    if (provider === "xai" && level !== "off" && !xaiSupportsEffort(modelShortId)) return undefined;
+    return level === "off" ? "none" : level;
+}
+
+/**
+ * Provider-specific reasoning options the portable `reasoning` param does NOT
+ * express. Returns undefined when the native param fully covers the provider.
+ *
+ *  - openai / github-copilot: `reasoningSummary: "auto"` so reasoning summaries
+ *    still surface (additive — composes with the native effort);
+ *  - openrouter: `reasoning: { effort }` (community provider, own option shape);
+ *  - glm/zai:  zhipu `thinking: { type: enabled|disabled }` (boolean, no budget);
+ *  - ollama:   `think: boolean` (DeepSeek-R1, Qwen3, …; no budget).
+ */
+export function buildProviderOptions(
+    provider: ProviderId | string,
+    level: ThinkingLevel,
 ): Record<string, Record<string, unknown>> | undefined {
-    // Claude 4.7+ (and Fable) removed budget_tokens — sending it returns a 400.
-    // Claude 4.6 deprecates it. Adaptive thinking replaces fixed budgets there.
-    const anthropicAdaptiveOnly = /opus-4-[7-9]|fable/i.test(modelShortId);
-    const anthropicAdaptive = anthropicAdaptiveOnly || /(opus|sonnet)-4-6/i.test(modelShortId);
-
-    if (level === "off") {
-        switch (provider) {
-            case "anthropic":
-                // Fable 5 rejects an explicit {type:"disabled"} — omit the param instead.
-                return anthropicAdaptiveOnly ? undefined : { anthropic: { thinking: { type: "disabled" } } };
-            case "google":
-                return { google: { thinkingConfig: { thinkingBudget: 0 } } };
-            case "glm":
-            case "zai":
-                // GLM-4.5+ thinking is a boolean toggle (no budget), merged into
-                // the request body via the zhipu provider's providerOptions.
-                return { zhipu: { thinking: { type: "disabled" } } };
-            case "ollama":
-                return { ollama: { think: false } };
-            default:
-                return undefined;
-        }
-    }
-
-    const lv = level as Exclude<ThinkingLevel, "off">;
-    const budget = BUDGETS[lv];
-
+    const on = level !== "off";
     switch (provider) {
-        case "anthropic":
-            return anthropicAdaptive
-                ? { anthropic: { thinking: { type: "adaptive" }, sendReasoning: true } }
-                : {
-                      anthropic: {
-                          thinking: { type: "enabled", budgetTokens: budget },
-                          sendReasoning: true,
-                      },
-                  };
         case "openai":
         case "github-copilot":
-            return { openai: { reasoningEffort: OPENAI_EFFORT[lv], reasoningSummary: "auto" } };
-        case "google":
-            return { google: { thinkingConfig: { thinkingBudget: budget, includeThoughts: true } } };
-        case "xai":
-            return xaiSupportsEffort(modelShortId) ? { xai: { reasoningEffort: XAI_EFFORT[lv] } } : undefined;
+            // Effort comes from the native `reasoning` param; this only adds the
+            // human-readable summary stream. Skip when reasoning is off.
+            return on ? { openai: { reasoningSummary: "auto" } } : undefined;
         case "openrouter":
-            return { openrouter: { reasoning: { effort: OPENROUTER_EFFORT[lv] } } };
+            return on
+                ? { openrouter: { reasoning: { effort: OPENROUTER_EFFORT[level as Exclude<ThinkingLevel, "off">] } } }
+                : undefined;
         case "glm":
         case "zai":
-            // GLM thinking is on/off only — any non-"off" level enables it.
-            return { zhipu: { thinking: { type: "enabled" } } };
+            // GLM-4.5+ thinking is a boolean toggle (no budget), merged into the
+            // request body via the zhipu provider's providerOptions.
+            return { zhipu: { thinking: { type: on ? "enabled" : "disabled" } } };
         case "ollama":
-            // Ollama thinking is a boolean toggle (DeepSeek-R1, Qwen3, etc.); no budget.
-            return { ollama: { think: true } };
+            return { ollama: { think: on } };
         default:
             return undefined;
     }

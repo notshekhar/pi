@@ -31,14 +31,31 @@ export function sumUsage(a: UsageBlock | undefined, b: UsageBlock): UsageBlock {
                   cacheWriteTokens: n(a.inputTokenDetails?.cacheWriteTokens, b.inputTokenDetails?.cacheWriteTokens),
               }
             : undefined;
+    const outDetails =
+        a.outputTokenDetails || b.outputTokenDetails
+            ? {
+                  textTokens: n(a.outputTokenDetails?.textTokens, b.outputTokenDetails?.textTokens),
+                  reasoningTokens: n(a.outputTokenDetails?.reasoningTokens, b.outputTokenDetails?.reasoningTokens),
+              }
+            : undefined;
+    // v7 reports reasoning tokens nested under outputTokenDetails; old (v6)
+    // sessions used the flat field. Keep the flat field in sync off either.
+    const reasoning = n(
+        a.outputTokenDetails?.reasoningTokens ?? a.reasoningTokens,
+        b.outputTokenDetails?.reasoningTokens ?? b.reasoningTokens,
+    );
     return {
         inputTokens: n(a.inputTokens, b.inputTokens),
         outputTokens: n(a.outputTokens, b.outputTokens),
         totalTokens: n(a.totalTokens, b.totalTokens),
-        cachedInputTokens: n(a.cachedInputTokens, b.cachedInputTokens),
-        reasoningTokens: n(a.reasoningTokens, b.reasoningTokens),
+        cachedInputTokens: n(
+            a.inputTokenDetails?.cacheReadTokens ?? a.cachedInputTokens,
+            b.inputTokenDetails?.cacheReadTokens ?? b.cachedInputTokens,
+        ),
+        reasoningTokens: reasoning,
         cost: n(a.cost, b.cost),
         inputTokenDetails: details,
+        outputTokenDetails: outDetails,
     };
 }
 

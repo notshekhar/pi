@@ -135,7 +135,7 @@ export async function runCompact(opts: {
     try {
         const result = await generateText({
             model,
-            system: COMPACT_PROMPT,
+            instructions: COMPACT_PROMPT,
             prompt: headText,
             abortSignal: opts.abortSignal,
         });

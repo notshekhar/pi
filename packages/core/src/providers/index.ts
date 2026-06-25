@@ -402,6 +402,12 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             return createGoogleGenerativeAI({ apiKey: key })(model);
         }
         case "openrouter": {
+            // The community @openrouter/ai-sdk-provider still ships against the
+            // @ai-sdk/provider@3 spec, but ai@7's provider-utils stays
+            // backward-compatible with v3 language models, so it keeps working —
+            // and it surfaces OpenRouter's real usage.cost (see cost.ts) plus
+            // provider-routing/reasoning options the OpenAI-compatible route
+            // would drop. Bump it to a v4-spec build when upstream ships one.
             const key = getApiKey("openrouter");
             if (!key) throw new Error("No OpenRouter API key. Run: loop login openrouter");
             const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");

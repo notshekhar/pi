@@ -6,12 +6,14 @@
  * Completed runs persist as `subagent` session entries so resumes keep the
  * task box, its report, and its cost.
  */
-import { stepCountIs, tool, ToolLoopAgent } from "ai";
+import { isStepCount, tool, ToolLoopAgent } from "ai";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { TurnEmitter } from "./events";
 import { effectiveSdkProvider } from "../auth";
 import { getModel, parseModelId } from "../providers";
+import { getCatalog } from "../catalog";
+import { buildProviderOptions, reasoningEffort } from "./thinking";
 import { anthropicCachedSystem, moveAnthropicCacheTail } from "./model-messages";
 import { getSetting } from "../settings";
 import { createTools } from "../tools";
@@ -268,14 +270,26 @@ async function runSubagent(
         // price (a single long run burned millions of uncached tokens). Anchor
         // the system prompt once and move a tail breakpoint every step, same
         // as runTurn.
-        const anthropicCaching = effectiveSdkProvider(parseModelId(ctx.modelId).provider) === "anthropic";
+        const effSubProvider = effectiveSdkProvider(subProvider);
+        const anthropicCaching = effSubProvider === "anthropic";
+        // Honor the session thinking level for subagents too (matches runTurn):
+        // portable reasoning effort for first-party providers, providerOptions
+        // for community/edge ones. Guarded by the model's reasoning capability.
+        const subThinking = getSetting("thinkingLevel") ?? "off";
+        const subModelInfo = (await getCatalog())[ctx.modelId];
+        const subReasoning =
+            subModelInfo?.reasoning === false ? undefined : reasoningEffort(effSubProvider, subThinking, subModel);
+        const subProviderOptions =
+            subModelInfo?.reasoning === false ? undefined : buildProviderOptions(effSubProvider, subThinking);
         // AI SDK's native agent loop — same streamText core runTurn uses, with
         // the loop/stop handling owned by the SDK.
         const agent = new ToolLoopAgent({
             model: await getModel(ctx.modelId),
             instructions: anthropicCaching ? anthropicCachedSystem(system) : system,
             tools: hooked,
-            stopWhen: stepCountIs(maxSteps),
+            stopWhen: isStepCount(maxSteps),
+            ...(subReasoning ? { reasoning: subReasoning } : {}),
+            ...(subProviderOptions ? { providerOptions: subProviderOptions as never } : {}),
             ...(anthropicCaching
                 ? {
                       prepareStep: ({ messages }: { messages: ModelMessage[] }) => ({
@@ -302,7 +316,7 @@ async function runSubagent(
             else activity.push({ type, text });
         };
         let lastYieldAt = Date.now();
-        for await (const part of result.fullStream) {
+        for await (const part of result.stream) {
             if (ctx.abortSignal?.aborted) break;
             switch (part.type) {
                 case "text-delta":

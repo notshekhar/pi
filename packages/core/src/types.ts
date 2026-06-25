@@ -72,14 +72,22 @@ export interface UsageBlock {
     inputTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
+    // Flat fields kept for sessions persisted under ai-sdk v6 (it populated
+    // these directly). v7 reports them nested under *TokenDetails below; readers
+    // prefer the nested values and fall back to these for old sessions.
     cachedInputTokens?: number;
     reasoningTokens?: number;
     cost?: number;
-    // ai-sdk v6 detail block — needed to bill cache writes (1.25x on Anthropic)
+    // ai-sdk v7 detail blocks. inputTokenDetails is needed to bill cache writes
+    // (1.25x on Anthropic); outputTokenDetails carries reasoning token counts.
     inputTokenDetails?: {
         noCacheTokens?: number;
         cacheReadTokens?: number;
         cacheWriteTokens?: number;
+    };
+    outputTokenDetails?: {
+        textTokens?: number;
+        reasoningTokens?: number;
     };
 }
 

@@ -1,4 +1,4 @@
-import { streamText, stepCountIs } from "ai";
+import { streamText, isStepCount } from "ai";
 import type { ModelMessage } from "ai";
 import type { TurnEmitter } from "./events";
 import { getModel, parseModelId } from "../providers";
@@ -16,7 +16,7 @@ import { runCompact } from "./compact";
 import { runRecap, turnDeservesRecap } from "./recap";
 import { runHooks, type HookOutcome } from "./hooks";
 import { isTrusted } from "./trust";
-import { buildProviderOptions, type ThinkingLevel } from "./thinking";
+import { buildProviderOptions, reasoningEffort, type ThinkingLevel } from "./thinking";
 import { estimateContextTokens, moveAnthropicCacheTail, toModelMessages, withAnthropicCaching } from "./model-messages";
 import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
@@ -43,7 +43,13 @@ export {
     BRANCH_SUMMARY_PREAMBLE,
 } from "./branch-summary";
 export { estimateContextTokens } from "./model-messages";
-export { THINKING_LEVELS, THINKING_LEVEL_DESCRIPTIONS, buildProviderOptions, type ThinkingLevel } from "./thinking";
+export {
+    THINKING_LEVELS,
+    THINKING_LEVEL_DESCRIPTIONS,
+    buildProviderOptions,
+    reasoningEffort,
+    type ThinkingLevel,
+} from "./thinking";
 export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
 export { loadProjectSkills, type Skill } from "./skills";
 export {
@@ -120,7 +126,7 @@ export interface RunTurnOptions {
 /**
  * Hand control back to the event loop's macrotask phases.
  *
- * `result.fullStream` parts arrive buffered, so each read resolves as a
+ * `result.stream` parts arrive buffered, so each read resolves as a
  * microtask. Consuming them in a tight `for await` — each part firing
  * `emitter.emit(...)` → `tui.requestRender()` (which uses `process.nextTick`) —
  * keeps the microtask/nextTick queues perpetually non-empty. Those queues drain
@@ -453,10 +459,13 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     // thinking/caching by the configured sdk so e.g. an anthropic-compatible
     // gateway gets adaptive thinking + prompt-cache breakpoints.
     const effectiveProvider = effectiveSdkProvider(provider);
+    // First-party providers translate the level via v7's portable `reasoning`
+    // param; community providers (and edge cases) fall back to providerOptions.
+    // The two compose — providerOptions take precedence where they overlap.
+    const reasoning =
+        modelInfo?.reasoning === false ? undefined : reasoningEffort(effectiveProvider, thinkingLevel, modelShortId);
     let providerOptions =
-        modelInfo?.reasoning === false
-            ? undefined
-            : buildProviderOptions(effectiveProvider, thinkingLevel, modelShortId);
+        modelInfo?.reasoning === false ? undefined : buildProviderOptions(effectiveProvider, thinkingLevel);
 
     // Ollama defaults num_ctx to ~4096 regardless of the model's real context,
     // which truncates long agent loops and makes the model stop early. Pin it to
@@ -484,7 +493,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     let persistedAnyMessage = false;
     let persistedMsgCount = 0;
     // Serialize appends so cumulative-tail slices land in order even if
-    // onStepFinish callbacks overlap.
+    // onStepEnd callbacks overlap.
     let persistChain: Promise<void> = Promise.resolve();
     const persistStep = (step: {
         response: { messages: ReadonlyArray<{ role: string; content: unknown }> };
@@ -529,18 +538,22 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                       messages: moveAnthropicCacheTail(stepMessages),
                   }),
               }
-            : { system, messages }),
+            : { instructions: system, messages }),
         tools,
-        stopWhen: stepCountIs(maxSteps),
+        stopWhen: isStepCount(maxSteps),
         abortSignal,
+        // v7 portable reasoning effort for first-party providers (off → "none").
+        // Undefined for community providers / non-reasoning models, which use
+        // providerOptions (or nothing) instead.
+        ...(reasoning ? { reasoning } : {}),
         // Persist each step's messages as it finishes (mirrors the reference's
         // per-message persistence). Errors here must not break the turn.
-        onStepFinish: (step) => {
+        onStepEnd: (step) => {
             void persistStep(step as never);
         },
         // The SDK's default onError does console.error(error) with the whole
         // APICallError (request body, tool defs — a wall of noise). We already
-        // surface stream errors cleanly via the fullStream "error" part below,
+        // surface stream errors cleanly via the stream "error" part below,
         // so swallow this duplicate to keep the console clean.
         onError: () => {},
         // smoothStream removed: it re-buffers tokens and releases them on its
@@ -570,7 +583,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     // guard that throw would skip the persistence below, losing the partial
     // reply. Swallow only aborts; any other error still propagates.
     try {
-        for await (const part of result.fullStream) {
+        for await (const part of result.stream) {
             if (abortSignal?.aborted) break;
             switch (part.type) {
                 case "text-delta":
@@ -647,7 +660,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     // returning, so the session file is complete and ordered.
     await persistChain;
 
-    // Steps persist incrementally via onStepFinish (above). Fallback: if a turn
+    // Steps persist incrementally via onStepEnd (above). Fallback: if a turn
     // was aborted before any step finished, keep whatever streamed — the
     // reasoning AND the answer text — so nothing is lost from the transcript or
     // the next turn's context, and cost seeding stays honest. Structured parts

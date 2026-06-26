@@ -1,12 +1,14 @@
 /**
- * A tiny background sampler for host vitals (CPU %, used memory, battery). The
- * status-line transform must be cheap and synchronous, so we never probe the OS
- * during a repaint — instead we refresh a cached snapshot on an interval and the
- * layout just reads the last value. Only started while a layout that needs it is
- * active; stopped (and the interval cleared) otherwise.
+ * A tiny background sampler for host vitals (CPU %, used memory). The status-line
+ * transform must be cheap and synchronous, so we never probe the OS during a
+ * repaint — instead we refresh a cached snapshot on an interval and the layout
+ * just reads the last value. Only started while a layout that needs it is active;
+ * stopped (and the interval cleared) otherwise. Everything sampled here is an
+ * in-process read (os.*) — we deliberately never spawn a subprocess per tick,
+ * which under Bun would inflate the allocator's high-water mark (RSS that never
+ * returns to the OS).
  */
 import os from "node:os";
-import { execFile } from "node:child_process";
 
 export interface Vitals {
     /** 0..1 aggregate CPU utilization, or null until the first delta is known. */
@@ -15,10 +17,6 @@ export interface Vitals {
     memUsed: number;
     /** Total system memory in bytes. */
     memTotal: number;
-    /** Battery 0..1, or null when unknown / no battery. */
-    battery: number | null;
-    /** True while charging / on AC. */
-    charging: boolean;
 }
 
 interface CpuSample {
@@ -43,8 +41,6 @@ export class SystemSampler {
         cpu: null,
         memUsed: 0,
         memTotal: os.totalmem(),
-        battery: null,
-        charging: false,
     };
 
     /**
@@ -54,7 +50,7 @@ export class SystemSampler {
     start(onTick?: () => void, intervalMs = 1000): void {
         if (this.timer) return;
         this.prev = cpuSample();
-        this.tick(); // prime memory/battery immediately
+        this.tick(); // prime memory immediately
         this.timer = setInterval(() => {
             this.tick();
             onTick?.();
@@ -85,18 +81,5 @@ export class SystemSampler {
 
         this.snapshot.memTotal = os.totalmem();
         this.snapshot.memUsed = os.totalmem() - os.freemem();
-
-        this.readBattery();
-    }
-
-    /** macOS-only (via pmset). Elsewhere battery stays null and layouts hide it. */
-    private readBattery(): void {
-        if (process.platform !== "darwin") return;
-        execFile("pmset", ["-g", "batt"], { timeout: 1500 }, (err, stdout) => {
-            if (err) return;
-            const pct = stdout.match(/(\d+)%/);
-            if (pct) this.snapshot.battery = Math.min(1, Number(pct[1]) / 100);
-            this.snapshot.charging = /\b(charging|charged|AC Power)\b/i.test(stdout);
-        });
     }
 }

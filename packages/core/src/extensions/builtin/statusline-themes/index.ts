@@ -8,8 +8,8 @@
  * Both persist via api.settings.setOwn and apply live on every repaint through
  * api.statusLine.transform — the layout transform runs first, then the color
  * transform recolors its output, so the two compose freely. The "vitals" layout
- * reads CPU/mem/battery from a background sampler that only runs while it's the
- * active layout.
+ * reads CPU/mem from a background sampler that only runs while it's the active
+ * layout.
  */
 import type { LoopAPI } from "../../api";
 import { DEFAULT_LAYOUT, getLayout, LAYOUTS, type LayoutId } from "./layouts";
@@ -29,7 +29,7 @@ export default {
         const themeId = (): ThemeId => getTheme(api.settings.getOwn("theme", DEFAULT_THEME)).id;
 
         // Start/stop the vitals sampler to match the active layout, so we never
-        // probe the OS unless a layout actually shows CPU/mem/battery. While it
+        // probe the OS unless a layout actually shows CPU/mem. While it
         // runs, each 1s tick repaints the status line so the clock and CPU/mem
         // stay live (they change with no user action, which otherwise wouldn't
         // trigger a render).

@@ -18,7 +18,7 @@ export interface Layout {
     description: string;
     /** A short stripped sample for the picker menu. */
     sample: string;
-    /** True if it reads CPU/mem/battery — gates the background sampler. */
+    /** True if it reads CPU/mem — gates the background sampler. */
     needsVitals: boolean;
     /** Render the rows, or null to keep the native built-in render. */
     render: ((ctx: StatusLineContext, sys: Vitals) => string[] | null) | null;
@@ -121,13 +121,6 @@ function thinkValue(ctx: StatusLineContext): string | null {
     return ctx.reasoning && ctx.thinking && ctx.thinking !== "off" ? ctx.thinking : null;
 }
 
-function batteryStr(sys: Vitals): string | null {
-    if (sys.battery == null) return null;
-    const pct = Math.round(sys.battery * 100);
-    const color = sys.battery > 0.5 ? COLORS.green : sys.battery > 0.2 ? COLORS.yellow : COLORS.red;
-    return fg(color, `bat:${pct}%${sys.charging ? "+" : ""}`);
-}
-
 function join(parts: Array<string | null>, sep = SEP): string {
     return parts.filter((p): p is string => !!p).join(sep);
 }
@@ -135,8 +128,8 @@ function join(parts: Array<string | null>, sep = SEP): string {
 /**
  * Responsive join: `parts` are in priority order (most important first). Keeps
  * the longest leading run that fits `width`, dropping lower-priority trailing
- * segments — so a narrow terminal sheds the least-important bits (battery, then
- * mem, then …) instead of hard-clipping the right edge mid-segment. The first
+ * segments — so a narrow terminal sheds the least-important bits (mem, then …)
+ * instead of hard-clipping the right edge mid-segment. The first
  * part is always kept (the component clips it if even that overflows).
  */
 function fit(parts: Array<string | null>, width: number, sep = SEP): string {
@@ -244,8 +237,8 @@ export const LAYOUTS: Layout[] = [
         id: "vitals",
         label: "vitals",
         description:
-            "agent · model · thinking · ctx% · tokens · cached · hit% · cost · clock · cpu · mem · battery — the dashboard",
-        sample: "@plan │ Opus 4.8 │ high │ 19.0% ctx │ 11.6k tok │ cached 21.6k │ hit 87% │ $0.0042 │ 16:17:06 │ cpu:100% mem:29.3G bat:100%+",
+            "agent · model · thinking · ctx% · tokens · cached · hit% · cost · clock · cpu · mem — the dashboard",
+        sample: "@plan │ Opus 4.8 │ high │ 19.0% ctx │ 11.6k tok │ cached 21.6k │ hit 87% │ $0.0042 │ 16:17:06 │ cpu:100% mem:29.3G",
         needsVitals: true,
         render: (ctx, sys) => {
             const r = ctxRatio(ctx);
@@ -260,9 +253,9 @@ export const LAYOUTS: Layout[] = [
             const clock = fg(COLORS.magenta, fmtClock());
             const cpu = sys.cpu == null ? null : fg(heat(sys.cpu), `cpu:${Math.round(sys.cpu * 100)}%`);
             const mem = fg(COLORS.muted, `mem:${fmtBytes(sys.memUsed)}`);
-            const vitals = join([cpu, mem, batteryStr(sys)], " ");
+            const vitals = join([cpu, mem], " ");
             // Wrap onto extra rows when narrow so nothing is dropped — the whole
-            // dashboard (incl. cpu/mem/battery) stays visible, just on more lines.
+            // dashboard (incl. cpu/mem) stays visible, just on more lines.
             return wrap(
                 [
                     agentChip(ctx),

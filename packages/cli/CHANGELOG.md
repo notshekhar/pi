@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.3] - 2026-06-26
+
+### Fixed
+
+- **The `vitals` status-line layout no longer bloats memory.** Its background sampler spawned a `pmset` subprocess on every 1-second tick to read the battery level. Under Bun a per-second child-process spawn keeps inflating the allocator's high-water mark — RSS that's never returned to the OS — so a session sitting on the `vitals` layout crept from the usual ~50–60 MB up to ~190–200 MB. Battery has been removed from the dashboard entirely; the sampler is now a pure in-process read (`cpu` · `mem`) and never spawns a subprocess, keeping the layout at baseline memory.
+
 ## [0.7.2] - 2026-06-26
 
 ### Fixed

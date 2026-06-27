@@ -55,6 +55,14 @@ export class ToolExecutionComponent extends Container {
         this.tui.requestRender();
     }
 
+    /** Fill in the args once the tool's input has finished streaming (the box was
+     * created as a pending stub on `tool-input-start` with no args yet). */
+    updateArgs(args: Record<string, unknown>): void {
+        this.args = args;
+        this.updateDisplay();
+        this.tui.requestRender();
+    }
+
     override invalidate(): void {
         super.invalidate();
         this.updateDisplay();
@@ -136,6 +144,9 @@ export class ToolExecutionComponent extends Container {
 
     private argsSummary(): string {
         const a = this.args;
+        // Pending stub (created on tool-input-start before the input has streamed):
+        // no args yet, so show just the title — args fill in via updateArgs().
+        if (Object.keys(a).length === 0) return "";
         const rel = (p: unknown): string => {
             if (typeof p !== "string") return "";
             return p.startsWith(this.cwd) ? p.slice(this.cwd.length).replace(/^\//, "") || "." : p;

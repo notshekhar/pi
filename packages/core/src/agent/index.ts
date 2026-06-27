@@ -654,6 +654,14 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                 case "reasoning-end":
                     emitter.emit("reasoning-end");
                     break;
+                case "tool-input-start":
+                    // Surface the pending tool box as soon as the call begins,
+                    // before its (possibly large) input has finished streaming.
+                    emitter.emit("tool-input-start", {
+                        toolName: (part as { toolName?: string }).toolName,
+                        toolCallId: (part as { toolCallId?: string }).toolCallId,
+                    });
+                    break;
                 case "tool-call":
                     if (part.toolName) toolsUsed.push(part.toolName);
                     emitter.emit("tool-call", part);

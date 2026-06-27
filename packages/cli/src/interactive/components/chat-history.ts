@@ -175,6 +175,14 @@ export class ChatHistory extends Container {
     }
 
     addToolCall(toolName: string, toolCallId: string, args: Record<string, unknown>): void {
+        // The box may already exist from a `tool-input-start` stub — fill in the
+        // args on it (once they've finished streaming) instead of duplicating it.
+        const existing = this.toolComponents.get(toolCallId);
+        if (existing) {
+            if (Object.keys(args).length > 0) existing.updateArgs(args);
+            return;
+        }
+
         if (this.liveMsg) {
             this.liveMsg.content.push({ type: "toolCall", id: toolCallId, name: toolName, arguments: args });
             this.liveComponent?.updateContent(this.liveMsg);

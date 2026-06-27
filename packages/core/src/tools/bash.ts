@@ -16,6 +16,25 @@ import { DEFAULT_BASH_DENY, findDeniedCommand, formatDenyRefusal } from "./utils
 import { getSetting } from "../settings";
 import { sandbox, type SandboxConfig } from "@notshekhar/loop-sandbox";
 
+/**
+ * Default and ceiling for the bash timeout, in seconds. A command with no
+ * explicit `timeout` is capped at the default so a hung process (a server left
+ * in the foreground, a command waiting on stdin) can't run unbounded — the bug
+ * where a forgotten command ran for 30+ minutes. The model may pass a larger
+ * `timeout` for genuinely long work (builds, installs), but never above the max.
+ */
+export const DEFAULT_BASH_TIMEOUT_SEC = 120;
+export const MAX_BASH_TIMEOUT_SEC = 600;
+
+/**
+ * Resolve the effective bash timeout (seconds): fall back to the default when
+ * unset/non-positive, and clamp to the max. Guarantees every run is bounded.
+ */
+export function resolveBashTimeout(timeout?: number): number {
+    const base = timeout && timeout > 0 ? timeout : DEFAULT_BASH_TIMEOUT_SEC;
+    return Math.min(base, MAX_BASH_TIMEOUT_SEC);
+}
+
 export interface BashToolContext {
     cwd: string;
     abortSignal?: AbortSignal;
@@ -183,13 +202,22 @@ async function resolveSandbox(command: string, ctx: BashToolContext): Promise<{ 
 
 export function createBashTool(ctx: BashToolContext) {
     return tool({
-        description:
-            "Execute a bash command. Returns merged stdout/stderr. Output truncated to 50KB / 2000 lines (tail kept). Process tree killed on abort/timeout. Timeout is in seconds (optional, no default).",
+        description: `Execute a bash command. Returns merged stdout/stderr. Output truncated to 50KB / 2000 lines (tail kept). Process tree killed on abort/timeout. Timeout is in seconds — defaults to ${DEFAULT_BASH_TIMEOUT_SEC}s, max ${MAX_BASH_TIMEOUT_SEC}s; pass a larger value for long-running work like builds or installs.`,
         inputSchema: z.object({
             command: z.string().describe("Bash command to execute"),
-            timeout: z.number().positive().optional().describe("Timeout in seconds (optional, no default timeout)"),
+            timeout: z
+                .number()
+                .positive()
+                .optional()
+                .describe(
+                    `Timeout in seconds. Defaults to ${DEFAULT_BASH_TIMEOUT_SEC}, capped at ${MAX_BASH_TIMEOUT_SEC}.`,
+                ),
         }),
         execute: async ({ command, timeout }, options) => {
+            // Always bound the run: an omitted timeout falls back to the default,
+            // and any value (default or model-supplied) is clamped to the max, so
+            // a command can never run unbounded.
+            const effectiveTimeout = resolveBashTimeout(timeout);
             // Denylist guardrail: refuse blocked commands before anything runs.
             // Read live so settings edits apply without a restart; an unset
             // bashDeny falls back to the seeded defaults. Checked against the
@@ -232,7 +260,7 @@ export function createBashTool(ctx: BashToolContext) {
                 const { exitCode } = await execBash(finalCommand, ctx.cwd, {
                     onData: (d) => output.append(d),
                     signal,
-                    timeout,
+                    timeout: effectiveTimeout,
                     shellPath: ctx.shellPath,
                     argv: sandboxRun.argv,
                 });

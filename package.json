@@ -10,6 +10,7 @@
         "build": "bun run gen:catalog && bun run gen:docs && bun run --filter @notshekhar/loop-sandbox build && bun run --filter @notshekhar/loop-core build && bun run --filter @notshekhar/loop-tui build && bun run --filter @notshekhar/loop build",
         "gen:catalog": "bun packages/core/src/catalog/scripts/generate.ts",
         "gen:docs": "bun packages/core/src/docs/scripts/generate.ts",
+        "bump": "bun scripts/bump-version.ts",
         "link": "bun run --filter @notshekhar/loop build && cd packages/cli && bun link",
         "format": "prettier --write .",
         "format:check": "prettier --check .",

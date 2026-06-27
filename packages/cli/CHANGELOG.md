@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.5] - 2026-06-27
+
+### Added
+
+- **Tool calls show a pending box the moment they start, then resolve to done.** Previously a tool with a large input — most visibly `write` (the full file content) and `edit` (the old/new strings) — only appeared once its entire input had finished streaming, so it popped in late instead of reading as in-progress. Every tool now renders a pending (grey) box as soon as the call begins (on the AI SDK's `tool-input-start`), fills in its arguments when they arrive, and turns green on completion — consistent across all tools.
+
+### Fixed
+
+- **`bash` commands can no longer run unbounded.** The timeout was optional with no default, so a command run without one — a hung process, a server left in the foreground — could run forever (in one case 30+ minutes). Bash now defaults to a **120-second** timeout, capped at **600 seconds**; the model can still request a longer timeout up to the cap for builds or installs. On timeout (or interrupt) the entire process tree is SIGKILLed, so nothing is left running in the background.
+
 ## [0.7.4] - 2026-06-27
 
 ### Changed

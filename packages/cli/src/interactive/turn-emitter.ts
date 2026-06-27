@@ -40,6 +40,15 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
         history.appendAssistantThinking(t, turnProvider, state.modelId);
         tui.requestRender();
     });
+    // The call has begun streaming its input: show the pending box immediately so
+    // a large-input tool (e.g. write's file content) doesn't pop in only once
+    // complete. The full `tool-call` below fills in the args on the same box.
+    emitter.on("tool-input-start", (part: { toolName?: string; toolCallId?: string }) => {
+        if (!part.toolCallId) return;
+        history.addToolCall(part.toolName ?? "tool", part.toolCallId, {});
+        showWorking(`Running ${part.toolName}…`);
+        tui.requestRender();
+    });
     emitter.on("tool-call", (part: { toolName?: string; input?: unknown; toolCallId?: string }) => {
         const id = part.toolCallId ?? `${part.toolName}-${Date.now()}`;
         history.addToolCall(part.toolName ?? "tool", id, (part.input ?? {}) as Record<string, unknown>);

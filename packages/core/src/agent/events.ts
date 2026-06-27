@@ -11,6 +11,11 @@ export interface TurnEvents {
     "reasoning-start": void;
     "reasoning-delta": string;
     "reasoning-end": void;
+    /** A tool call has begun streaming its input — fires before `tool-call`
+     * (which only arrives once the whole input is parsed). Lets the UI show the
+     * tool box as pending immediately, so a tool with a large input (e.g. write's
+     * file content) doesn't appear to pop in late. */
+    "tool-input-start": { toolName?: string; toolCallId?: string };
     "tool-call": { toolName?: string; input?: unknown; toolCallId?: string };
     "tool-result": { toolCallId?: string; output?: unknown };
     /** A tool's execute threw (or timed out). The error rides back to the model

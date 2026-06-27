@@ -69,13 +69,25 @@ mkdirSync(stageDir, { recursive: true });
 
 console.log(`▶ building ${binPath} (v${pkg.version}) [target ${compileTarget}]`);
 
-await $`bun build ${join(import.meta.dir, "src/cli.ts")} \
-  --compile \
-  --target=${compileTarget} \
-  --minify \
-  --define __LOOP_VERSION__=${JSON.stringify(pkg.version)} \
-  --define __LOOP_CHANGELOG__=${JSON.stringify(changelog)} \
-  --outfile ${binPath}`;
+// Use the Bun.build API rather than shelling out to `bun build --compile`: the
+// embedded CHANGELOG is passed as an in-process `define`, not a command-line
+// argument. As a CLI arg it grows the command line past Windows' ~32 KB
+// CreateProcess limit once the changelog gets large, which surfaced as a
+// "File name too long" Windows build failure. In-process defines have no such
+// limit, so this builds identically on every platform.
+const result = await Bun.build({
+    entrypoints: [join(import.meta.dir, "src/cli.ts")],
+    compile: { target: compileTarget as Bun.Build.CompileTarget, outfile: binPath },
+    minify: true,
+    define: {
+        __LOOP_VERSION__: JSON.stringify(pkg.version),
+        __LOOP_CHANGELOG__: JSON.stringify(changelog),
+    },
+});
+if (!result.success) {
+    for (const log of result.logs) console.error(log);
+    process.exit(1);
+}
 
 // Ship package.json alongside the binary — version metadata for installers.
 copyFileSync(join(import.meta.dir, "package.json"), pkgJsonPath);

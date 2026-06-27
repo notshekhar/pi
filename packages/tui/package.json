@@ -1,6 +1,6 @@
 {
     "name": "@notshekhar/loop-tui",
-    "version": "0.7.3",
+    "version": "0.7.4",
     "description": "TUI renderer for loop — differential rendering, editor, markdown, select lists. Port of @earendil-works/pi-tui (MIT, Mario Zechner / earendil-works).",
     "license": "MIT",
     "type": "module",

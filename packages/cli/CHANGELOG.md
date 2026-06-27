@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.4] - 2026-06-27
+
+### Changed
+
+- **The thinking level now sits right after the model in every status-line layout.** It was previously scattered — after the context bar in `compact`, mid-dashboard in `vitals`, at the very end in `tokens`/`minimal` — and the `bar` layout omitted it entirely. Every layout (`compact`, `vitals`, `tokens`, `flex`, `powerline`, `minimal`, `bar`) now places it immediately next to the model. It stays gated on whether the model actually reasons and a non-off level being selected, so non-reasoning models (e.g. `composer-2.5`) still show nothing.
+
+### Fixed
+
+- **Errors now surface the real failure code instead of collapsing to a vague message.** loop reads the underlying syscall code — `EPERM`, `ECONNREFUSED`, `ENOENT`, `ETIMEDOUT` — and shows it like `fetch failed (ECONNREFUSED)`, walking the `.cause` chain that Bun/Node bury the real error inside (a flat read missed it). Machine-level failures (blocked permissions, refused network) are now diagnosable instead of reading as "unknown error". Provider/HTTP-status error formatting is unchanged.
+
 ## [0.7.3] - 2026-06-26
 
 ### Fixed

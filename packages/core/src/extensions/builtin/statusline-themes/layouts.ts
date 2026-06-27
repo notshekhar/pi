@@ -230,7 +230,7 @@ export const LAYOUTS: Layout[] = [
             const toks = ctx.context.max
                 ? dim(`${fmtTokens(ctx.context.used)}/${fmtTokens(ctx.context.max)} tokens`)
                 : dim(`${fmtTokens(ctx.context.used)} tokens`);
-            return [fit([agentChip(ctx), model(ctx), pct, thinking(ctx), bar, toks], ctx.width)];
+            return [fit([agentChip(ctx), model(ctx), thinking(ctx), pct, bar, toks], ctx.width)];
         },
     },
     {
@@ -260,9 +260,9 @@ export const LAYOUTS: Layout[] = [
                 [
                     agentChip(ctx),
                     model(ctx),
+                    think ? fg(COLORS.magenta, think) : null,
                     pct,
                     tok,
-                    think ? fg(COLORS.magenta, think) : null,
                     cached,
                     hit,
                     cost,
@@ -291,11 +291,11 @@ export const LAYOUTS: Layout[] = [
                 [
                     agentChip(ctx),
                     model(ctx),
+                    thinking(ctx),
                     breakdown,
                     dim(`total ${fmtTokens(t.total)}`),
                     fg(COLORS.orange, `hit ${(t.hit * 100).toFixed(0)}%`),
                     fg(COLORS.yellow, `$${ctx.cost.usd.toFixed(4)}`),
-                    thinking(ctx),
                 ],
                 ctx.width,
             );
@@ -306,7 +306,7 @@ export const LAYOUTS: Layout[] = [
         label: "flex",
         description:
             "three-row powerline dashboard: agent/model/ctx/thinking, token breakdown, cache/cost (needs a Nerd Font)",
-        sample: " Agent: plan  Model: Opus 4.8  Ctx: 30.5%  Thinking: high  /  In  Out  Cached  Total  /  Cache  Cost ",
+        sample: " Agent: plan  Model: Opus 4.8  Thinking: high  Ctx: 30.5%  /  In  Out  Cached  Total  /  Cache  Cost ",
         needsVitals: false,
         render: (ctx) => {
             const r = ctxRatio(ctx);
@@ -317,9 +317,9 @@ export const LAYOUTS: Layout[] = [
                     [
                         { text: `Agent: ${ctx.agent || "default"}`, bg: COLORS.faint },
                         { text: `Model: ${prettyModel(ctx)}`, bg: COLORS.red },
-                        { text: `Ctx: ${pct1(r)}`, bg: heat(r) },
-                        // Only when the model reasons — otherwise no thinking block at all.
+                        // Right after the model, and only when the model reasons.
                         ...(think ? [{ text: `Thinking: ${think}`, bg: COLORS.green }] : []),
+                        { text: `Ctx: ${pct1(r)}`, bg: heat(r) },
                     ],
                     ctx.width,
                 ),
@@ -371,18 +371,18 @@ export const LAYOUTS: Layout[] = [
         id: "minimal",
         label: "minimal",
         description: "just the agent, model, context percent, and thinking — stay out of the way",
-        sample: "@plan · Opus 4.8 · 30.5% · high",
+        sample: "@plan · Opus 4.8 · high · 30.5%",
         needsVitals: false,
         render: (ctx) => {
             const r = ctxRatio(ctx);
-            return [fit([agentChip(ctx), model(ctx), fg(heat(r), pct1(r)), thinking(ctx)], ctx.width, dim(" · "))];
+            return [fit([agentChip(ctx), model(ctx), thinking(ctx), fg(heat(r), pct1(r))], ctx.width, dim(" · "))];
         },
     },
     {
         id: "bar",
         label: "bar",
-        description: "a wide context bar with agent, tokens and cost alongside the model",
-        sample: "@plan Opus 4.8  [████████████░░░░░░░░░░] 30.5%  61k/200k · $0.0042",
+        description: "a wide context bar with agent, thinking, tokens and cost alongside the model",
+        sample: "@plan Opus 4.8 high  [████████████░░░░░░░░░░] 30.5%  61k/200k · $0.0042",
         needsVitals: false,
         render: (ctx) => {
             const r = ctxRatio(ctx);
@@ -394,7 +394,9 @@ export const LAYOUTS: Layout[] = [
                 ? `${fmtTokens(ctx.context.used)}/${fmtTokens(ctx.context.max)}`
                 : fmtTokens(ctx.context.used);
             const tail = join([dim(toks), fg(COLORS.green, `$${ctx.cost.usd.toFixed(4)}`)], dim(" · "));
-            return [`${agentChip(ctx)} ${model(ctx)}  ${bar} ${pct}  ${tail}`];
+            // Thinking sits next to the model (only when the model reasons & it's on).
+            const head = join([agentChip(ctx), model(ctx), thinking(ctx)], " ");
+            return [`${head}  ${bar} ${pct}  ${tail}`];
         },
     },
 ];

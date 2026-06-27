@@ -163,6 +163,11 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
             showWorking("Reloading");
             tui.requestRender();
             try {
+                // Drop the cached settings.json so every getSetting below (theme,
+                // hooks, mcp gating, mcpServers) reads the on-disk values. Without
+                // this the "hard reload" silently served stale cached config.
+                settingsStore.refresh();
+
                 // Theme (settings may have changed on disk).
                 initTheme((settingsStore.get("theme") as string | undefined) ?? "dark");
 
@@ -188,6 +193,14 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 bustCatalogCache();
                 const cat = await getCatalog({ refresh: true });
                 const available = Object.values(cat).filter((m) => m.available).length;
+
+                // MCP: tear down and reconnect so added/removed/edited servers in
+                // settings.json take effect. close() resets the manager's
+                // `initialized` flag (init() is otherwise a no-op once connected);
+                // startMcpServers re-gates on the now-fresh mcp toggle + trust and
+                // reconnects in the background.
+                await getMcpManager().close();
+                startMcpServers(state, deps);
 
                 tui.invalidate();
                 history.addSystem(

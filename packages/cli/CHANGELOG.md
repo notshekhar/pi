@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.7] - 2026-06-27
+
+### Fixed
+
+- **`/reload` now actually picks up MCP server and settings changes from disk.** The "hard reload" claimed to re-read every config surface but silently served stale data: it never refreshed the cached `settings.json` (the in-memory `CachedStore` is only invalidated via `refresh()`, which nothing called), and it never touched MCP at all. So servers added, removed, or edited in `settings.json` stayed invisible after `/reload`, and theme / `mcp` toggle / user-level hook edits made directly on disk were ignored — every `getSetting()` kept returning the value cached at startup. `/reload` now drops the settings cache first (so theme, hooks, MCP gating, and the server list all re-read from disk) and tears down + reconnects MCP (`close()` resets the manager so `init()` runs again instead of no-op'ing on its already-initialized flag). MCP reconnects in the background, same as the `/settings` mcp toggle.
+
 ## [0.7.6] - 2026-06-27
 
 ### Fixed

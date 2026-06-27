@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.6] - 2026-06-27
+
+### Fixed
+
+- **No more stray escape sequences in the shell after an interrupted exit.** The terminal-restore on teardown (kitty keyboard protocol + modifyOtherKeys) only ran on loop's normal exit path, so an _uncaught_ `SIGINT` — exit code 130, e.g. a Ctrl+C that lands during startup, while a child process owns the terminal, or forwarded by a parent like `bun run dev` — killed the process before the reset ran, leaving the protocols enabled and the shell echoing raw escapes like `^[[27;5;13~` on the next keypress. The TUI now installs a synchronous exit/signal safety net (`exit`/`SIGINT`/`SIGTERM`/`SIGHUP`) that restores the terminal via `fs.writeSync` even when the normal teardown never runs, then exits with the conventional `128+signo` status. (The earlier v0.7.1 fix made the reset unconditional but couldn't help when teardown wasn't reached at all.)
+
 ## [0.7.5] - 2026-06-27
 
 ### Added

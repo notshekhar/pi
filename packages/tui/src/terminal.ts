@@ -16,6 +16,9 @@ const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7;
 const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
 const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u\x1b[c`;
 
+// Signal numbers for the conventional 128+signo exit status used on teardown.
+const SIGNAL_NUMBERS: Partial<Record<NodeJS.Signals, number>> = { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 };
+
 export type KeyboardProtocolNegotiationSequence =
     | { type: "kitty-flags"; flags: number }
     | { type: "device-attributes" };
@@ -108,6 +111,17 @@ export class ProcessTerminal implements Terminal {
     private stdinBuffer?: StdinBuffer;
     private stdinDataHandler?: (data: string) => void;
     private progressInterval?: ReturnType<typeof setInterval>;
+    private exitSafetyNetInstalled = false;
+    // Last-resort terminal restore. Bound once so add/removeListener pair up.
+    private readonly onProcessExit = (): void => this.resetKeyboardModesSync();
+    private readonly onFatalSignal = (signal: NodeJS.Signals): void => {
+        this.resetKeyboardModesSync();
+        // Exit with the conventional 128+signo status. We don't re-raise the
+        // signal: if another listener (e.g. the LSP SIGINT cleanup) is attached,
+        // its presence stops the default terminate disposition from applying, so
+        // re-raising could hang instead of exiting. process.exit is deterministic.
+        process.exit(128 + (SIGNAL_NUMBERS[signal] ?? 0));
+    };
     private writeLogPath = (() => {
         const env = process.env.LOOP_TUI_WRITE_LOG || "";
         if (!env) return "";
@@ -160,6 +174,11 @@ export class ProcessTerminal implements Terminal {
         // events that lose modifier information. Must run AFTER setRawMode(true)
         // since that resets console mode flags.
         this.enableWindowsVTInput();
+
+        // Last-resort restore: a real SIGINT (exit 130) or other signal would
+        // otherwise kill us before stop() runs, stranding the keyboard protocols
+        // enabled and leaving the shell echoing raw escapes on the next keypress.
+        this.installExitSafetyNet();
 
         // Query Kitty keyboard protocol and fall back to modifyOtherKeys when DA confirms no Kitty response.
         // See: https://sw.kovidgoyal.net/kitty/keyboard-protocol/
@@ -403,7 +422,51 @@ export class ProcessTerminal implements Terminal {
         }
     }
 
+    /**
+     * Synchronously reset the terminal modes that, if left enabled, make the
+     * shell echo raw escapes (`\x1b[27;5;13~`) on the next keypress. Uses
+     * `fs.writeSync` so the bytes flush even from an `exit`/signal handler, where
+     * async stdout writes can be dropped. Idempotent — the sequences are no-ops
+     * when the modes are already off — so it's safe to call on any exit path.
+     */
+    private resetKeyboardModesSync(): void {
+        if (!process.stdout.isTTY) return;
+        try {
+            // pop kitty keyboard protocol · disable modifyOtherKeys · disable
+            // bracketed paste · show cursor.
+            fs.writeSync(1, "\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?25h");
+        } catch {
+            // stdout closed/redirected — nothing more we can do.
+        }
+    }
+
+    /**
+     * Guarantee the terminal is restored even when the normal `stop()` path never
+     * runs — most importantly an uncaught SIGINT (exit code 130), which would
+     * otherwise terminate the process with the keyboard protocols still enabled.
+     * In raw mode Ctrl+C arrives as a byte (ISIG off), so these signal handlers do
+     * NOT fire on normal in-app Ctrl+C — only on a real signal that would kill us.
+     */
+    private installExitSafetyNet(): void {
+        if (this.exitSafetyNetInstalled) return;
+        this.exitSafetyNetInstalled = true;
+        process.on("exit", this.onProcessExit);
+        process.on("SIGINT", this.onFatalSignal);
+        process.on("SIGTERM", this.onFatalSignal);
+        process.on("SIGHUP", this.onFatalSignal);
+    }
+
+    private removeExitSafetyNet(): void {
+        if (!this.exitSafetyNetInstalled) return;
+        this.exitSafetyNetInstalled = false;
+        process.removeListener("exit", this.onProcessExit);
+        process.removeListener("SIGINT", this.onFatalSignal);
+        process.removeListener("SIGTERM", this.onFatalSignal);
+        process.removeListener("SIGHUP", this.onFatalSignal);
+    }
+
     stop(): void {
+        this.removeExitSafetyNet();
         if (this.clearProgressInterval()) {
             process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
         }

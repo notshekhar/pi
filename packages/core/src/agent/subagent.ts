@@ -84,8 +84,12 @@ export function createTaskTool(ctx: SubagentCtx) {
             "Launch a subagent to handle a self-contained task and return its final report. " +
             "Use for context-heavy or parallelizable work (broad searches, analysis, multi-file changes) " +
             "to keep the main context small. By default the subagent is a fork of you — same prompt and " +
-            "tools (minus task), fresh context window. It runs autonomously and cannot ask questions — " +
-            "include everything it needs in the prompt, and say what output you expect. " +
+            "tools (minus task), fresh context window. " +
+            "The subagent starts blank: it sees none of this conversation, only the prompt you write. " +
+            "So scope it tightly — one concrete objective with a clear finish line, never a vague theme — and " +
+            "front-load the context you already have (exact paths, file/symbol names, findings so far, constraints, " +
+            "conventions to follow) so it never re-discovers what you already know. State exactly what to return. " +
+            "It runs autonomously and cannot ask questions. " +
             "Call task on its own: do not combine it with other tool calls in the same step — the subagent " +
             "covers the exploration itself.",
         inputSchema: z.object({
@@ -95,7 +99,13 @@ export function createTaskTool(ctx: SubagentCtx) {
                 .describe(
                     `Optional named agent to run instead of a fork of yourself (its prompt applies; its tools are capped to yours). One of: ${agentNames}`,
                 ),
-            prompt: z.string().describe("Complete task description for the subagent, including the expected output"),
+            prompt: z
+                .string()
+                .describe(
+                    "Self-contained task for the subagent: one precise objective, the context you already have " +
+                        "(exact paths, names, findings, constraints), and the exact output you expect back. The " +
+                        "subagent sees only this prompt — assume no shared context.",
+                ),
         }),
         execute: (input, options) =>
             runSubagent(ctx, input.agent, input.prompt, (options as { toolCallId?: string })?.toolCallId ?? "task"),

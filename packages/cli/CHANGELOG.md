@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.9] - 2026-06-28
+
+### Added
+
+- **`/steak` — a GitHub-contributions-style heatmap of your token usage.** A calendar wall of one square per day, shaded by total tokens (input + output) consumed, with relative quartile intensity so it reads the same whether you burn 10k or 10M a day. It's reconstructed from your session transcripts on disk, so the graph is full of history on first run rather than starting blank. `/steak` shows the trailing 52 weeks; `/steak <year>` (e.g. `/steak 2026`) shows a specific calendar year as a complete frame, with not-yet-happened days drawn as empty cells to fill in. The same heatmap now also leads the `/cost` output (trailing year), above the dollar breakdown.
+
 ## [0.7.7] - 2026-06-27
 
 ### Fixed

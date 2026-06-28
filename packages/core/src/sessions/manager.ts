@@ -2,7 +2,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync, existsSync, writeFileSy
 import { join } from "node:path";
 import { ulid } from "ulid";
 import { getLoopDir } from "../auth/storage";
-import type { Entry, ProviderId, SessionInfoData } from "../types";
+import type { Entry, ProviderId, SessionInfoData, UsageBlock } from "../types";
 import { Session, generateEntryId } from "./session";
 import { stripSessionHookContext } from "./hook-context";
 
@@ -51,6 +51,58 @@ export class SessionManager {
             }
         }
         return out.sort((a, b) => b.mtime - a.mtime);
+    }
+
+    /**
+     * Sum input+output tokens per local calendar day across every stored
+     * session transcript. Powers /steak's usage heatmap — read-only and full
+     * history, independent of the cost store (which is USD-only and accrues
+     * from "now" forward). Keyed YYYY-MM-DD in local time, matching cost.ts.
+     */
+    dailyTokens(): Map<string, number> {
+        const out = new Map<string, number>();
+        const root = sessionsDir();
+        if (!existsSync(root)) return out;
+        for (const slug of readdirSync(root)) {
+            const dir = join(root, slug);
+            let dirStat;
+            try {
+                dirStat = statSync(dir);
+            } catch {
+                continue;
+            }
+            if (!dirStat.isDirectory()) continue;
+            for (const file of readdirSync(dir)) {
+                if (!file.endsWith(".jsonl")) continue;
+                this.accumulateDailyTokens(join(dir, file), out);
+            }
+        }
+        return out;
+    }
+
+    private accumulateDailyTokens(path: string, out: Map<string, number>): void {
+        let raw: string;
+        try {
+            raw = readFileSync(path, "utf8");
+        } catch {
+            return;
+        }
+        for (const line of raw.split("\n")) {
+            if (!line) continue;
+            let e: { type?: string; role?: string; ts?: number; usage?: UsageBlock };
+            try {
+                e = JSON.parse(line);
+            } catch {
+                continue;
+            }
+            if (typeof e.ts !== "number" || !e.usage) continue;
+            const isAssistant = e.type === "message" && e.role === "assistant";
+            if (!isAssistant && e.type !== "subagent") continue;
+            const toks = (e.usage.inputTokens ?? 0) + (e.usage.outputTokens ?? 0);
+            if (toks <= 0) continue;
+            const key = new Date(e.ts).toLocaleDateString("sv");
+            out.set(key, (out.get(key) ?? 0) + toks);
+        }
     }
 
     private peek(path: string, slug: string): SessionInfo | null {

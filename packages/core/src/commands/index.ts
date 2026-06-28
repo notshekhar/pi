@@ -12,6 +12,8 @@ export interface CommandContext {
     manualCompact(): Promise<void>;
     setThinking(level?: string): Promise<void> | void;
     showCost(): void;
+    /** /steak — GitHub-style token-usage heatmap; arg is an optional year. */
+    showSteak(args: string): void;
     showSessions(): Promise<void>;
     exit(): void;
     cwd: string;
@@ -213,6 +215,11 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             name: "cost",
             description: "Show cost breakdown (session, directory, today, 7d, month, lifetime)",
             handler: (ctx) => ctx.showCost(),
+        },
+        {
+            name: "steak",
+            description: "Token-usage heatmap, GitHub-contributions style: /steak · /steak <year>",
+            handler: (ctx, args) => ctx.showSteak(args ?? ""),
         },
         {
             name: "attach",

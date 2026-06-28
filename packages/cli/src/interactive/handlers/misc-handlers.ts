@@ -6,7 +6,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import chalk from "chalk";
-import { getCatalog, type CommandContext } from "@notshekhar/loop-core";
+import { buildSteakGrid, getCatalog, type CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { readClipboardImageToFile } from "../clipboard-image";
@@ -18,6 +18,7 @@ type MiscHandlers = Pick<
     CommandContext,
     | "emit"
     | "showCost"
+    | "showSteak"
     | "showChangelog"
     | "showHotkeys"
     | "copyLastAssistant"
@@ -31,8 +32,49 @@ type MiscHandlers = Pick<
 >;
 
 export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers {
-    const { tui, history, tracker, editor, selectOnce, searchOnce, promptOnce, cleanExit } = deps;
+    const { tui, history, tracker, manager, editor, selectOnce, searchOnce, promptOnce, cleanExit } = deps;
     const loginDeps = { tui, history, selectOnce, searchOnce, promptOnce };
+
+    const fmtTok = (n: number) =>
+        n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
+
+    /** Render the GitHub-style token heatmap; shared by /steak and /cost. */
+    const printSteak = (args: string) => {
+        const trimmed = (args ?? "").trim();
+        const opts = /^\d{4}$/.test(trimmed) ? { year: Number(trimmed) } : {};
+        const grid = buildSteakGrid(manager.dailyTokens(), opts);
+
+        // GitHub dark palette: [no-usage, q1..q4]. Intensity is relative, so the
+        // wall reads the same whether you burn 10k or 10M a day.
+        const ramp = ["#2d333b", "#0e4429", "#006d32", "#26a641", "#39d353"];
+        const square = (lvl: number) => (lvl < 0 ? " " : chalk.hex(ramp[lvl])("■"));
+        const GUTTER = 4; // "Mon " etc.
+
+        const period = "year" in opts ? String(opts.year) : "the last year";
+        history.addSystem(chalk.bold(`🥩 ${fmtTok(grid.totalTokens)} tokens in ${period}`));
+        history.addSystem("");
+
+        // Month label row: drop each abbrev at its column, 1 char per week.
+        const monthRow: string[] = new Array(GUTTER + grid.weeks).fill(" ");
+        for (let c = 0; c < grid.weeks; c++) {
+            const lbl = grid.monthLabels[c];
+            for (let i = 0; i < lbl.length && GUTTER + c + i < monthRow.length; i++) {
+                monthRow[GUTTER + c + i] = lbl[i];
+            }
+        }
+        history.addSystem(chalk.dim(monthRow.join("")));
+
+        const dayLabels = ["", "Mon", "", "Wed", "", "Fri", ""];
+        for (let r = 0; r < 7; r++) {
+            let line = chalk.dim(dayLabels[r].padEnd(GUTTER));
+            for (let c = 0; c < grid.weeks; c++) line += square(grid.cells[r][c]);
+            history.addSystem(line);
+        }
+
+        const legend = [0, 1, 2, 3, 4].map((l) => chalk.hex(ramp[l])("■")).join("");
+        history.addSystem("");
+        history.addSystem(`${" ".repeat(GUTTER)}${chalk.dim("Less ")}${legend}${chalk.dim(" More")}`);
+    };
 
     return {
         emit(event, data) {
@@ -45,15 +87,13 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             tui.requestRender();
         },
         showCost() {
+            // Lead with the usage heatmap (trailing year), then the $ breakdown.
+            printSteak("");
+            history.addSystem("");
+
             const s = tracker.sessionBreakdown();
             const st = tracker.stats(state.cwd);
             const fmtUsd = (v: number) => `$${v.toFixed(4)}`;
-            const fmtTok = (n: number) =>
-                n >= 1_000_000
-                    ? `${(n / 1_000_000).toFixed(1)}M`
-                    : n >= 1_000
-                      ? `${(n / 1_000).toFixed(1)}k`
-                      : String(n);
             const row = (label: string, usd: number, extra = "") =>
                 history.addSystem(
                     `  ${chalk.dim(label.padEnd(14))}${chalk.cyan(fmtUsd(usd).padStart(10))}${extra ? `   ${chalk.dim(extra)}` : ""}`,
@@ -80,6 +120,10 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                     chalk.dim("  (time/directory tracking starts now — lifetime includes earlier spend)"),
                 );
             }
+            tui.requestRender();
+        },
+        showSteak(args) {
+            printSteak(args);
             tui.requestRender();
         },
         showChangelog() {

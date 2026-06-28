@@ -34,6 +34,7 @@ import type { Session } from "../sessions";
 import type { UsageBlock } from "../types";
 
 export { CostTracker } from "./cost";
+export { buildSteakGrid, type SteakGrid, type SteakOptions } from "./steak";
 export { runCompact, CompactAbortedError } from "./compact";
 export { runRecap, isRecapPayload, RECAP_KIND, type RecapPayload } from "./recap";
 export {

@@ -166,6 +166,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             },
         },
         {
+            name: "effort",
+            description: "Alias for /thinking — set reasoning effort (off|minimal|low|medium|high|xhigh)",
+            handler: async (ctx, args) => {
+                await ctx.setThinking(args || undefined);
+            },
+        },
+        {
             name: "resume",
             description: "Resume a different session",
             handler: async (ctx) => {

@@ -1,6 +1,6 @@
 {
     "name": "@notshekhar/loop-core",
-    "version": "0.7.9",
+    "version": "0.7.10",
     "description": "Core engine for loop — auth, providers, catalog, sessions, agent loop, tools, RPC.",
     "license": "MIT",
     "type": "module",
@@ -27,7 +27,7 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
-        "@ai-sdk/anthropic": "^4.0.0",
+        "@ai-sdk/anthropic": "^4.0.4",
         "@ai-sdk/cerebras": "^3.0.0",
         "@ai-sdk/deepseek": "^3.0.0",
         "@ai-sdk/google": "^4.0.0",

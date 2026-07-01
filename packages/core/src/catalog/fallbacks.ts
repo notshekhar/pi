@@ -97,8 +97,28 @@ const XAI: ModelInfo[] = [
     m("xai", "grok-3", "Grok 3", 131_072, 8_192, { input: 3, output: 15 }),
 ];
 
-// Anthropic — Claude 4.x
+// Anthropic — Claude 4.x / 5
 const ANTHROPIC: ModelInfo[] = [
+    m(
+        "anthropic",
+        "claude-opus-4-8",
+        "Claude Opus 4.8",
+        1_000_000,
+        128_000,
+        { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+        true,
+        ["text", "image"],
+    ),
+    m(
+        "anthropic",
+        "claude-sonnet-5",
+        "Claude Sonnet 5",
+        1_000_000,
+        128_000,
+        { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+        true,
+        ["text", "image"],
+    ),
     m(
         "anthropic",
         "claude-opus-4-7",

@@ -267,7 +267,17 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // lists drift (new releases, deprecations, gating) and the cached list is
     // good for up to 1h otherwise. Fire-and-forget; mergedCache rebuilds when
     // this lands so the /model picker reflects today's reality.
-    void getCatalog({ refresh: true }).catch(() => {});
+    void getCatalog({ refresh: true })
+        .catch(() => {})
+        .then(() => {
+            // The catalog (including custom-provider models) resolves
+            // asynchronously; the status line booted before it landed, so a
+            // model that isn't resolvable synchronously — a custom-provider id —
+            // came up with reasoning unknown and hid the thinking level. Re-apply
+            // now that getModelSync can see it, then repaint.
+            statusLine.setModel(state.modelId);
+            tui.requestRender();
+        });
 
     const { showWorking, hideWorking } = createWorkingIndicator(tui, statusContainer, statusIdleSpacer);
 

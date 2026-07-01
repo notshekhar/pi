@@ -65,7 +65,14 @@ export class StatusLine implements Component {
 
     setModel(id: string) {
         this.modelId = id;
-        this.modelReasoning = Boolean(getModelSync(id)?.reasoning);
+        // Custom-provider models (e.g. custom:gw/claude-sonnet-5) aren't
+        // resolvable synchronously until the async catalog lands, so getModelSync
+        // returns undefined at boot. Leave modelReasoning at its prior value in
+        // that case rather than forcing it false — otherwise the thinking level
+        // is hidden on first load until the user re-picks the model. app.ts
+        // re-applies setModel once the catalog is warm to get the real value.
+        const info = getModelSync(id);
+        if (info) this.modelReasoning = Boolean(info.reasoning);
     }
     setAgent(name: string) {
         this.agent = name;

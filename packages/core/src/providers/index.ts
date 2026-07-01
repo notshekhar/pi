@@ -1,4 +1,7 @@
 import type { LanguageModel } from "ai";
+import { appendFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
     getAccessToken,
     getApiKey,
@@ -202,11 +205,38 @@ function xaiAuthFetch(): typeof fetch {
     });
 }
 
+// Set LOOP_HTTP_DEBUG=1 to append every outbound custom-provider request
+// (url + the thinking/output_config it actually sends) to ~/.loop/http-debug.log.
+// Writes to a file, not stderr, so it never tears the TUI. Use it to see what
+// loop puts on the wire vs. what a proxy (e.g. bifrost) forwards to Anthropic.
+function logHttpDebug(input: string | URL | Request, init?: RequestInit): void {
+    try {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url;
+        const raw = typeof init?.body === "string" ? init.body : "";
+        let detail: string;
+        try {
+            const j = JSON.parse(raw) as Record<string, unknown>;
+            detail = `model=${JSON.stringify(j.model)} thinking=${JSON.stringify(j.thinking)} output_config=${JSON.stringify(j.output_config)}`;
+        } catch {
+            detail = raw.slice(0, 800);
+        }
+        appendFileSync(
+            join(homedir(), ".loop", "http-debug.log"),
+            `${new Date().toISOString()} → ${url}\n  ${detail}\n`,
+        );
+    } catch {
+        // debug logging must never break a request
+    }
+}
+
 function customFetch(extraHeaders?: Record<string, string>): typeof fetch | undefined {
-    if (!extraHeaders || Object.keys(extraHeaders).length === 0) return undefined;
+    const debug = !!process.env.LOOP_HTTP_DEBUG;
+    const hasHeaders = !!extraHeaders && Object.keys(extraHeaders).length > 0;
+    if (!debug && !hasHeaders) return undefined;
     return withPreconnect(async (input, init) => {
         const headers = new Headers(init?.headers);
-        for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
+        if (hasHeaders) for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
+        if (debug) logHttpDebug(input, init);
         return fetch(input, { ...(init as RequestInit), headers });
     });
 }

@@ -108,11 +108,27 @@ const ANTHROPIC_ADAPTIVE_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "
 };
 
 /**
- * providerOptions for an Anthropic adaptive-thinking model — the shape Vercel's
- * Sonnet 5 example uses. Setting `thinking`/`effort` ourselves makes the SDK skip
- * its own (table-driven) reasoning→thinking mapping. `off` maps to disabled
- * thinking, except on Fable/Mythos 5 where thinking is always on and an explicit
- * `disabled` is rejected — there we send nothing and let the model default.
+ * Anthropic models where OMITTING the `thinking` field runs adaptive thinking by
+ * default (rather than no thinking). For these, sending only `output_config.effort`
+ * — with no `thinking` field at all — is equivalent to adaptive thinking on the
+ * real Anthropic API. We prefer that shape because it also survives proxies that
+ * can't serialize the `thinking` field: e.g. bifrost returns "failed to convert
+ * bifrost request" for BOTH thinking:{type:"adaptive"} and {type:"enabled"}, but
+ * passes output_config.effort through untouched and Anthropic then runs adaptive.
+ * (This is what Claude Code sends, and why it works through the same proxy.)
+ *
+ * Opus 4.6/4.7/4.8 and Sonnet 4.6 are adaptive-capable but omitting `thinking`
+ * there yields NO thinking — they need an explicit thinking:{type:"adaptive"} —
+ * so they are deliberately NOT in this set and keep the explicit shape.
+ */
+const ANTHROPIC_ADAPTIVE_WHEN_OMITTED = /claude-(sonnet-5|fable-5|mythos-(5|preview))/;
+
+/**
+ * providerOptions for an Anthropic adaptive-thinking model. Setting `thinking`/
+ * `effort` ourselves makes the SDK skip its own (table-driven) reasoning→thinking
+ * mapping. `off` maps to disabled thinking, except on Fable/Mythos 5 where
+ * thinking is always on and an explicit `disabled` is rejected — there we send
+ * nothing and let the model default.
  */
 function anthropicThinkingOptions(
     modelShortId: string,
@@ -126,6 +142,11 @@ function anthropicThinkingOptions(
     // Opus 4.6 / Sonnet 4.6 — there it falls back to "max".
     const supportsXhigh = /claude-(opus-4-[7-9]|sonnet-5|fable-5|mythos-(5|preview))/.test(modelShortId);
     const effort = level === "xhigh" && !supportsXhigh ? "max" : ANTHROPIC_ADAPTIVE_EFFORT[level];
+    // Send effort ONLY (no `thinking` field) where omitting it defaults to
+    // adaptive — equivalent on Anthropic, and proxy-safe (see the note above).
+    if (ANTHROPIC_ADAPTIVE_WHEN_OMITTED.test(modelShortId)) {
+        return { anthropic: { effort } };
+    }
     return { anthropic: { thinking: { type: "adaptive" }, effort } };
 }
 

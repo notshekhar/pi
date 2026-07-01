@@ -1,7 +1,18 @@
-import { mkdirSync, readFileSync, appendFileSync, existsSync, writeFileSync } from "node:fs";
+import {
+    mkdirSync,
+    readFileSync,
+    appendFileSync,
+    existsSync,
+    writeFileSync,
+    openSync,
+    readSync,
+    closeSync,
+    fstatSync,
+} from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import lockfile from "proper-lockfile";
+import { debugLog } from "../debug";
 import type { Entry, SessionInfoData } from "../types";
 import { adaptLoopEntry } from "./loop-adapter";
 
@@ -74,7 +85,9 @@ export class Session {
                 const parsed = JSON.parse(line);
                 const adapted = adaptLoopEntry(parsed);
                 if (adapted) entries.push(adapted);
-            } catch {}
+            } catch {
+                debugLog("session-load", `skipped corrupt line in ${path}`);
+            }
         }
         return new Session(info, path, entries);
     }
@@ -146,24 +159,59 @@ export class Session {
      * keep them so the tree structure survives the copy.
      */
     async append(entry: Entry): Promise<void> {
-        if (!entry.id || this.byId.has(entry.id)) {
-            entry.id = generateEntryId((id) => this.byId.has(id));
-            entry.parentId = this.leafId;
-        } else if (entry.parentId === undefined) {
-            entry.parentId = this.leafId;
+        return this.appendAll([entry]);
+    }
+
+    /**
+     * Append several entries as one leaf-chained batch under a single file
+     * lock and write — a step that persists multiple messages pays the lock
+     * acquire/release once, not per entry.
+     */
+    async appendAll(entries: Entry[]): Promise<void> {
+        if (entries.length === 0) return;
+        const lines: string[] = [];
+        for (const entry of entries) {
+            if (!entry.id || this.byId.has(entry.id)) {
+                entry.id = generateEntryId((id) => this.byId.has(id));
+                entry.parentId = this.leafId;
+            } else if (entry.parentId === undefined) {
+                entry.parentId = this.leafId;
+            }
+            this.buffered.push(entry);
+            this.byId.set(entry.id, entry);
+            this.leafId = entry.id;
+            if (entry.type === "label") this.applyLabel(entry.targetId, entry.label, entry.ts);
+            if (entry.type === "session-name") this.sessionName = entry.name?.trim() || undefined;
+            lines.push(JSON.stringify(entry));
         }
-        this.buffered.push(entry);
-        this.byId.set(entry.id, entry);
-        this.leafId = entry.id;
-        if (entry.type === "label") this.applyLabel(entry.targetId, entry.label, entry.ts);
-        if (entry.type === "session-name") this.sessionName = entry.name?.trim() || undefined;
 
         const dir = join(this.path, "..");
         mkdirSync(dir, { recursive: true });
         if (!existsSync(this.path)) writeFileSync(this.path, "");
         const release = await lockfile.lock(this.path, { retries: { retries: 5, minTimeout: 50, maxTimeout: 200 } });
         try {
-            appendFileSync(this.path, JSON.stringify(entry) + "\n");
+            // A crash mid-append can leave a torn final line with no trailing
+            // newline. Appending directly would glue this batch's first entry
+            // onto that fragment, corrupting a VALID new entry (load already
+            // skips the torn one). Start on a fresh line so the torn tail
+            // stays isolated.
+            let prefix = "";
+            try {
+                const fd = openSync(this.path, "r");
+                try {
+                    const size = fstatSync(fd).size;
+                    if (size > 0) {
+                        const last = Buffer.alloc(1);
+                        readSync(fd, last, 0, 1, size - 1);
+                        if (last[0] !== 0x0a) prefix = "\n";
+                    }
+                } finally {
+                    closeSync(fd);
+                }
+            } catch {
+                debugLog("session-append", `could not inspect tail of ${this.path}`);
+            }
+            appendFileSync(this.path, prefix + lines.join("\n") + "\n");
         } finally {
             await release();
         }

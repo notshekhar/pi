@@ -49,7 +49,7 @@ my-loop-ext/
     "loop": {
         "entry": "./index.ts", // default: module → main → index.ts
         "displayName": "My Vendor",
-        "engines": { "loop": "^0.1" }, // host API range (major-compat checked)
+        "engines": { "loop": "^0.3" }, // host API range (major checked; minor too while 0.x)
         "permissions": ["net", "fs"], // advisory in v1
     },
 }

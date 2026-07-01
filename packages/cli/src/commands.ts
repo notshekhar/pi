@@ -11,6 +11,7 @@ import {
     SessionManager,
     startSocketServer,
     startStdioServer,
+    stopSocketServer,
 } from "@notshekhar/loop-core";
 import type { ProviderId } from "@notshekhar/loop-core";
 import { readStdinLine, type Args } from "./args";
@@ -97,7 +98,7 @@ Usage:
   loop sessions            List sessions in current cwd
   loop models              List available models
   loop whoami              Show active provider + auth status
-  loop rpc [--socket]      Start JSON-RPC server
+  loop rpc [--socket|stop] Start JSON-RPC server (stop: end the socket daemon)
   loop mcp <cmd>           Manage MCP servers (add, list, remove, login…)
   loop upgrade             Pull latest and rebuild
   loop version | -v        Print version
@@ -189,13 +190,18 @@ export async function cmdSessions(): Promise<void> {
 export function cmdRpc(args: Args): void {
     const sub = args.positional[0];
     if (sub === "stop") {
-        // TODO: send SIGTERM via rpc.pid file
-        console.log("not implemented");
+        const r = stopSocketServer();
+        console.log(r.stopped ? `Stopped loop RPC daemon (pid ${r.pid}).` : "No RPC daemon running.");
         return;
     }
     if (args.flags.socket) {
-        const { socketPath } = startSocketServer();
-        console.log(`loop RPC daemon listening on ${socketPath}`);
+        try {
+            const { socketPath } = startSocketServer();
+            console.log(`loop RPC daemon listening on ${socketPath}`);
+        } catch (err) {
+            console.error((err as Error).message);
+            process.exitCode = 1;
+        }
         return;
     }
     startStdioServer();

@@ -27,7 +27,7 @@ export interface ExtensionManifest {
         entry?: string;
         /** Friendly name for the /extensions panel. */
         displayName?: string;
-        /** Required host API range, semver (e.g. "^0.1"). */
+        /** Required host API range, semver (e.g. "^0.3"; while the API is 0.x, minor must match). */
         engines?: { loop?: string };
         /** Declared capabilities, shown to the user (advisory in v1). */
         permissions?: string[];
@@ -365,7 +365,7 @@ export interface LoopAPI {
     settings: {
         get<K extends keyof LoopSettings>(key: K): LoopSettings[K];
         set<K extends keyof LoopSettings>(key: K, value: LoopSettings[K]): void;
-        /** The extension's own namespaced settings (stored under `ext.<name>`). */
+        /** The extension's own namespaced settings (the `extensionSettings.<name>` bag in settings.json). */
         getOwn<T = unknown>(key: string, fallback?: T): T;
         setOwn<T = unknown>(key: string, value: T): void;
     };

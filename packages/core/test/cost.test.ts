@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CostTracker } from "../src/agent/cost";
+import { stepMessagesToEntries } from "../src/agent";
 import { Session } from "../src/sessions";
 import type { Entry, UsageBlock } from "../src/types";
 
@@ -31,13 +32,25 @@ describe("CostTracker.add", () => {
     // The subagent loop bills each step with tracker.add(modelId, usage) on
     // finish-step (including MCP-tool steps); this locks that those calls
     // accumulate into the session total rather than overwriting.
+    // persist:false — tests must never write the user's real ~/.loop/cost.json.
     test("accumulates usage across calls (per-step billing)", () => {
-        const t = new CostTracker();
+        const t = new CostTracker({ persist: false });
         t.add("xai/grok-build-0.1", usage(100, 20));
         t.add("xai/grok-build-0.1", usage(300, 50));
         const s = t.sessionBreakdown();
         expect(s.inputTokens).toBe(400);
         expect(s.outputTokens).toBe(70);
+    });
+
+    test("addEstimated flags the session total and never clears once set", () => {
+        const t = new CostTracker({ persist: false });
+        t.add("xai/grok-build-0.1", usage(100, 20));
+        expect(t.sessionBreakdown().estimated).toBeFalsy();
+        t.addEstimated("xai/grok-build-0.1", { ...usage(50, 5), estimated: true });
+        t.add("xai/grok-build-0.1", usage(10, 1));
+        const s = t.sessionBreakdown();
+        expect(s.estimated).toBe(true);
+        expect(s.inputTokens).toBe(160);
     });
 });
 
@@ -94,5 +107,40 @@ describe("CostTracker.seedFromSession", () => {
         const s = t.sessionBreakdown();
         expect(s.inputTokens).toBe(220);
         expect(s.outputTokens).toBe(22);
+    });
+
+    // The ctx meter tracks the MAIN conversation. A transcript that ends on a
+    // subagent entry (aborted mid-task) must not adopt the subagent's context
+    // size — its context window is separate from the parent's.
+    test("ctx meter ignores a trailing subagent usage", () => {
+        const entries: Entry[] = [
+            { type: "message", role: "user", content: "hi", ts: 0 },
+            { type: "message", role: "assistant", content: "a", ts: 0, usage: usage(40, 8) },
+            { type: "subagent", ts: 0, agent: "plan", prompt: "p", result: "r", usage: usage(9000, 500) },
+        ];
+        const session = new Session(
+            { id: "t", createdAt: 0, cwd: "/tmp", provider: "xai", model: "xai/grok-build-0.1" },
+            "/tmp/fake.jsonl",
+            entries,
+        );
+        const t = new CostTracker();
+        const { ctxTokens } = t.seedFromSession(session);
+        expect(ctxTokens).toBe(48); // last assistant turn, not the 9500-token subagent
+        expect(t.sessionBreakdown().inputTokens).toBe(9040); // cost still counts both
+    });
+});
+
+describe("stepMessagesToEntries usage stamping", () => {
+    // Resume seeding sums every usage-bearing assistant entry, so a step's
+    // usage must land on exactly one message even if the SDK emits several.
+    test("stamps a step's usage on only the first assistant message", () => {
+        const step = [
+            { role: "assistant", content: [{ type: "text", text: "part 1" }] },
+            { role: "assistant", content: [{ type: "text", text: "part 2" }] },
+        ];
+        const out = stepMessagesToEntries(step, usage(100, 10));
+        expect(out).toHaveLength(2);
+        expect(out[0].usage).toEqual(usage(100, 10));
+        expect(out[1].usage).toBeUndefined();
     });
 });

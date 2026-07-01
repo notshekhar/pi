@@ -2,9 +2,18 @@ import { mkdirSync, readdirSync, readFileSync, statSync, existsSync, writeFileSy
 import { join } from "node:path";
 import { ulid } from "ulid";
 import { getLoopDir } from "../auth/storage";
+import { debugLog } from "../debug";
 import type { Entry, ProviderId, SessionInfoData, UsageBlock } from "../types";
 import { Session, generateEntryId } from "./session";
 import { stripSessionHookContext } from "./hook-context";
+
+/**
+ * peek() parses a whole transcript to build one picker row; with long
+ * histories the /resume list would otherwise re-read megabytes on every open.
+ * Keyed by slug+path, invalidated by mtime — an appended entry bumps the
+ * mtime, so a stale hit is impossible.
+ */
+const peekCache = new Map<string, { mtime: number; info: SessionInfo }>();
 
 function slugCwd(cwd: string): string {
     // slug convention: "--Users-notshekhar-Documents-foo--"
@@ -107,13 +116,25 @@ export class SessionManager {
 
     private peek(path: string, slug: string): SessionInfo | null {
         try {
+            const stat = statSync(path);
+            const cacheKey = `${slug}\0${path}`;
+            const cached = peekCache.get(cacheKey);
+            if (cached && cached.mtime === stat.mtimeMs) return cached.info;
             const raw = readFileSync(path, "utf8");
             const lines = raw.split("\n").filter(Boolean);
             let info: SessionInfoData | null = null;
             let firstUser: string | undefined;
             let name: string | undefined;
             for (const line of lines) {
-                const parsed = JSON.parse(line) as { type?: string; name?: string };
+                let parsed: { type?: string; name?: string };
+                try {
+                    parsed = JSON.parse(line) as { type?: string; name?: string };
+                } catch {
+                    // A torn line (crash mid-append) must skip that line, not
+                    // hide the whole session from the picker — Session.load
+                    // tolerates it the same way.
+                    continue;
+                }
                 if (parsed.type === "session-info") {
                     info = parsed as unknown as SessionInfoData;
                 }
@@ -132,13 +153,15 @@ export class SessionManager {
                     }
                 }
             }
-            const stat = statSync(path);
             if (!info) {
                 const id = path.split("/").pop()!.replace(".jsonl", "");
                 info = { id, createdAt: stat.birthtimeMs, cwd: slug, provider: "xai", model: "" };
             }
-            return { ...info, path, mtime: stat.mtimeMs, firstUserMessage: firstUser, name };
-        } catch {
+            const result: SessionInfo = { ...info, path, mtime: stat.mtimeMs, firstUserMessage: firstUser, name };
+            peekCache.set(cacheKey, { mtime: stat.mtimeMs, info: result });
+            return result;
+        } catch (err) {
+            debugLog("session-peek", `unreadable session ${path}:`, err as Error);
             return null;
         }
     }

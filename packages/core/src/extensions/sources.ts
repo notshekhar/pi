@@ -17,10 +17,12 @@ export interface ParsedSource {
     name: string;
 }
 
-const GITHUB_URL_RE = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:#.*)?$/i;
-const GITHUB_SHORT_RE = /^github:([\w.-]+)\/([\w.-]+)(?:#.*)?$/i;
+// Each captures the optional #ref (branch/tag/commit) so it survives into the
+// spec handed to bun — dropping it would silently install the default branch.
+const GITHUB_URL_RE = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?(#.+)?$/i;
+const GITHUB_SHORT_RE = /^github:([\w.-]+)\/([\w.-]+?)(#.+)?$/i;
 // owner/repo shorthand — only when it isn't a scoped npm name (@scope/pkg).
-const OWNER_REPO_RE = /^([\w.-]+)\/([\w.-]+)(?:#.*)?$/;
+const OWNER_REPO_RE = /^([\w.-]+)\/([\w.-]+?)(#.+)?$/;
 const NPM_NAME_RE = /^(@[\w.-]+\/)?[\w.-]+(@[\w.\-^~*x>=<| ]+)?$/;
 
 function repoName(repo: string): string {
@@ -39,10 +41,10 @@ export function parseSource(input: string): ParsedSource {
     }
 
     let m = raw.match(GITHUB_SHORT_RE);
-    if (m) return { kind: "github", spec: `github:${m[1]}/${repoName(m[2])}`, name: repoName(m[2]) };
+    if (m) return { kind: "github", spec: `github:${m[1]}/${repoName(m[2])}${m[3] ?? ""}`, name: repoName(m[2]) };
 
     m = raw.match(GITHUB_URL_RE);
-    if (m) return { kind: "github", spec: `github:${m[1]}/${repoName(m[2])}`, name: repoName(m[2]) };
+    if (m) return { kind: "github", spec: `github:${m[1]}/${repoName(m[2])}${m[3] ?? ""}`, name: repoName(m[2]) };
 
     // Scoped or plain npm name (possibly with @version) — checked before the
     // bare owner/repo shorthand so "@scope/pkg" isn't mistaken for a repo.
@@ -54,5 +56,5 @@ export function parseSource(input: string): ParsedSource {
 
     // owner/repo → GitHub shorthand
     m = raw.match(OWNER_REPO_RE)!;
-    return { kind: "github", spec: `github:${m[1]}/${repoName(m[2])}`, name: repoName(m[2]) };
+    return { kind: "github", spec: `github:${m[1]}/${repoName(m[2])}${m[3] ?? ""}`, name: repoName(m[2]) };
 }

@@ -51,12 +51,16 @@ export function getRecord(name: string): ExtensionRecord | undefined {
 }
 
 export function putRecord(rec: ExtensionRecord): void {
+    // Re-read before mutating: another loop process (a second session, a shell
+    // `loop install`) may have written since our cache was filled.
+    store.refresh();
     const recs = { ...((store.get("extensions") as Records) ?? {}) };
     recs[rec.name] = rec;
     store.set("extensions", recs);
 }
 
 export function deleteRecord(name: string): boolean {
+    store.refresh();
     const recs = { ...((store.get("extensions") as Records) ?? {}) };
     if (!(name in recs)) return false;
     delete recs[name];
@@ -82,6 +86,7 @@ export function getBuiltinEnabled(name: string, fallback: boolean): boolean {
 }
 
 export function setBuiltinEnabled(name: string, enabled: boolean): void {
+    store.refresh();
     const b = { ...((store.get("builtins") as Builtins) ?? {}) };
     b[name] = enabled;
     store.set("builtins", b);

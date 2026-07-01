@@ -21,6 +21,7 @@ import { estimateContextTokens, moveAnthropicCacheTail, toModelMessages, withAnt
 import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
 import { isAbortError } from "./abort";
+import { debugLog } from "../debug";
 import { getMcpManager, isMcpEnabled } from "../mcp";
 import { getExtensionHost } from "../extensions";
 import {
@@ -165,7 +166,7 @@ interface PersistedTurnMessage {
  * Per-step usage rides the step's assistant message: resume seeding sums
  * assistant usages (= turn total) and reads the last for context size.
  */
-function stepMessagesToEntries(
+export function stepMessagesToEntries(
     messages: ReadonlyArray<{ role: string; content: unknown }>,
     stepUsage: UsageBlock | undefined,
 ): PersistedTurnMessage[] {
@@ -177,6 +178,10 @@ function stepMessagesToEntries(
     // exactly as it streamed.
     const taskCallIds = new Set<string>();
     const out: PersistedTurnMessage[] = [];
+    // Resume-time cost seeding sums every usage-bearing assistant entry, so a
+    // step's usage must ride exactly ONE of its messages — stamping each would
+    // double-bill the step if the SDK ever emits two assistant messages per step.
+    let usageToStamp = stepUsage;
     for (const m of messages) {
         if (m.role === "assistant") {
             const parts = Array.isArray(m.content) ? m.content : [{ type: "text", text: String(m.content) }];
@@ -187,7 +192,10 @@ function stepMessagesToEntries(
                 }
                 return true;
             });
-            if (kept.length > 0) out.push({ role: "assistant", content: kept, usage: stepUsage });
+            if (kept.length > 0) {
+                out.push({ role: "assistant", content: kept, usage: usageToStamp });
+                usageToStamp = undefined;
+            }
         } else if (m.role === "tool") {
             const parts = Array.isArray(m.content) ? m.content : [];
             const kept = parts.filter(
@@ -562,20 +570,23 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         const entries = stepMessagesToEntries(step.response.messages, step.usage);
         if (entries.length > 0) persistedAnyMessage = true;
         persistChain = persistChain
-            .then(async () => {
-                for (const entry of entries) {
-                    await session.append({
-                        type: "message",
+            .then(() =>
+                // One batch = one file lock/write for the whole step's messages.
+                session.appendAll(
+                    entries.map((entry) => ({
+                        type: "message" as const,
                         ts: Date.now(),
                         role: entry.role,
                         content: entry.content,
                         // Stamp the model on usage-bearing (assistant) entries so
                         // cost seeding prices them correctly after a model switch.
                         ...(entry.usage ? { usage: entry.usage, model: modelId } : {}),
-                    });
-                }
-            })
-            .catch(() => {}); // persistence must never break a turn
+                    })),
+                ),
+            )
+            // Persistence must never break a turn — but a failed transcript
+            // write is data loss, so leave a breadcrumb (LOOP_DEBUG=1).
+            .catch((err) => debugLog("persist", `step persistence failed for session ${session.id}:`, err));
         return persistChain;
     };
     const result = streamText({

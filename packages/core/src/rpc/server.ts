@@ -1,6 +1,6 @@
 import { createServer, type Server, type Socket } from "node:net";
 import { EventEmitter } from "node:events";
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getLoopDir } from "../auth/storage";
 import { SessionManager, type Session } from "../sessions";
@@ -35,6 +35,9 @@ interface ActiveSession {
     abort: AbortController;
     emitter: EventEmitter;
     modelId: string;
+    /** True while a turn (or compact) is running — concurrent sends on the
+     * same session would interleave appends and corrupt the branch. */
+    running: boolean;
 }
 
 type Transport = {
@@ -45,12 +48,13 @@ export class RpcServer {
     private sessions = new Map<string, ActiveSession>();
     private manager = new SessionManager();
     private commands = new CommandRegistry();
+    /** Startup work (extensions, command registry) every request waits on —
+     * otherwise an early session.send could run a turn before extension
+     * tools/providers exist. */
+    private ready: Promise<void>;
 
     constructor() {
-        // fire-and-forget: registry is only read after the event loop turns.
-        // Extensions load after builtins and may add/override commands; a clean
-        // install with no extensions leaves the registry exactly as builtins.
-        void (async () => {
+        this.ready = (async () => {
             await getExtensionHost().init();
             await registerBuiltins(this.commands);
             getExtensionHost().applyCommands(this.commands);
@@ -84,6 +88,7 @@ export class RpcServer {
             return;
         }
         try {
+            await this.ready;
             const result = await this.dispatch(req, transport);
             if (req.id !== undefined) {
                 transport.send({ jsonrpc: "2.0", id: req.id, result });
@@ -114,6 +119,7 @@ export class RpcServer {
                     abort: new AbortController(),
                     emitter,
                     modelId: model,
+                    running: false,
                 };
                 this.wireEmitter(session.id, emitter, transport);
                 this.sessions.set(session.id, ctx);
@@ -147,6 +153,7 @@ export class RpcServer {
                     abort: new AbortController(),
                     emitter,
                     modelId: session.info.model,
+                    running: false,
                 };
                 this.wireEmitter(session.id, emitter, transport);
                 this.sessions.set(session.id, ctx);
@@ -155,9 +162,11 @@ export class RpcServer {
             case "session.send": {
                 const id = String(params.sessionId);
                 const ctx = this.requireSession(id);
+                if (ctx.running) throw new Error(`session ${id} already has a turn running (cancel it first)`);
                 const input = String(params.input ?? "");
                 const modelId = String(params.model ?? ctx.modelId);
                 ctx.modelId = modelId;
+                ctx.running = true;
                 // run async; events stream via notifications
                 runTurn({
                     session: ctx.session,
@@ -167,15 +176,19 @@ export class RpcServer {
                     abortSignal: ctx.abort.signal,
                     tracker: ctx.tracker,
                     emitter: ctx.emitter,
-                }).catch((err) => {
-                    // Same channel + shape as the emitter's "error" event, so a
-                    // client has one error path to handle, not two.
-                    transport.send({
-                        jsonrpc: "2.0",
-                        method: "session.event",
-                        params: { sessionId: id, part: { type: "error", data: String(err) } },
+                })
+                    .catch((err) => {
+                        // Same channel + shape as the emitter's "error" event, so a
+                        // client has one error path to handle, not two.
+                        transport.send({
+                            jsonrpc: "2.0",
+                            method: "session.event",
+                            params: { sessionId: id, part: { type: "error", data: String(err) } },
+                        });
+                    })
+                    .finally(() => {
+                        ctx.running = false;
                     });
-                });
                 return { ok: true };
             }
             case "session.cancel": {
@@ -188,8 +201,13 @@ export class RpcServer {
             case "session.compact": {
                 const id = String(params.sessionId);
                 const ctx = this.requireSession(id);
-                const result = await runCompact({ session: ctx.session, modelId: ctx.modelId, keepTurns: 0 });
-                return result;
+                if (ctx.running) throw new Error(`session ${id} already has a turn running (cancel it first)`);
+                ctx.running = true;
+                try {
+                    return await runCompact({ session: ctx.session, modelId: ctx.modelId, keepTurns: 0 });
+                } finally {
+                    ctx.running = false;
+                }
             }
             case "auth.status":
                 return { providers: listAuthorizedProviders(), active: getActiveProvider() };
@@ -266,10 +284,30 @@ export function startStdioServer(): void {
     process.stdin.on("end", () => process.exit(0));
 }
 
-export function startSocketServer(): { server: Server; socketPath: string; pidPath: string } {
+function rpcPaths(): { socketPath: string; pidPath: string } {
     const dir = join(getLoopDir(), "agent");
-    const socketPath = join(dir, "rpc.sock");
-    const pidPath = join(dir, "rpc.pid");
+    mkdirSync(dir, { recursive: true });
+    return { socketPath: join(dir, "rpc.sock"), pidPath: join(dir, "rpc.pid") };
+}
+
+/** Pid from rpc.pid if that process is still alive, else null (stale/absent). */
+function liveDaemonPid(pidPath: string): number | null {
+    if (!existsSync(pidPath)) return null;
+    const pid = Number(readFileSync(pidPath, "utf8").trim());
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    try {
+        process.kill(pid, 0); // signal 0 = existence check only
+        return pid;
+    } catch {
+        return null;
+    }
+}
+
+export function startSocketServer(): { server: Server; socketPath: string; pidPath: string } {
+    const { socketPath, pidPath } = rpcPaths();
+    const alive = liveDaemonPid(pidPath);
+    if (alive) throw new Error(`loop rpc daemon already running (pid ${alive}); stop it with: loop rpc stop`);
+    // Any leftover socket belongs to a dead daemon (the pid check above).
     if (existsSync(socketPath)) unlinkSync(socketPath);
 
     const server = new RpcServer();
@@ -288,5 +326,40 @@ export function startSocketServer(): { server: Server; socketPath: string; pidPa
         writeFileSync(pidPath, String(process.pid));
     });
 
+    // Leave no stale socket/pid behind on a signal exit — the next start would
+    // otherwise have to clean up after us.
+    const shutdown = () => {
+        try {
+            unlinkSync(socketPath);
+        } catch {}
+        try {
+            unlinkSync(pidPath);
+        } catch {}
+        process.exit(0);
+    };
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+
     return { server: net, socketPath, pidPath };
+}
+
+/**
+ * Stop a running socket daemon via its pid file (SIGTERM — the daemon's own
+ * handler cleans up its socket/pid). Returns what happened for the CLI to
+ * report; stale files from a dead daemon are cleaned up here.
+ */
+export function stopSocketServer(): { stopped: boolean; pid?: number } {
+    const { socketPath, pidPath } = rpcPaths();
+    const pid = liveDaemonPid(pidPath);
+    if (!pid) {
+        try {
+            unlinkSync(socketPath);
+        } catch {}
+        try {
+            unlinkSync(pidPath);
+        } catch {}
+        return { stopped: false };
+    }
+    process.kill(pid, "SIGTERM");
+    return { stopped: true, pid };
 }

@@ -80,6 +80,10 @@ export class CommandRegistry {
         return this.commands.has(name);
     }
 
+    get(name: string): SlashCommand | undefined {
+        return this.commands.get(name);
+    }
+
     list(): SlashCommand[] {
         return [...this.commands.values()];
     }

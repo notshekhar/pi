@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { getExtensionHost } from "../src/extensions";
+import { applyCommandOps } from "../src/extensions/host";
+import { isCompatible } from "../src/extensions/manifest";
+import { parseSource } from "../src/extensions/sources";
 import { withToolHooks } from "../src/agent/tool-hooks";
 import { asTurnEmitter } from "../src/agent/events";
 import { CommandRegistry, registerBuiltins } from "../src/commands";
@@ -183,6 +186,83 @@ describe("extensions — agents/grants are no-ops when none are loaded", () => {
         const plan = getAgentTools("plan");
         expect(plan).toContain("read");
         expect(plan).not.toContain("write");
+    });
+});
+
+describe("extensions — source parsing", () => {
+    test("github short form preserves the #ref", () => {
+        expect(parseSource("github:owner/repo#v2.1")).toEqual({
+            kind: "github",
+            spec: "github:owner/repo#v2.1",
+            name: "repo",
+        });
+    });
+
+    test("owner/repo shorthand preserves the #ref", () => {
+        expect(parseSource("owner/repo#feature-branch")).toEqual({
+            kind: "github",
+            spec: "github:owner/repo#feature-branch",
+            name: "repo",
+        });
+    });
+
+    test("github URL preserves the #ref and strips .git", () => {
+        expect(parseSource("https://github.com/owner/repo.git#main")).toEqual({
+            kind: "github",
+            spec: "github:owner/repo#main",
+            name: "repo",
+        });
+    });
+
+    test("refless specs are unchanged", () => {
+        expect(parseSource("owner/repo").spec).toBe("github:owner/repo");
+        expect(parseSource("github:owner/repo").spec).toBe("github:owner/repo");
+    });
+
+    test("npm names (scoped, versioned) still parse as npm", () => {
+        expect(parseSource("@scope/pkg@1.2.3")).toEqual({ kind: "npm", spec: "@scope/pkg@1.2.3", name: "@scope/pkg" });
+        expect(parseSource("plain-pkg").kind).toBe("npm");
+    });
+});
+
+describe("extensions — API compat check (0.x minors are breaking)", () => {
+    const withEngines = (range?: string) => ({ name: "x", loop: range ? { engines: { loop: range } } : {} });
+
+    test("unspecified engines is compatible", () => {
+        expect(isCompatible({ name: "x" })).toBe(true);
+        expect(isCompatible(withEngines(undefined))).toBe(true);
+    });
+
+    test("matching 0.x minor is compatible; mismatched minor is not", () => {
+        expect(isCompatible(withEngines("^0.3"))).toBe(true);
+        expect(isCompatible(withEngines("0.3.0"))).toBe(true);
+        expect(isCompatible(withEngines("^0.1"))).toBe(false);
+    });
+
+    test("bare ^0 accepts any 0.x; major mismatch is rejected", () => {
+        expect(isCompatible(withEngines("^0"))).toBe(true);
+        expect(isCompatible(withEngines("^1.0"))).toBe(false);
+    });
+});
+
+describe("extensions — command override merging", () => {
+    test("override without a description keeps the existing command's description", async () => {
+        const reg = new CommandRegistry();
+        await registerBuiltins(reg, { cwd: process.cwd() });
+        const original = reg.get("cost")!;
+        const handler = () => {};
+        applyCommandOps(reg, [{ kind: "override", name: "cost", cmd: { handler } }]);
+        const overridden = reg.get("cost")!;
+        expect(overridden.handler).toBe(handler);
+        expect(overridden.description).toBe(original.description);
+        expect(overridden.name).toBe("cost");
+    });
+
+    test("override with a description uses it", () => {
+        const reg = new CommandRegistry();
+        reg.register({ name: "x", description: "old", handler: () => {} });
+        applyCommandOps(reg, [{ kind: "override", name: "x", cmd: { description: "new", handler: () => {} } }]);
+        expect(reg.get("x")!.description).toBe("new");
     });
 });
 

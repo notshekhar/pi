@@ -11,6 +11,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import Configstore from "configstore";
 import { getLoopDir, settingsStore } from "../auth/storage";
 import { startCallbackServer } from "../auth/oauth-callback";
@@ -28,8 +29,9 @@ import type {
     TurnMiddleware,
 } from "./api";
 import { EXTENSION_API_VERSION } from "./api";
+import { isCompatible, resolveEntry, resolvePkgDir } from "./manifest";
 import { collectProviderModelInfos } from "./providers";
-import { extensionDir, getBuiltinEnabled, listRecords, type ExtensionRecord } from "./store";
+import { getBuiltinEnabled, listRecords, type ExtensionRecord } from "./store";
 import { BUILTIN_EXTENSIONS, getBuiltin, type BuiltinExtension } from "./builtin";
 
 type Tool = unknown; // ai-sdk Tool; kept loose here to avoid a hard ai import in the host
@@ -86,6 +88,18 @@ interface Loaded {
     contributions: Contributions;
 }
 
+/** One row of the /extensions panel — a built-in or an installed external. */
+export interface ExtensionListEntry {
+    name: string;
+    displayName: string;
+    description?: string;
+    enabled: boolean;
+    builtin: boolean;
+    version?: string;
+    source?: string;
+    linkPath?: string;
+}
+
 function emptyContributions(): Contributions {
     return {
         commandOps: [],
@@ -110,45 +124,13 @@ function toMatcher(match: string | string[] | ((name: string) => boolean)): (nam
     return (name: string) => set.has(name);
 }
 
-/** Resolve the on-disk directory holding the extension's package + its entry. */
-function resolvePkgDir(record: ExtensionRecord): string {
-    if (record.linkPath) return record.linkPath;
-    const wrapper = extensionDir(record.name);
-    // Installed-as-dependency: the package lives under the wrapper's node_modules.
-    const wrapperPkg = join(wrapper, "package.json");
-    if (existsSync(wrapperPkg)) {
-        try {
-            const deps = (JSON.parse(readFileSync(wrapperPkg, "utf8")) as { dependencies?: Record<string, string> })
-                .dependencies;
-            const dep = deps && Object.keys(deps)[0];
-            if (dep) return join(wrapper, "node_modules", dep);
-        } catch {
-            /* fall through */
-        }
-    }
-    return wrapper;
-}
-
-function resolveEntry(pkgDir: string, manifest: ExtensionManifest): string {
-    const rel = manifest.loop?.entry ?? manifest.module ?? manifest.main ?? "index.ts";
-    return join(pkgDir, rel);
-}
-
-/** Major-version compat check against the host API version. */
-function isCompatible(manifest: ExtensionManifest): boolean {
-    const want = manifest.loop?.engines?.loop;
-    if (!want) return true; // unspecified = assume compatible
-    const wantMajor = want.replace(/^[\^~]/, "").split(".")[0];
-    const haveMajor = EXTENSION_API_VERSION.split(".")[0];
-    return wantMajor === haveMajor;
-}
-
 export class ExtensionHost {
     private loaded = new Map<string, Loaded>();
     /** Per-extension status reporters (api.extension.setStatus), for the banner/panel. */
     private statusFns = new Map<string, () => string | undefined>();
     private initialized = false;
-    private warnings: string[] = [];
+    /** Warnings keyed by extension, so a reload replaces (not appends to) its entries. */
+    private warnings = new Map<string, string[]>();
     /** CLI-injected UI/browser bridge (see HostServices). Set before init(). */
     private services: HostServices = {};
 
@@ -163,10 +145,17 @@ export class ExtensionHost {
         this.services = { ...this.services, ...services };
     }
 
+    private warn(name: string, message: string): void {
+        const list = this.warnings.get(name) ?? [];
+        list.push(message);
+        this.warnings.set(name, list);
+    }
+
     /** Load every enabled extension. Safe to call once per session. */
     async init(): Promise<void> {
         if (this.initialized) return;
         this.initialized = true;
+        this.warnings.clear();
         // Built-in (bundled) extensions first, so an external install can still
         // override/extend afterwards. Each is opt-in (default disabled).
         for (const b of BUILTIN_EXTENSIONS) {
@@ -174,7 +163,7 @@ export class ExtensionHost {
             try {
                 await this.loadBuiltin(b);
             } catch (err) {
-                this.warnings.push(`built-in extension "${b.name}" failed to load: ${(err as Error).message}`);
+                this.warn(b.name, `built-in extension "${b.name}" failed to load: ${(err as Error).message}`);
             }
         }
         for (const record of listRecords()) {
@@ -182,7 +171,7 @@ export class ExtensionHost {
             try {
                 await this.loadOne(record);
             } catch (err) {
-                this.warnings.push(`extension "${record.name}" failed to load: ${(err as Error).message}`);
+                this.warn(record.name, `extension "${record.name}" failed to load: ${(err as Error).message}`);
             }
         }
     }
@@ -215,7 +204,12 @@ export class ExtensionHost {
         const entry = resolveEntry(pkgDir, manifest);
         if (!existsSync(entry)) throw new Error(`entry not found: ${entry}`);
 
-        const imported = (await import(entry)) as { default?: ExtensionModule } & ExtensionModule;
+        // file:// keeps absolute paths importable on Windows; the ?t= query
+        // busts the ESM registry so /reload picks up edited code (each reload
+        // keeps the old module instance alive — acceptable for a dev loop).
+        const entryUrl = pathToFileURL(entry);
+        entryUrl.searchParams.set("t", String(Date.now()));
+        const imported = (await import(entryUrl.href)) as { default?: ExtensionModule } & ExtensionModule;
         const module: ExtensionModule = imported.default ?? imported;
         const contributions = emptyContributions();
         const api = this.makeApi(record, manifest, pkgDir, contributions);
@@ -235,6 +229,9 @@ export class ExtensionHost {
         type Bag = Record<string, Record<string, unknown>>;
         const readOwn = (k: string) => ((settingsStore.get(OWN) as Bag)?.[record.name] ?? {})[k];
         const writeOwn = (k: string, v: unknown) => {
+            // Fresh read before the bag rewrite so a concurrent process's
+            // settings write isn't clobbered from a stale cache.
+            settingsStore.refresh();
             const bag = { ...((settingsStore.get(OWN) as Bag) ?? {}) };
             bag[record.name] = { ...(bag[record.name] ?? {}), [k]: v };
             settingsStore.set(OWN, bag);
@@ -343,7 +340,7 @@ export class ExtensionHost {
         try {
             await l.module.deactivate?.();
         } catch (err) {
-            this.warnings.push(`extension "${name}" deactivate threw: ${(err as Error).message}`);
+            this.warn(name, `extension "${name}" deactivate threw: ${(err as Error).message}`);
         }
         this.loaded.delete(name);
         this.statusFns.delete(name);
@@ -352,6 +349,8 @@ export class ExtensionHost {
     /** Reload one extension (pick up edits / re-enable). Handles built-ins too. */
     async reload(name: string): Promise<void> {
         await this.unload(name);
+        // A reload's outcome replaces whatever the previous load/unload reported.
+        this.warnings.delete(name);
         const builtin = getBuiltin(name);
         if (builtin) {
             if (getBuiltinEnabled(builtin.name, builtin.defaultEnabled)) await this.loadBuiltin(builtin);
@@ -365,24 +364,14 @@ export class ExtensionHost {
     async close(): Promise<void> {
         for (const name of [...this.loaded.keys()]) await this.unload(name);
         this.initialized = false;
+        this.warnings.clear();
     }
 
     // ---- aggregate getters (consumed across the app) ----
 
     /** Apply every extension's command ops to a registry (after builtins). */
     applyCommands(reg: import("../commands").CommandRegistry): void {
-        for (const l of this.loaded.values()) {
-            for (const op of l.contributions.commandOps) {
-                if (op.kind === "register") reg.register(op.cmd);
-                else if (op.kind === "unregister") reg.unregister(op.name);
-                else
-                    reg.register({
-                        name: op.name,
-                        description: op.cmd.description ?? op.name,
-                        handler: op.cmd.handler,
-                    });
-            }
-        }
+        for (const l of this.loaded.values()) applyCommandOps(reg, l.contributions.commandOps);
     }
 
     /** Extension-added tools, minus any an extension asked to remove. */
@@ -485,7 +474,7 @@ export class ExtensionHost {
     }
 
     getWarnings(): string[] {
-        return this.warnings;
+        return [...this.warnings.values()].flat();
     }
 
     isLoaded(name: string): boolean {
@@ -493,17 +482,8 @@ export class ExtensionHost {
     }
 
     /** Unified list for the /extensions panel: built-ins + installed externals. */
-    listAll(): {
-        name: string;
-        displayName: string;
-        description?: string;
-        enabled: boolean;
-        builtin: boolean;
-        version?: string;
-        source?: string;
-        linkPath?: string;
-    }[] {
-        const out = BUILTIN_EXTENSIONS.map((b) => ({
+    listAll(): ExtensionListEntry[] {
+        const out: ExtensionListEntry[] = BUILTIN_EXTENSIONS.map((b) => ({
             name: b.name,
             displayName: b.displayName,
             description: b.description,
@@ -514,15 +494,34 @@ export class ExtensionHost {
             out.push({
                 name: r.name,
                 displayName: r.name,
-                description: undefined,
                 enabled: r.enabled,
                 builtin: false,
                 version: r.version,
                 source: r.source,
                 linkPath: r.linkPath,
-            } as never);
+            });
         }
         return out;
+    }
+}
+
+/** Apply one extension's command ops to a registry. Exported for tests. */
+export function applyCommandOps(reg: import("../commands").CommandRegistry, ops: CommandOp[]): void {
+    for (const op of ops) {
+        if (op.kind === "register") reg.register(op.cmd);
+        else if (op.kind === "unregister") reg.unregister(op.name);
+        else {
+            // Merge over the command being overridden so fields the partial
+            // omits (e.g. description) survive the override.
+            const existing = reg.get(op.name);
+            reg.register({
+                ...existing,
+                ...op.cmd,
+                name: op.name,
+                description: op.cmd.description ?? existing?.description ?? op.name,
+                handler: op.cmd.handler,
+            });
+        }
     }
 }
 

@@ -59,11 +59,31 @@ export function sumUsage(a: UsageBlock | undefined, b: UsageBlock): UsageBlock {
     };
 }
 
+/** A stored number, defended against a corrupt store (null/NaN/Infinity would
+ * otherwise poison every later accumulation and get written back forever). */
+function num(x: unknown): number {
+    return typeof x === "number" && Number.isFinite(x) ? x : 0;
+}
+
+/** Context size implied by a usage block — provider total when present, else the sum. */
+function ctxFromUsage(u: UsageBlock | undefined): number {
+    if (!u) return 0;
+    if (typeof u.totalTokens === "number" && u.totalTokens > 0) return u.totalTokens;
+    return (u.inputTokens ?? 0) + (u.outputTokens ?? 0) + (u.cachedInputTokens ?? 0);
+}
+
 export class CostTracker {
     private session: CostBreakdown = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, usd: 0 };
     /** Sticky once any estimated (interrupted-turn) usage lands in the session
      * total — drives the leading `~` in format()/sessionBreakdown(). */
     private estimated = false;
+    /** Persist to the lifetime/daily/cwd store (default). Tests pass false so
+     * exercising add() never touches the user's real ~/.loop/cost.json. */
+    private readonly persist: boolean;
+
+    constructor(opts: { persist?: boolean } = {}) {
+        this.persist = opts.persist !== false;
+    }
 
     private computeUsd(modelId: string, provider: string, usage: UsageBlock): number {
         if (typeof usage.cost === "number" && provider === "openrouter") return usage.cost;
@@ -93,17 +113,20 @@ export class CostTracker {
     add(modelId: string, usage: UsageBlock, cwd?: string): CostBreakdown {
         const { provider } = parseModelId(modelId);
         const usd = this.accumulateSession(modelId, provider, usage);
+        if (!this.persist) return { ...this.session };
 
-        // Single read + single atomic write — configstore re-reads and
-        // rewrites the whole file on every get/set, and add() runs per step.
+        // Fresh read + single atomic write per step. The re-read matters:
+        // another loop instance accrues into the same file, and accumulating
+        // onto a stale cache would overwrite its spend (lost update).
+        costStore.refresh();
         const all = costStore.all as {
             lifetime?: { usd: number; byProvider: Record<string, number> };
             daily?: Record<string, number>;
             byCwd?: Record<string, number>;
         };
         const lifetime = all.lifetime ?? { usd: 0, byProvider: {} };
-        lifetime.usd = (lifetime.usd ?? 0) + usd;
-        lifetime.byProvider[provider] = (lifetime.byProvider[provider] ?? 0) + usd;
+        lifetime.usd = num(lifetime.usd) + usd;
+        lifetime.byProvider[provider] = num(lifetime.byProvider[provider]) + usd;
         all.lifetime = lifetime;
 
         // Daily + per-directory buckets power /cost's "today / 7d / month / here"
@@ -111,11 +134,11 @@ export class CostTracker {
         // time/cwd attribution to recover.
         if (usd > 0) {
             const daily = all.daily ?? {};
-            daily[dayKey()] = (daily[dayKey()] ?? 0) + usd;
+            daily[dayKey()] = num(daily[dayKey()]) + usd;
             all.daily = daily;
             if (cwd) {
                 const byCwd = all.byCwd ?? {};
-                byCwd[cwd] = (byCwd[cwd] ?? 0) + usd;
+                byCwd[cwd] = num(byCwd[cwd]) + usd;
                 all.byCwd = byCwd;
             }
         }
@@ -138,6 +161,8 @@ export class CostTracker {
     }
 
     stats(cwd?: string): CostStats {
+        // /cost is user-triggered and must reflect other live instances' spend.
+        costStore.refresh();
         const all = costStore.all as {
             lifetime?: { usd: number; byProvider: Record<string, number> };
             daily?: Record<string, number>;
@@ -179,14 +204,21 @@ export class CostTracker {
         // entry), falling back to the session model for older/unstamped entries.
         // This keeps cost correct across a mid-session model switch.
         const usages: { usage: UsageBlock; model: string }[] = [];
+        let lastAssistantUsage: UsageBlock | undefined;
         for (const e of session.entries()) {
             if (e.type === "message" && e.role === "assistant" && e.usage) {
                 usages.push({ usage: e.usage, model: e.model ?? session.info.model });
+                lastAssistantUsage = e.usage;
             } else if (e.type === "subagent" && e.usage) {
                 usages.push({ usage: e.usage, model: e.model ?? session.info.model });
             }
         }
-        return this.seedFromEntries(session.info.model, usages);
+        this.seedFromEntries(session.info.model, usages);
+        // Ctx meter tracks the MAIN conversation: a subagent's usage counts
+        // toward cost, but its context is separate — if the transcript ends on
+        // a subagent entry (e.g. aborted mid-task), the meter must not adopt
+        // that subagent's context size.
+        return { ctxTokens: ctxFromUsage(lastAssistantUsage) };
     }
 
     seedFromEntries(
@@ -204,12 +236,7 @@ export class CostTracker {
             if (usage.estimated) this.estimated = true;
             last = usage;
         }
-        const ctxTokens = last
-            ? typeof last.totalTokens === "number" && last.totalTokens > 0
-                ? last.totalTokens
-                : (last.inputTokens ?? 0) + (last.outputTokens ?? 0) + (last.cachedInputTokens ?? 0)
-            : 0;
-        return { ctxTokens };
+        return { ctxTokens: ctxFromUsage(last) };
     }
 
     sessionBreakdown(): CostBreakdown {
@@ -217,7 +244,9 @@ export class CostTracker {
     }
 
     lifetimeBreakdown(): { usd: number; byProvider: Record<ProviderId, number> } {
-        return costStore.get("lifetime") as { usd: number; byProvider: Record<ProviderId, number> };
+        const l = costStore.get("lifetime") as { usd?: number; byProvider?: Record<ProviderId, number> } | undefined;
+        // Defensive copy — the store's cached object must not be mutable by callers.
+        return { usd: num(l?.usd), byProvider: { ...(l?.byProvider ?? {}) } as Record<ProviderId, number> };
     }
 
     reset(): void {

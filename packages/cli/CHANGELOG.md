@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.19] - 2026-07-02
+
+### Fixed
+
+- **A crash mid-write can no longer corrupt the next message you send.** If loop (or the machine) died halfway through appending a transcript entry, the file was left with a torn final line and no trailing newline — and the _next_ append glued its JSON straight onto that fragment, so one crash silently destroyed a second, perfectly valid entry. Appends now check the file tail under the write lock and start on a fresh line, keeping the torn fragment isolated (recovery already skips it). Relatedly, a single corrupt line no longer hides an entire session from `/resume` — the picker now skips the bad line the same way session loading does, instead of dropping the whole transcript from the list.
+- **Cost tracking is now safe across concurrent loop instances and corrupt stores.** Two sessions running at once could silently erase each other's lifetime/daily spend (each accumulated onto its own stale cache and rewrote the whole file); every write now re-reads the store first. A corrupted number in `cost.json` used to turn the lifetime total into `NaN` forever; stored values are now sanitized on read. Also fixed on resume: a step's usage could be double-billed if it produced two assistant messages, and the context meter adopted a _subagent's_ context size when the transcript ended on an aborted task — it now tracks the main conversation's last turn. (And the test suite no longer writes into your real `~/.loop/cost.json`.)
+- **Extension installs fail fast and load reliably.** `loop install owner/repo#branch` actually installs that branch now (the `#ref` was silently dropped — you always got the default branch); incompatible or broken extensions are rejected at install time with the reason, instead of surfacing as a cryptic warning next session; the API compat check now treats 0.x minors as breaking (an extension built for API 0.1 no longer loads on the 0.3 host and misbehaves at runtime); a hung registry can no longer wedge `loop install` forever (5-minute timeout, and the installer's output now appears in error messages); crashed installs no longer leave `.staging-*` junk behind; and `/reload` genuinely reloads an edited extension — the module cache is busted per load, where before it silently re-activated the old code.
+- **Extension host cleanups:** load warnings are replaced per reload instead of accumulating duplicates forever; overriding a built-in command no longer wipes the fields your override didn't specify (e.g. its description); and the extensions/settings stores re-read from disk before each write so two loop processes can't clobber each other's records.
+
+### Added
+
+- **`loop rpc stop`, and a daemon that cleans up after itself.** The socket daemon now removes its socket and pid file on SIGTERM/SIGINT, refuses to start when another live daemon already owns the pid file instead of silently stealing its socket, and `loop rpc stop` (previously "not implemented") terminates it via the pid file. Requests also wait for startup (extensions, commands) to finish, and sending to a session that already has a turn running is rejected cleanly instead of interleaving two turns into the same transcript.
+- **`LOOP_DEBUG=1` breadcrumbs.** Errors loop deliberately swallows (best-effort persistence, corrupt-line skips) now leave a trace in `~/.loop/debug.log` when enabled — a failed transcript write was previously invisible, full stop.
+
+### Changed
+
+- **Session housekeeping is faster.** The `/resume` list no longer re-reads and re-parses every transcript on every open (per-file cache, invalidated by mtime — an append always busts it), and each turn step now persists all its messages under a single file lock and write instead of locking per message.
+
 ## [0.7.18] - 2026-07-01
 
 ### Added

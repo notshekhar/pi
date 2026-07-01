@@ -38,6 +38,43 @@ export interface TurnEvents {
     "subagent-finish": { toolCallId: string; agent: string; usage?: UsageBlock };
 }
 
+/**
+ * Runtime list of every turn event, the single source of truth for consumers
+ * that must subscribe to all of them (e.g. the RPC server forwarding the whole
+ * stream to a client). `satisfies` rejects a typo'd/renamed name; the
+ * `_exhaustive` check below rejects a *missing* one — so adding an event to
+ * `TurnEvents` fails the build until it's listed here.
+ */
+export const TURN_EVENT_NAMES = [
+    "text-delta",
+    "reasoning-start",
+    "reasoning-delta",
+    "reasoning-end",
+    "tool-input-start",
+    "tool-call",
+    "tool-result",
+    "tool-error",
+    "tool-input-updated",
+    "attached-images",
+    "hook-message",
+    "hook-terminal-sequence",
+    "compact-start",
+    "compact-end",
+    "step-usage",
+    "data-recap",
+    "finish",
+    "error",
+    "subagent-delta",
+    "subagent-tool",
+    "subagent-step-usage",
+    "subagent-finish",
+] as const satisfies readonly (keyof TurnEvents)[];
+
+// Fails to compile if a TurnEvents key is missing from TURN_EVENT_NAMES.
+type _MissingEvent = Exclude<keyof TurnEvents, (typeof TURN_EVENT_NAMES)[number]>;
+const _exhaustive: [_MissingEvent] extends [never] ? true : ["missing from TURN_EVENT_NAMES", _MissingEvent] = true;
+void _exhaustive;
+
 type Args<K extends keyof TurnEvents> = TurnEvents[K] extends void ? [] : [TurnEvents[K]];
 
 /** Structurally satisfied by node's EventEmitter — `new EventEmitter()` works. */

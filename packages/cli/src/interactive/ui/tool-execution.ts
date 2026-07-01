@@ -6,6 +6,7 @@
  */
 import { Box, Container, Spacer, Text, type TUI } from "@notshekhar/loop-tui";
 import { getLanguageFromPath, highlightCode, theme } from "./theme";
+import { formatToolArgs, readLineRangeText } from "./tool-summary";
 
 const COLLAPSED_LINES = 6;
 const EXPAND_HINT = "ctrl+e";
@@ -143,53 +144,18 @@ export class ToolExecutionComponent extends Container {
     }
 
     private argsSummary(): string {
-        const a = this.args;
-        // Pending stub (created on tool-input-start before the input has streamed):
-        // no args yet, so show just the title — args fill in via updateArgs().
-        if (Object.keys(a).length === 0) return "";
-        const rel = (p: unknown): string => {
-            if (typeof p !== "string") return "";
-            return p.startsWith(this.cwd) ? p.slice(this.cwd.length).replace(/^\//, "") || "." : p;
-        };
-        switch (this.toolName) {
-            case "read":
-            case "write":
-            case "edit":
-            case "ls":
-                return rel(a.path ?? a.file_path ?? a.filePath);
-            case "bash": {
-                const cmd = typeof a.command === "string" ? a.command : "";
-                const firstLine = cmd.split("\n")[0];
-                return firstLine.length > 80 ? `${firstLine.slice(0, 77)}…` : firstLine;
-            }
-            case "grep":
-                return [a.pattern, rel(a.path)].filter(Boolean).join(" in ");
-            case "find":
-                return typeof a.pattern === "string" ? a.pattern : "";
-            case "sql": {
-                const conn = typeof a.connectionId === "string" ? a.connectionId : "";
-                const q = typeof a.query === "string" ? a.query.replace(/\s+/g, " ").trim() : "";
-                const qShort = q.length > 60 ? `${q.slice(0, 57)}…` : q;
-                return [conn, qShort].filter(Boolean).join(" · ");
-            }
-            default: {
-                const json = JSON.stringify(a);
-                return json.length > 80 ? `${json.slice(0, 77)}…` : json;
-            }
-        }
+        // Shared with the /tree row (tool-summary.ts) so both describe a call
+        // the same way; the empty-args guard lives inside formatToolArgs.
+        return formatToolArgs(this.toolName, this.args, this.cwd);
     }
 
     /**
      * `read` line range — `:start` or `:start-end` from offset/limit, empty
-     * when neither is set.
+     * when neither is set. Themed wrap around the shared plain-text range.
      */
     private readLineRange(): string {
-        const offset = typeof this.args.offset === "number" ? this.args.offset : undefined;
-        const limit = typeof this.args.limit === "number" ? this.args.limit : undefined;
-        if (offset === undefined && limit === undefined) return "";
-        const start = offset ?? 1;
-        const end = limit !== undefined ? start + limit - 1 : "";
-        return theme.fg("warning", `:${start}${end ? `-${end}` : ""}`);
+        const range = readLineRangeText(this.args);
+        return range ? theme.fg("warning", range) : "";
     }
 
     /** sql: the query, highlighted as a SQL block under the title. */

@@ -7,7 +7,14 @@ import { type Component, getKeybindings, type Keybinding, truncateToWidth } from
 import type { SessionTreeNode } from "@notshekhar/loop-core";
 import { theme } from "../theme";
 import { type FlatNode, flattenTree, recalculateVisualStructure } from "./layout";
-import { formatLabelTimestamp, getEntryDisplayText, getSearchableText, hasTextContent } from "./entry-display";
+import {
+    buildToolCallMap,
+    formatLabelTimestamp,
+    getEntryDisplayText,
+    getSearchableText,
+    hasTextContent,
+    type TreeRenderContext,
+} from "./entry-display";
 
 /** App-level keybindings are registered at startup; the tui Keybinding union doesn't know them. */
 export const kbMatches = (keyData: string, name: string): boolean =>
@@ -41,6 +48,7 @@ export class TreeList implements Component {
     private visibleChildrenMap: Map<string | null, string[]> = new Map();
     private lastSelectedId: string | null = null;
     private foldedNodes: Set<string> = new Set();
+    private renderCtx: TreeRenderContext;
 
     public onSelect?: (entryId: string) => void;
     public onCancel?: () => void;
@@ -50,11 +58,14 @@ export class TreeList implements Component {
         tree: SessionTreeNode[],
         currentLeafId: string | null,
         maxVisibleLines: number,
+        cwd: string,
         initialSelectedId?: string,
         initialFilterMode?: FilterMode,
     ) {
         this.currentLeafId = currentLeafId;
         this.maxVisibleLines = maxVisibleLines;
+        // Resolve tool-result rows to their call's name + args (built once).
+        this.renderCtx = { toolCalls: buildToolCallMap(tree), cwd };
         this.filterMode = initialFilterMode ?? "default";
         const { flatNodes, multipleRoots } = flattenTree(tree, currentLeafId);
         this.flatNodes = flatNodes;
@@ -175,7 +186,7 @@ export class TreeList implements Component {
             if (!this.passesFilterMode(flatNode)) return false;
 
             if (searchTokens.length > 0) {
-                const nodeText = getSearchableText(flatNode.node).toLowerCase();
+                const nodeText = getSearchableText(flatNode.node, this.renderCtx).toLowerCase();
                 return searchTokens.every((token) => nodeText.includes(token));
             }
 
@@ -295,7 +306,7 @@ export class TreeList implements Component {
             this.showLabelTimestamps && flatNode.node.label && flatNode.node.labelTimestamp
                 ? theme.fg("muted", `${formatLabelTimestamp(flatNode.node.labelTimestamp)} `)
                 : "";
-        const content = getEntryDisplayText(flatNode.node, isSelected);
+        const content = getEntryDisplayText(flatNode.node, isSelected, this.renderCtx);
 
         const line = cursor + theme.fg("dim", prefix) + foldMarker + pathMarker + label + labelTimestamp + content;
         return isSelected ? theme.bg("selectedBg", line) : line;

@@ -115,6 +115,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
         tree: SessionTreeNode[],
         currentLeafId: string | null,
         terminalHeight: number,
+        cwd: string,
         onSelect: (entryId: string) => void,
         onCancel: () => void,
         onLabelChange?: (entryId: string, label: string | undefined) => void,
@@ -126,7 +127,7 @@ export class TreeSelectorComponent extends Container implements Focusable {
         this.onLabelChangeCallback = onLabelChange;
         const maxVisibleLines = Math.max(5, Math.floor(terminalHeight / 2));
 
-        this.treeList = new TreeList(tree, currentLeafId, maxVisibleLines, initialSelectedId, initialFilterMode);
+        this.treeList = new TreeList(tree, currentLeafId, maxVisibleLines, cwd, initialSelectedId, initialFilterMode);
         this.treeList.onSelect = onSelect;
         this.treeList.onCancel = onCancel;
         this.treeList.onLabelEdit = (entryId, currentLabel) => this.showLabelInput(entryId, currentLabel);

@@ -232,6 +232,7 @@ export function createSessionTreeHandlers(state: AppState, deps: AppDeps): Sessi
             tree,
             realLeafId,
             process.stdout.rows ?? 24,
+            session.info.cwd,
             async (entryId) => {
                 // Selecting the current leaf is a no-op (already there)
                 if (entryId === realLeafId) {

@@ -4,13 +4,30 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getLoopDir } from "../auth/storage";
 import { SessionManager, type Session } from "../sessions";
-import { runTurn, CostTracker, runCompact } from "../agent";
+import { runTurn, CostTracker, runCompact, TURN_EVENT_NAMES } from "../agent";
 import { getCatalog } from "../catalog";
 import { CommandRegistry, registerBuiltins } from "../commands";
 import { getExtensionHost } from "../extensions";
 import { listAuthorizedProviders, getActiveProvider, loginApiKey } from "../auth";
 import { RpcErrorCode, type RpcNotification, type RpcRequest, type RpcResponse } from "./protocol";
 import type { ProviderId } from "../types";
+
+/** Every method `dispatch` handles — surfaced via `server.info`. Keep in sync. */
+const RPC_METHODS = [
+    "server.info",
+    "session.create",
+    "session.list",
+    "session.history",
+    "session.open",
+    "session.send",
+    "session.cancel",
+    "session.compact",
+    "auth.status",
+    "auth.login",
+    "catalog.list",
+    "cost.session",
+    "cost.lifetime",
+] as const;
 
 interface ActiveSession {
     session: Session;
@@ -105,6 +122,21 @@ export class RpcServer {
             case "session.list": {
                 return this.manager.list(params.cwd as string | undefined);
             }
+            case "session.history": {
+                // Full transcript along the current branch so a (re)connecting
+                // client can render the conversation before subscribing to the
+                // live stream. Abandoned branches are excluded — this is what
+                // the model sees. Session must be open (create/open) first.
+                const id = String(params.sessionId);
+                const ctx = this.requireSession(id);
+                return {
+                    sessionId: id,
+                    info: ctx.session.info,
+                    name: ctx.session.getName(),
+                    leafId: ctx.session.getLeafId(),
+                    entries: ctx.session.getBranch(),
+                };
+            }
             case "session.open": {
                 const id = String(params.sessionId);
                 const session = await this.manager.open(id);
@@ -136,10 +168,12 @@ export class RpcServer {
                     tracker: ctx.tracker,
                     emitter: ctx.emitter,
                 }).catch((err) => {
+                    // Same channel + shape as the emitter's "error" event, so a
+                    // client has one error path to handle, not two.
                     transport.send({
                         jsonrpc: "2.0",
                         method: "session.event",
-                        params: { sessionId: id, part: { type: "error", error: String(err) } },
+                        params: { sessionId: id, part: { type: "error", data: String(err) } },
                     });
                 });
                 return { ok: true };
@@ -183,6 +217,15 @@ export class RpcServer {
                 const tracker = new CostTracker();
                 return tracker.lifetimeBreakdown();
             }
+            case "server.info": {
+                // Capabilities handshake: lets a client discover the methods and
+                // event types this server speaks without version-sniffing.
+                return {
+                    protocol: "2.0",
+                    methods: RPC_METHODS,
+                    events: TURN_EVENT_NAMES,
+                };
+            }
             default:
                 throw new Error(`Method not found: ${req.method}`);
         }
@@ -195,24 +238,18 @@ export class RpcServer {
     }
 
     private wireEmitter(sessionId: string, emitter: EventEmitter, transport: Transport): void {
-        const fwd = (event: string) =>
-            emitter.on(event, (data) => {
+        // Forward the ENTIRE turn stream — reasoning, tool lifecycle, subagents,
+        // step usage, recap — not a hand-picked subset. TURN_EVENT_NAMES is the
+        // single source of truth: a new event on the agent loop reaches clients
+        // automatically (and can't be forgotten — the list is build-checked).
+        for (const event of TURN_EVENT_NAMES) {
+            emitter.on(event, (data: unknown) => {
                 transport.send({
                     jsonrpc: "2.0",
                     method: "session.event",
                     params: { sessionId, part: { type: event, data } },
                 });
             });
-        for (const ev of [
-            "text-delta",
-            "tool-call",
-            "tool-result",
-            "finish",
-            "compact-start",
-            "compact-end",
-            "error",
-        ]) {
-            fwd(ev);
         }
     }
 }

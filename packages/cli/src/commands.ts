@@ -98,6 +98,7 @@ Usage:
   loop models              List available models
   loop whoami              Show active provider + auth status
   loop rpc [--socket]      Start JSON-RPC server
+  loop mcp <cmd>           Manage MCP servers (add, list, remove, login…)
   loop upgrade             Pull latest and rebuild
   loop version | -v        Print version
 

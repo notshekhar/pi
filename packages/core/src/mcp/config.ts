@@ -3,8 +3,8 @@
  * `mcpServers`, and optionally overridden per-project in <cwd>/.loop/mcp.json.
  * Two sources only (global + project) — project entries win on name collision.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { getSetting, setSetting } from "../settings";
 
 /** A local server launched as a subprocess; tools speak over stdio. */
@@ -117,8 +117,18 @@ export function removeServer(name: string): boolean {
     return true;
 }
 
+/** Path of the project-scoped server file for a working directory. */
+export function projectServersPath(cwd: string): string {
+    return join(cwd, ".loop", "mcp.json");
+}
+
+/** Servers declared in <cwd>/.loop/mcp.json (the project scope, shareable via the repo). */
+export function getProjectServers(cwd: string): Record<string, McpServerConfig> {
+    return loadProjectServers(cwd);
+}
+
 function loadProjectServers(cwd: string): Record<string, McpServerConfig> {
-    const path = join(cwd, ".loop", "mcp.json");
+    const path = projectServersPath(cwd);
     if (!existsSync(path)) return {};
     try {
         const parsed = JSON.parse(readFileSync(path, "utf8"));
@@ -128,4 +138,34 @@ function loadProjectServers(cwd: string): Record<string, McpServerConfig> {
     } catch {
         return {};
     }
+}
+
+/** Write the project server map back to <cwd>/.loop/mcp.json in canonical form. */
+function writeProjectServers(cwd: string, servers: Record<string, McpServerConfig>): void {
+    const path = projectServersPath(cwd);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({ mcpServers: servers }, null, 2) + "\n");
+}
+
+/** Add or replace a project-scoped server. */
+export function addProjectServer(cwd: string, name: string, cfg: McpServerConfig): void {
+    writeProjectServers(cwd, { ...loadProjectServers(cwd), [name]: cfg });
+}
+
+/** Flip a project server's enabled flag. Returns false if not a project server. */
+export function setProjectServerEnabled(cwd: string, name: string, enabled: boolean): boolean {
+    const servers = loadProjectServers(cwd);
+    if (!servers[name]) return false;
+    writeProjectServers(cwd, { ...servers, [name]: { ...servers[name], enabled } });
+    return true;
+}
+
+/** Delete a project-scoped server. Returns false if it wasn't declared there. */
+export function removeProjectServer(cwd: string, name: string): boolean {
+    const servers = loadProjectServers(cwd);
+    if (!servers[name]) return false;
+    const next = { ...servers };
+    delete next[name];
+    writeProjectServers(cwd, next);
+    return true;
 }

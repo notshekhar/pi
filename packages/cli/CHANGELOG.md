@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.18] - 2026-07-01
+
+### Added
+
+- **`loop mcp` — manage MCP servers from the command line, like `claude mcp` / `codex mcp`.** Previously MCP servers could only be added through the interactive `/mcp` panel; you can now add and manage them in one shot from your shell. `loop mcp add --transport http docs https://code.claude.com/docs/mcp` adds a remote server; `loop mcp add fs -- npx -y @modelcontextprotocol/server-filesystem ~/code` adds a local stdio one (everything after `--` is the command, verbatim). Auth follows the usual conventions: `--header "Authorization: Bearer ${env:TOKEN}"` for static-header servers (the `${env:VAR}` placeholder resolves at connect time, so secrets stay out of the config file), `--oauth` for servers that use browser sign-in (then `loop mcp login <name>` runs discovery → consent → token exchange; `--client-id`/`--client-secret`/`--oauth-scopes` cover providers like Figma that block anonymous registration), and `--env KEY=VALUE` for stdio environments. `--scope user` (default, `~/.loop/settings.json`) or `--scope project` (`./.loop/mcp.json`, shareable via the repo). Rounded out with `list`, `get`, `remove`, `enable`/`disable`, `login`, and `add-json`.
+
+### Fixed
+
+- **The `/tree` view now renders tool steps legibly.** Tool rows previously showed an empty `[tool]:` and tool-call turns read as `assistant: (no content)`, because a tool result only stores a `toolCallId` reference and the renderer only knew how to display plain text. Each tool result now resolves back to its originating call and shows the same one-line summary as the live view — `read src/foo.ts`, `bash git status`, `grep TODO in src` — so a session's tool activity is readable and, crucially, you can once again see clearly where a branch was taken (the connector art was always there; it was just surrounded by blank rows). Tool rows are also searchable by tool name and arguments now.
+
+### Changed
+
+- **The `loop rpc` JSON-RPC server now streams the full turn.** It previously forwarded only 7 event types, so a client saw no reasoning/thinking, no subagent activity, no live per-step cost, and tool boxes that appeared late; it now forwards every turn event, and the list is checked at build time so it can't silently fall behind again. Added a `session.history` method (transcript replay for reconnecting clients) and a `server.info` capabilities handshake.
+
 ## [0.7.9] - 2026-06-28
 
 ### Added

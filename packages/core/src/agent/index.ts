@@ -16,7 +16,7 @@ import { runCompact } from "./compact";
 import { runRecap, turnDeservesRecap } from "./recap";
 import { runHooks, type HookOutcome } from "./hooks";
 import { isTrusted } from "./trust";
-import { buildProviderOptions, reasoningEffort, type ThinkingLevel } from "./thinking";
+import { buildReasoningParams, type ThinkingLevel } from "./thinking";
 import { estimateContextTokens, moveAnthropicCacheTail, toModelMessages, withAnthropicCaching } from "./model-messages";
 import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
@@ -512,13 +512,18 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     // thinking/caching by the configured sdk so e.g. an anthropic-compatible
     // gateway gets adaptive thinking + prompt-cache breakpoints.
     const effectiveProvider = effectiveSdkProvider(provider);
-    // First-party providers translate the level via v7's portable `reasoning`
+    // First-party providers translate the level via the portable `reasoning`
     // param; community providers (and edge cases) fall back to providerOptions.
-    // The two compose — providerOptions take precedence where they overlap.
-    const reasoning =
-        modelInfo?.reasoning === false ? undefined : reasoningEffort(effectiveProvider, thinkingLevel, modelShortId);
-    let providerOptions =
-        modelInfo?.reasoning === false ? undefined : buildProviderOptions(effectiveProvider, thinkingLevel);
+    // Anthropic adaptive-thinking models (Sonnet 5, Opus 4.6+, …) are driven
+    // through providerOptions so the request shape doesn't depend on the SDK's
+    // model table (which 400s on ids it doesn't recognize).
+    const { reasoning, providerOptions: reasoningOptions } = buildReasoningParams(
+        effectiveProvider,
+        modelShortId,
+        thinkingLevel,
+        modelInfo?.reasoning !== false,
+    );
+    let providerOptions = reasoningOptions;
 
     // Ollama defaults num_ctx to ~4096 regardless of the model's real context,
     // which truncates long agent loops and makes the model stop early. Pin it to
@@ -575,6 +580,10 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     };
     const result = streamText({
         model,
+        // Cap output at the model's real max. The AI SDK's per-model default is
+        // 4096 for any Anthropic id its baked-in table doesn't recognize (a newer
+        // or gateway-named model) — which would truncate replies.
+        ...(effectiveProvider === "anthropic" && modelInfo?.maxOutput ? { maxOutputTokens: modelInfo.maxOutput } : {}),
         ...(anthropicCaching
             ? // system inside messages is our deliberate Anthropic prompt-caching
               // pattern — allowSystemInMessages opts out of the AI SDK warning.

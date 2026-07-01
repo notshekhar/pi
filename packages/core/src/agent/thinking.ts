@@ -67,6 +67,92 @@ export function reasoningEffort(
 }
 
 /**
+ * Anthropic models that predate *adaptive* thinking and still take the legacy
+ * `{type: "enabled", budget_tokens: N}` shape. This set is CLOSED — Anthropic
+ * ships only adaptive thinking (`thinking: {type: "adaptive"}` +
+ * `output_config.effort`) from Opus 4.6 / Sonnet 4.6 onward — so it never grows.
+ *
+ * Why we decide this ourselves instead of trusting @ai-sdk/anthropic: the SDK
+ * picks the request shape from a model table baked in at its release and keyed
+ * on an exact `modelId.includes(...)` match. Any id it predates OR doesn't match
+ * (a gateway/custom id, a newer release, or just an older installed binary)
+ * falls through to the legacy `enabled` path and 400s ("thinking.type.enabled is
+ * not supported for this model. Use thinking.type.adaptive and
+ * output_config.effort"). Setting `thinking`/`effort` in providerOptions
+ * ourselves (per Vercel's own Sonnet 5 example) makes the SDK skip that table
+ * entirely, so adaptive works regardless of SDK version or how the model is
+ * named. Older families (Claude 3.x / 2.x) can't think and carry
+ * `reasoning: false` in the catalog, so they never reach here.
+ */
+const ANTHROPIC_LEGACY_THINKING = [
+    "opus-4-5",
+    "opus-4-1",
+    "opus-4-0",
+    "opus-4-2025", // claude-opus-4-20250514
+    "sonnet-4-5",
+    "sonnet-4-0",
+    "sonnet-4-2025", // claude-sonnet-4-20250514
+    "haiku-4-5",
+];
+
+export function anthropicUsesAdaptiveThinking(modelShortId: string): boolean {
+    return !ANTHROPIC_LEGACY_THINKING.some((id) => modelShortId.includes(id));
+}
+
+const ANTHROPIC_ADAPTIVE_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "medium" | "high" | "xhigh"> = {
+    minimal: "low",
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: "xhigh",
+};
+
+/**
+ * providerOptions for an Anthropic adaptive-thinking model — the shape Vercel's
+ * Sonnet 5 example uses. Setting `thinking`/`effort` ourselves makes the SDK skip
+ * its own (table-driven) reasoning→thinking mapping. `off` maps to disabled
+ * thinking, except on Fable/Mythos 5 where thinking is always on and an explicit
+ * `disabled` is rejected — there we send nothing and let the model default.
+ */
+function anthropicThinkingOptions(
+    modelShortId: string,
+    level: ThinkingLevel,
+): Record<string, Record<string, unknown>> | undefined {
+    if (level === "off") {
+        if (/claude-(fable-5|mythos-(5|preview))/.test(modelShortId)) return undefined;
+        return { anthropic: { thinking: { type: "disabled" } } };
+    }
+    // "xhigh" effort exists on Opus 4.7+, Sonnet 5, and Fable/Mythos 5, but not on
+    // Opus 4.6 / Sonnet 4.6 — there it falls back to "max".
+    const supportsXhigh = /claude-(opus-4-[7-9]|sonnet-5|fable-5|mythos-(5|preview))/.test(modelShortId);
+    const effort = level === "xhigh" && !supportsXhigh ? "max" : ANTHROPIC_ADAPTIVE_EFFORT[level];
+    return { anthropic: { thinking: { type: "adaptive" }, effort } };
+}
+
+/**
+ * The reasoning request params for a turn: the portable `reasoning` effort plus
+ * any `providerOptions`. Anthropic adaptive-thinking models are driven purely
+ * through providerOptions (portable param suppressed) so the request shape does
+ * not depend on the SDK's model table; everything else uses the portable
+ * `reasoning` param, falling back to providerOptions for community/edge providers.
+ */
+export function buildReasoningParams(
+    provider: ProviderId | string,
+    modelShortId: string,
+    level: ThinkingLevel,
+    reasoningCapable: boolean,
+): { reasoning?: ReasoningEffort; providerOptions?: Record<string, Record<string, unknown>> } {
+    if (!reasoningCapable) return {};
+    if (provider === "anthropic" && anthropicUsesAdaptiveThinking(modelShortId)) {
+        return { providerOptions: anthropicThinkingOptions(modelShortId, level) };
+    }
+    return {
+        reasoning: reasoningEffort(provider, level, modelShortId),
+        providerOptions: buildProviderOptions(provider, level),
+    };
+}
+
+/**
  * Provider-specific reasoning options the portable `reasoning` param does NOT
  * express. Returns undefined when the native param fully covers the provider.
  *

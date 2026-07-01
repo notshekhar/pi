@@ -13,7 +13,7 @@ import type { TurnEmitter } from "./events";
 import { effectiveSdkProvider } from "../auth";
 import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
-import { buildProviderOptions, reasoningEffort } from "./thinking";
+import { buildReasoningParams } from "./thinking";
 import { anthropicCachedSystem, moveAnthropicCacheTail } from "./model-messages";
 import { getSetting } from "../settings";
 import { createTools } from "../tools";
@@ -287,10 +287,12 @@ async function runSubagent(
         // for community/edge ones. Guarded by the model's reasoning capability.
         const subThinking = getSetting("thinkingLevel") ?? "off";
         const subModelInfo = (await getCatalog())[ctx.modelId];
-        const subReasoning =
-            subModelInfo?.reasoning === false ? undefined : reasoningEffort(effSubProvider, subThinking, subModel);
-        const subProviderOptions =
-            subModelInfo?.reasoning === false ? undefined : buildProviderOptions(effSubProvider, subThinking);
+        const { reasoning: subReasoning, providerOptions: subProviderOptions } = buildReasoningParams(
+            effSubProvider,
+            subModel,
+            subThinking,
+            subModelInfo?.reasoning !== false,
+        );
         // AI SDK's native agent loop — same streamText core runTurn uses, with
         // the loop/stop handling owned by the SDK.
         const agent = new ToolLoopAgent({
@@ -298,6 +300,11 @@ async function runSubagent(
             instructions: anthropicCaching ? anthropicCachedSystem(system) : system,
             tools: hooked,
             stopWhen: isStepCount(maxSteps),
+            // See runTurn: the AI SDK caps unrecognized Anthropic ids at 4096
+            // output tokens; pin the catalog max so newer models aren't truncated.
+            ...(effSubProvider === "anthropic" && subModelInfo?.maxOutput
+                ? { maxOutputTokens: subModelInfo.maxOutput }
+                : {}),
             ...(subReasoning ? { reasoning: subReasoning } : {}),
             ...(subProviderOptions ? { providerOptions: subProviderOptions as never } : {}),
             ...(anthropicCaching

@@ -224,13 +224,11 @@ function mergeClaudeConfig(into: HooksConfig, cfg: HooksConfig, pluginRoot?: str
  */
 function readClaudePluginHooks(home: string): HooksConfig {
     const settings = readJsonFile(join(home, ".claude", "settings.json")) as
-        | { enabledPlugins?: Record<string, boolean> }
-        | undefined;
+        { enabledPlugins?: Record<string, boolean> } | undefined;
     const enabled = settings?.enabledPlugins;
     if (!enabled) return {};
     const installed = readJsonFile(join(home, ".claude", "plugins", "installed_plugins.json")) as
-        | { plugins?: Record<string, Array<{ installPath?: string }>> }
-        | undefined;
+        { plugins?: Record<string, Array<{ installPath?: string }>> } | undefined;
     if (!installed?.plugins) return {};
 
     const unwrap = (data: unknown): HooksConfig | undefined => {
@@ -249,8 +247,7 @@ function readClaudePluginHooks(home: string): HooksConfig {
         const root = installed.plugins[key]?.[0]?.installPath;
         if (!root) continue;
         const manifest = readJsonFile(join(root, ".claude-plugin", "plugin.json")) as
-            | { hooks?: HooksConfig | string }
-            | undefined;
+            { hooks?: HooksConfig | string } | undefined;
         let cfg: HooksConfig | undefined;
         if (manifest?.hooks && typeof manifest.hooks === "object") cfg = manifest.hooks;
         else if (typeof manifest?.hooks === "string") cfg = unwrap(readJsonFile(join(root, manifest.hooks)));

@@ -1,6 +1,6 @@
 {
     "name": "@notshekhar/loop-tui",
-    "version": "0.7.10",
+    "version": "0.7.11",
     "description": "TUI renderer for loop — differential rendering, editor, markdown, select lists. Port of @earendil-works/pi-tui (MIT, Mario Zechner / earendil-works).",
     "license": "MIT",
     "type": "module",
@@ -28,6 +28,6 @@
     },
     "dependencies": {
         "get-east-asian-width": "^1.6.0",
-        "marked": "^15.0.12"
+        "marked": "^18.0.5"
     }
 }

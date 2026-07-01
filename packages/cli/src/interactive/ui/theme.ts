@@ -13,12 +13,7 @@ import { DARK_THEME, LIGHT_THEME, type ThemeColors, type ThemeJson } from "./the
 
 export type ThemeColor = keyof ThemeColors & string;
 export type ThemeBg =
-    | "selectedBg"
-    | "userMessageBg"
-    | "customMessageBg"
-    | "toolPendingBg"
-    | "toolSuccessBg"
-    | "toolErrorBg";
+    "selectedBg" | "userMessageBg" | "customMessageBg" | "toolPendingBg" | "toolSuccessBg" | "toolErrorBg";
 
 type ColorMode = "truecolor" | "256color";
 type ColorValue = string | number;

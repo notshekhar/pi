@@ -18,8 +18,8 @@
     },
     "devDependencies": {
         "@types/bun": "latest",
-        "@types/node": "^22.10.5",
-        "prettier": "^3.8.4"
+        "@types/node": "^26.1.0",
+        "prettier": "^3.9.4"
     },
     "engines": {
         "bun": ">=1.2.0"

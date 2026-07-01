@@ -79,7 +79,7 @@ function resolveSegment(segment: string): { command: string; rest: string[] } | 
     let tokens = segment.split(/\s+/).filter(Boolean);
     // Peel leading env-assignments and wrappers until the real command surfaces.
     // Either kind can come first (`env FOO=1 sudo rm`), so loop over both.
-    for (let peeled = true; peeled && tokens.length > 0; ) {
+    for (let peeled = true; peeled && tokens.length > 0;) {
         peeled = false;
         if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) {
             tokens = tokens.slice(1);

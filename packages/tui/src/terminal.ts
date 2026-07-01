@@ -20,8 +20,7 @@ const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_F
 const SIGNAL_NUMBERS: Partial<Record<NodeJS.Signals, number>> = { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 };
 
 export type KeyboardProtocolNegotiationSequence =
-    | { type: "kitty-flags"; flags: number }
-    | { type: "device-attributes" };
+    { type: "kitty-flags"; flags: number } | { type: "device-attributes" };
 
 export function parseKeyboardProtocolNegotiationSequence(
     sequence: string,

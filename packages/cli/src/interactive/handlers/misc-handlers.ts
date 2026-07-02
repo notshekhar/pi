@@ -147,6 +147,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 "Esc             abort current turn",
                 "Ctrl+C          abort, twice to quit",
                 "Ctrl+D          quit (empty)",
+                'Ctrl+G          send "continue" (resume interrupted work)',
                 "Ctrl+L          clear screen",
                 "Ctrl+P          cycle scoped models",
             ];

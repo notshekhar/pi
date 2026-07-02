@@ -1,7 +1,7 @@
 import type { CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
-import { isCtrlC, isCtrlD, isCtrlE, isCtrlI, isCtrlL, isCtrlV, isEsc, isShiftTab } from "./keys";
+import { isCtrlC, isCtrlD, isCtrlE, isCtrlG, isCtrlI, isCtrlL, isCtrlV, isEsc, isShiftTab } from "./keys";
 import { isKeyRelease } from "@notshekhar/loop-tui";
 import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
@@ -114,6 +114,14 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         if (isCtrlI(data)) {
             const path = pickImageFile();
             if (path) void ctx.attachImage(path);
+            return { consume: true };
+        }
+        // Ctrl+G: send "continue" as a message — the one-keystroke version of
+        // the resume-after-interrupt ritual (reopen session, type "continue").
+        // Idle + editor-focused only: while a turn runs it would just queue
+        // noise, and selectors own their own ctrl chords.
+        if (isCtrlG(data) && !state.busy && editorFocused) {
+            if (editor.onSubmit) void editor.onSubmit("continue");
             return { consume: true };
         }
         if (isCtrlD(data) && !state.busy && editorFocused) {

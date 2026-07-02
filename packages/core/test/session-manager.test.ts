@@ -1,9 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Session, SessionManager } from "../src/sessions";
 import type { Entry } from "../src/types";
+import { useTempSessionDb } from "./helpers/temp-db";
+
+useTempSessionDb();
 
 const dirs: string[] = [];
 function mkSession() {
@@ -31,10 +34,11 @@ describe("SessionManager.forkAtEntry", () => {
         const mgr = new SessionManager();
         const forked = mgr.forkAtEntry(src, m3.id!); // keep q1,a1,q2 — drop a2
 
-        // New identity, recorded provenance, real file on disk.
+        // New identity, recorded provenance, really persisted (reopens by id).
         expect(forked.info.id).not.toBe(src.info.id);
         expect(forked.info.parentSession).toBe(src.path);
-        expect(existsSync(forked.path)).toBe(true);
+        const reopened = await mgr.open(forked.info.id);
+        expect(reopened.entries().length).toBe(forked.entries().length);
 
         // Single root (session-info) + the three kept messages, all reachable.
         const branch = forked.getBranch();
@@ -52,12 +56,12 @@ describe("SessionManager.forkAtEntry", () => {
     test("the source session is left completely untouched", async () => {
         const src = mkSession();
         for (const e of [user("q1", 1), asst("a1", 2), user("q2", 3)]) await src.append(e);
-        const before = readFileSync(src.path, "utf8");
+        const before = JSON.stringify(Session.load(src.path, src.info).entries());
 
         const mgr = new SessionManager();
         mgr.forkAtEntry(src, src.getLeafId()!);
 
-        expect(readFileSync(src.path, "utf8")).toBe(before);
+        expect(JSON.stringify(Session.load(src.path, src.info).entries())).toBe(before);
     });
 
     test("labels on kept entries are reattached in the fork", async () => {
@@ -94,47 +98,62 @@ describe("Session.appendAll", () => {
         expect(branch.map((e: any) => e.content)).toEqual(["q1", "a1", "a2", "a3"]);
         for (let i = 1; i < branch.length; i++) expect(branch[i].parentId).toBe(branch[i - 1].id!);
 
-        // One JSONL line per entry on disk; a reload sees the same branch.
-        const lines = readFileSync(s.path, "utf8").split("\n").filter(Boolean);
-        expect(lines).toHaveLength(4);
+        // One row per entry in the store; a reload sees the same branch.
         const reloaded = Session.load(s.path, s.info);
+        expect(reloaded.entries()).toHaveLength(4);
         expect(reloaded.getBranch().map((e: any) => e.content)).toEqual(["q1", "a1", "a2", "a3"]);
     });
 
-    test("empty batch is a no-op (no file churn)", async () => {
+    test("empty batch is a no-op (no store churn)", async () => {
         const s = mkSession();
         await s.append(user("q1", 1));
-        const before = readFileSync(s.path, "utf8");
+        const before = JSON.stringify(Session.load(s.path, s.info).entries());
         await s.appendAll([]);
-        expect(readFileSync(s.path, "utf8")).toBe(before);
+        expect(JSON.stringify(Session.load(s.path, s.info).entries())).toBe(before);
     });
 });
 
-describe("SessionManager.list peek cache", () => {
-    test("a corrupt line hides only itself, not the session; appends invalidate the cache", async () => {
+describe("SessionManager.open / list", () => {
+    test("open() accepts an id or a transcript path and always sees the latest appends", async () => {
         const dir = mkdtempSync(join(tmpdir(), "loop-mgr-"));
         dirs.push(dir);
-        // peek() is exercised through open(), which takes a direct path — no
-        // need to place the file under the manager's sessions root.
         const info = { id: "cachetest", createdAt: 0, cwd: dir, provider: "anthropic" as const, model: "m0" };
-        const path = join(dir, "cachetest.jsonl");
-        const s = new Session(info, path, []);
+        const s = new Session(info, join(dir, "cachetest.jsonl"), []);
         await s.append({ type: "session-info", ts: 0, ...info } as any);
         await s.append(user("hello", 1));
 
         const mgr = new SessionManager();
-        const first = await mgr.open(path);
+        const first = await mgr.open("cachetest");
         expect(first.getBranch().some((e: any) => e.content === "hello")).toBe(true);
 
-        // Torn trailing line (crash mid-append) must not hide the session…
-        const { appendFileSync } = await import("node:fs");
-        appendFileSync(path, '{"type":"message","ro');
-        const reopened = await mgr.open(path);
-        expect(reopened.getBranch().some((e: any) => e.content === "hello")).toBe(true);
-
-        // …and a subsequent real append (mtime bump) is visible on reopen.
-        await reopened.append(user("world", 2));
-        const again = await mgr.open(path);
+        // A subsequent append is visible on reopen — via the .jsonl-shaped
+        // path form too (the picker hands paths back to open()).
+        await first.append(user("world", 2));
+        const again = await mgr.open(first.path);
         expect(again.getBranch().some((e: any) => e.content === "world")).toBe(true);
+    });
+
+    test("list() surfaces name, first user message, and cwd filtering", async () => {
+        const mgr = new SessionManager();
+        const dir = mkdtempSync(join(tmpdir(), "loop-mgr-"));
+        dirs.push(dir);
+        const a = await mgr.create({ cwd: dir, provider: "anthropic", model: "m0" });
+        await a.append(user("first question", 1));
+        await a.setName("My Session");
+        const other = await mgr.create({ cwd: join(dir, "elsewhere"), provider: "anthropic", model: "m0" });
+        await other.append(user("unrelated", 1));
+
+        const listed = mgr.list(dir);
+        expect(listed).toHaveLength(1);
+        expect(listed[0].id).toBe(a.id);
+        expect(listed[0].name).toBe("My Session");
+        expect(listed[0].firstUserMessage).toBe("first question");
+        // Unfiltered list sees both, newest activity first.
+        expect(
+            mgr
+                .list()
+                .map((s) => s.id)
+                .sort(),
+        ).toEqual([a.id, other.id].sort());
     });
 });

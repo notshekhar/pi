@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { compactedContextEntries } from "../src/agent/compact";
 import { Session } from "../src/sessions";
 import type { Entry } from "../src/types";
+import { useTempSessionDb } from "./helpers/temp-db";
+
+useTempSessionDb();
 
 function fakeSession(entries: Entry[]): Session {
     return new Session(

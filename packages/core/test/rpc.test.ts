@@ -43,6 +43,10 @@ let RpcServer: any, startSocketServer: any, RpcClient: any;
 
 beforeAll(async () => {
     process.env.HOME = HOME;
+    // The session store must land under the temp HOME too — the db path is
+    // resolved lazily, so an explicit override beats load-order roulette.
+    const { setDbPathForTests } = await import("../src/sessions");
+    setDbPathForTests(join(HOME, ".loop", "loop.db"));
     // Mock the model resolver BEFORE importing the server, so runTurn's binding
     // resolves to the mock. Every turn streams whatever doStreamImpl returns.
     const realProviders = await import("../src/providers");
@@ -62,6 +66,8 @@ afterAll(async () => {
     // it so a later test file gets a pristine (uninitialized) host.
     const { getExtensionHost } = await import("../src/extensions");
     await getExtensionHost().close();
+    const { setDbPathForTests } = await import("../src/sessions");
+    setDbPathForTests(null);
     process.env.HOME = prevHome;
     rmSync(HOME, { recursive: true, force: true });
     rmSync(CWD, { recursive: true, force: true });

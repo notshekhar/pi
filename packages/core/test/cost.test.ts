@@ -3,6 +3,9 @@ import { CostTracker } from "../src/agent/cost";
 import { stepMessagesToEntries } from "../src/agent";
 import { Session } from "../src/sessions";
 import type { Entry, UsageBlock } from "../src/types";
+import { useTempSessionDb } from "./helpers/temp-db";
+
+useTempSessionDb();
 
 const usage = (input: number, output: number, total?: number): UsageBlock => ({
     inputTokens: input,

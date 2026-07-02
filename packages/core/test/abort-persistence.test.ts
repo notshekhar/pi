@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
 import { Session } from "../src/sessions";
+import { useTempSessionDb } from "./helpers/temp-db";
+
+useTempSessionDb();
 
 // Streams reasoning deltas, then text deltas, slowly — like a reasoning model
 // that "thinks" before writing the answer. A turn can be interrupted in either

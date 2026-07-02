@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
 import { Session } from "../src/sessions";
+import { useTempSessionDb } from "./helpers/temp-db";
+
+useTempSessionDb();
 
 const MODEL = "anthropic/claude-sonnet-4-6";
 

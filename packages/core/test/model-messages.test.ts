@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { toModelMessages } from "../src/agent/model-messages";
 import { Session } from "../src/sessions";
 import type { Entry } from "../src/types";
+import { useTempSessionDb } from "./helpers/temp-db";
+
+useTempSessionDb();
 
 /**
  * Build a session from entries that have been through a JSON serialize/parse

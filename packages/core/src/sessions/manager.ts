@@ -1,19 +1,13 @@
-import { mkdirSync, readdirSync, readFileSync, statSync, existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { ulid } from "ulid";
 import { getLoopDir } from "../auth/storage";
 import { debugLog } from "../debug";
-import type { Entry, ProviderId, SessionInfoData, UsageBlock } from "../types";
+import type { Entry, ProviderId, SessionInfoData } from "../types";
 import { Session, generateEntryId } from "./session";
 import { stripSessionHookContext } from "./hook-context";
-
-/**
- * peek() parses a whole transcript to build one picker row; with long
- * histories the /resume list would otherwise re-read megabytes on every open.
- * Keyed by slug+path, invalidated by mtime — an appended entry bumps the
- * mtime, so a stale hit is impossible.
- */
-const peekCache = new Map<string, { mtime: number; info: SessionInfo }>();
+import { importSessionFile, legacySessionsRoot } from "./migrate";
+import { getSessionStore, type SessionRecord } from "./sqlite-store";
 
 function slugCwd(cwd: string): string {
     // slug convention: "--Users-notshekhar-Documents-foo--"
@@ -21,10 +15,13 @@ function slugCwd(cwd: string): string {
     return `--${stripped}--`;
 }
 
-function sessionsDir(): string {
-    const dir = join(getLoopDir(), "agent", "sessions");
-    mkdirSync(dir, { recursive: true });
-    return dir;
+/**
+ * The canonical transcript address a session is known by (picker values,
+ * hooks' transcript_path). Entries live in the session DB; this path is the
+ * session's public name, kept in the historical JSONL shape.
+ */
+function transcriptPath(cwd: string, id: string): string {
+    return join(getLoopDir(), "agent", "sessions", slugCwd(cwd), `${id}.jsonl`);
 }
 
 export interface SessionInfo extends SessionInfoData {
@@ -41,137 +38,47 @@ export interface NewSessionOptions {
     model: string;
 }
 
+function toSessionInfo(record: SessionRecord): SessionInfo {
+    let firstUser: string | undefined;
+    if (record.firstUserPayload) {
+        try {
+            const m = JSON.parse(record.firstUserPayload) as { content?: unknown };
+            // Hook-context wrapper is model-facing — previews show what the
+            // user actually typed.
+            firstUser =
+                typeof m.content === "string"
+                    ? stripSessionHookContext(m.content)
+                    : JSON.stringify(m.content).slice(0, 120);
+        } catch (err) {
+            debugLog("session-list", `bad first-user payload for ${record.info.id}:`, err as Error);
+        }
+    }
+    return {
+        ...record.info,
+        path: transcriptPath(record.info.cwd, record.info.id),
+        mtime: record.updatedAt,
+        firstUserMessage: firstUser,
+        name: record.name,
+    };
+}
+
 export class SessionManager {
     list(cwd?: string): SessionInfo[] {
-        const root = sessionsDir();
-        if (!existsSync(root)) return [];
-        const out: SessionInfo[] = [];
-        const slugs = cwd ? [slugCwd(cwd)] : readdirSync(root);
-        for (const slug of slugs) {
-            const dir = join(root, slug);
-            if (!existsSync(dir)) continue;
-            const stat = statSync(dir);
-            if (!stat.isDirectory()) continue;
-            for (const file of readdirSync(dir)) {
-                if (!file.endsWith(".jsonl")) continue;
-                const path = join(dir, file);
-                const info = this.peek(path, slug);
-                if (info) out.push(info);
-            }
-        }
-        return out.sort((a, b) => b.mtime - a.mtime);
+        return getSessionStore().listSessions(cwd).map(toSessionInfo);
     }
 
     /**
      * Sum input+output tokens per local calendar day across every stored
-     * session transcript. Powers /steak's usage heatmap — read-only and full
-     * history, independent of the cost store (which is USD-only and accrues
-     * from "now" forward). Keyed YYYY-MM-DD in local time, matching cost.ts.
+     * session. Powers /steak's usage heatmap — one GROUP BY over the derived
+     * usage columns, independent of the cost store (which is USD-only).
+     * Keyed YYYY-MM-DD in local time, matching cost.ts.
      */
     dailyTokens(): Map<string, number> {
-        const out = new Map<string, number>();
-        const root = sessionsDir();
-        if (!existsSync(root)) return out;
-        for (const slug of readdirSync(root)) {
-            const dir = join(root, slug);
-            let dirStat;
-            try {
-                dirStat = statSync(dir);
-            } catch {
-                continue;
-            }
-            if (!dirStat.isDirectory()) continue;
-            for (const file of readdirSync(dir)) {
-                if (!file.endsWith(".jsonl")) continue;
-                this.accumulateDailyTokens(join(dir, file), out);
-            }
-        }
-        return out;
-    }
-
-    private accumulateDailyTokens(path: string, out: Map<string, number>): void {
-        let raw: string;
-        try {
-            raw = readFileSync(path, "utf8");
-        } catch {
-            return;
-        }
-        for (const line of raw.split("\n")) {
-            if (!line) continue;
-            let e: { type?: string; role?: string; ts?: number; usage?: UsageBlock };
-            try {
-                e = JSON.parse(line);
-            } catch {
-                continue;
-            }
-            if (typeof e.ts !== "number" || !e.usage) continue;
-            const isAssistant = e.type === "message" && e.role === "assistant";
-            if (!isAssistant && e.type !== "subagent") continue;
-            const toks = (e.usage.inputTokens ?? 0) + (e.usage.outputTokens ?? 0);
-            if (toks <= 0) continue;
-            const key = new Date(e.ts).toLocaleDateString("sv");
-            out.set(key, (out.get(key) ?? 0) + toks);
-        }
-    }
-
-    private peek(path: string, slug: string): SessionInfo | null {
-        try {
-            const stat = statSync(path);
-            const cacheKey = `${slug}\0${path}`;
-            const cached = peekCache.get(cacheKey);
-            if (cached && cached.mtime === stat.mtimeMs) return cached.info;
-            const raw = readFileSync(path, "utf8");
-            const lines = raw.split("\n").filter(Boolean);
-            let info: SessionInfoData | null = null;
-            let firstUser: string | undefined;
-            let name: string | undefined;
-            for (const line of lines) {
-                let parsed: { type?: string; name?: string };
-                try {
-                    parsed = JSON.parse(line) as { type?: string; name?: string };
-                } catch {
-                    // A torn line (crash mid-append) must skip that line, not
-                    // hide the whole session from the picker — Session.load
-                    // tolerates it the same way.
-                    continue;
-                }
-                if (parsed.type === "session-info") {
-                    info = parsed as unknown as SessionInfoData;
-                }
-                if (parsed.type === "session-name") {
-                    name = parsed.name?.trim() || undefined;
-                }
-                if (parsed.type === "message") {
-                    const m = parsed as { role?: string; content?: unknown };
-                    if (m.role === "user" && !firstUser) {
-                        // Hook-context wrapper is model-facing — previews show
-                        // what the user actually typed.
-                        firstUser =
-                            typeof m.content === "string"
-                                ? stripSessionHookContext(m.content)
-                                : JSON.stringify(m.content).slice(0, 120);
-                    }
-                }
-            }
-            if (!info) {
-                const id = path.split("/").pop()!.replace(".jsonl", "");
-                info = { id, createdAt: stat.birthtimeMs, cwd: slug, provider: "xai", model: "" };
-            }
-            const result: SessionInfo = { ...info, path, mtime: stat.mtimeMs, firstUserMessage: firstUser, name };
-            peekCache.set(cacheKey, { mtime: stat.mtimeMs, info: result });
-            return result;
-        } catch (err) {
-            debugLog("session-peek", `unreadable session ${path}:`, err as Error);
-            return null;
-        }
+        return getSessionStore().dailyTokens();
     }
 
     async create(opts: NewSessionOptions): Promise<Session> {
         const id = ulid();
-        const slug = slugCwd(opts.cwd);
-        const dir = join(sessionsDir(), slug);
-        mkdirSync(dir, { recursive: true });
-        const path = join(dir, `${id}.jsonl`);
         const info: SessionInfoData = {
             id,
             createdAt: Date.now(),
@@ -179,21 +86,32 @@ export class SessionManager {
             provider: opts.provider,
             model: opts.model,
         };
-        const session = new Session(info, path, []);
+        const session = new Session(info, transcriptPath(opts.cwd, id), []);
         await session.append({ type: "session-info", ts: Date.now(), ...info });
         return session;
     }
 
     async open(idOrPath: string): Promise<Session> {
-        const path = idOrPath.endsWith(".jsonl") ? idOrPath : this.findById(idOrPath);
-        if (!path) throw new Error(`Session not found: ${idOrPath}`);
-        const peek = this.peek(path, "");
-        if (!peek) throw new Error(`Cannot read session: ${path}`);
-        return Session.load(path, peek);
+        const isPath = idOrPath.endsWith(".jsonl");
+        const id = isPath ? basename(idOrPath).replace(/\.jsonl$/, "") : idOrPath;
+        let record = getSessionStore().getSession(id);
+        if (!record) {
+            // Straggler transcript (restored from backup, or a direct path to
+            // a file that was never migrated): import it, then open normally.
+            const file = isPath ? idOrPath : this.findLegacyFile(id);
+            if (file && existsSync(file)) {
+                const importedId = importSessionFile(getSessionStore(), file, basename(dirname(file)));
+                if (importedId) record = getSessionStore().getSession(importedId);
+            }
+        }
+        if (!record) throw new Error(`Session not found: ${idOrPath}`);
+        return Session.load(transcriptPath(record.info.cwd, record.info.id), record.info);
     }
 
-    private findById(id: string): string | null {
-        const root = sessionsDir();
+    /** The old findById dir scan — kept only as the import-on-open fallback. */
+    private findLegacyFile(id: string): string | null {
+        const root = legacySessionsRoot();
+        if (!existsSync(root)) return null;
         for (const slug of readdirSync(root)) {
             const candidate = join(root, slug, `${id}.jsonl`);
             if (existsSync(candidate)) return candidate;
@@ -202,15 +120,13 @@ export class SessionManager {
     }
 
     /**
-     * Write a forked session file containing `entries` (tree fields preserved).
+     * Persist a forked session containing `entries` (tree fields preserved).
      * The new session-info root carries the new session ulid as both session
      * id and tree id (matching create()); entries whose parent isn't part of
      * the copy are rewired to it so the fork has a single-root tree.
      */
     private writeFork(source: Session, entries: Entry[]): Session {
         const newId = ulid();
-        const dir = join(source.path, "..");
-        const newPath = join(dir, `${newId}.jsonl`);
         const info: SessionInfoData = {
             ...source.info,
             id: newId,
@@ -240,12 +156,12 @@ export class SessionManager {
             parentId = labelId;
         }
 
-        writeFileSync(newPath, out.map((e) => JSON.stringify(e)).join("\n") + "\n");
-        return new Session(info, newPath, out);
+        getSessionStore().insertSessionWithEntries(info, out);
+        return new Session(info, transcriptPath(info.cwd, newId), out);
     }
 
     /**
-     * Fork the path root → `leafId` into a new session file (the reference
+     * Fork the path root → `leafId` into a new session (the reference
      * createBranchedSession). Abandoned branches stay behind; the new
      * session's header records the source via parentSession.
      */

@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Session } from "../src/sessions";
 import type { Entry } from "../src/types";
+import { useTempSessionDb } from "./helpers/temp-db";
+
+useTempSessionDb();
 
 const dirs: string[] = [];
 function mk(buffered: Entry[] = []) {

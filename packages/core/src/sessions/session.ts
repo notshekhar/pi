@@ -1,20 +1,7 @@
-import {
-    mkdirSync,
-    readFileSync,
-    appendFileSync,
-    existsSync,
-    writeFileSync,
-    openSync,
-    readSync,
-    closeSync,
-    fstatSync,
-} from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
-import lockfile from "proper-lockfile";
-import { debugLog } from "../debug";
 import type { Entry, SessionInfoData } from "../types";
 import { adaptLoopEntry } from "./loop-adapter";
+import { getSessionStore } from "./sqlite-store";
 
 /** Generate a unique short ID (8 hex chars, collision-checked) — the reference parity. */
 export function generateEntryId(has: (id: string) => boolean): string {
@@ -23,6 +10,32 @@ export function generateEntryId(has: (id: string) => boolean): string {
         if (!has(id)) return id;
     }
     return randomUUID();
+}
+
+/**
+ * Upgrade legacy flat entries (no id/parentId) to a linear chain, in place.
+ * Shared by Session's constructor and the JSONL migration path — both must
+ * normalize the same way so a file migrated at startup and a file loaded the
+ * old way produce identical trees. Returns true if anything changed.
+ */
+export function ensureTreeFields(entries: Entry[]): boolean {
+    const ids = new Set<string>();
+    for (const e of entries) if (e.id) ids.add(e.id);
+    let changed = false;
+    let prevId: string | null = null;
+    for (const e of entries) {
+        if (!e.id) {
+            e.id = generateEntryId((id) => ids.has(id));
+            ids.add(e.id);
+            e.parentId = prevId;
+            changed = true;
+        } else if (e.parentId === undefined) {
+            e.parentId = prevId;
+            changed = true;
+        }
+        prevId = e.id;
+    }
+    return changed;
 }
 
 /** Flatten message content (string or text-part array) to plain text. */
@@ -48,8 +61,8 @@ export interface SessionTreeNode {
 }
 
 /**
- * A conversation session stored as an append-only tree in a JSONL file
- *.
+ * A conversation session stored as an append-only tree of entry rows in the
+ * session database.
  *
  * Every entry has an id and parentId. The "leaf" pointer tracks the current
  * position: append() creates a child of the leaf and advances it, branch()
@@ -59,6 +72,8 @@ export interface SessionTreeNode {
 export class Session {
     readonly id: string;
     readonly info: SessionInfoData;
+    /** Canonical transcript path — kept as the session's public address for
+     * hooks (transcript_path) and pickers; the data itself lives in the DB. */
     readonly path: string;
     private buffered: Entry[] = [];
     private byId = new Map<string, Entry>();
@@ -66,30 +81,32 @@ export class Session {
     private labelTimestampsById = new Map<string, number>();
     private leafId: string | null = null;
     private sessionName: string | undefined;
+    /** Internal sessions.id — resolved lazily so an unsaved session creates
+     * no row until its first append (parity with the old empty-file rule). */
+    private rowId: number | null = null;
 
     constructor(info: SessionInfoData, path: string, buffered: Entry[]) {
         this.id = info.id;
         this.info = info;
         this.path = path;
         this.buffered = buffered;
-        if (this.ensureTreeFields()) this.rewriteFile();
+        if (this.ensureTreeFields()) this.rewriteStored();
         this.rebuildIndex();
     }
 
     static load(path: string, info: SessionInfoData): Session {
-        const raw = existsSync(path) ? readFileSync(path, "utf8") : "";
-        const lines = raw.split("\n").filter(Boolean);
+        const store = getSessionStore();
+        const record = store.getSession(info.id);
         const entries: Entry[] = [];
-        for (const line of lines) {
-            try {
-                const parsed = JSON.parse(line);
-                const adapted = adaptLoopEntry(parsed);
+        if (record) {
+            for (const raw of store.loadEntries(record.rowId)) {
+                const adapted = adaptLoopEntry(raw);
                 if (adapted) entries.push(adapted);
-            } catch {
-                debugLog("session-load", `skipped corrupt line in ${path}`);
             }
         }
-        return new Session(info, path, entries);
+        const session = new Session(info, path, entries);
+        if (record) session.rowId = record.rowId;
+        return session;
     }
 
     /**
@@ -97,31 +114,22 @@ export class Session {
      * Migrate legacy flat entries to the tree shape. Returns true if anything changed.
      */
     private ensureTreeFields(): boolean {
-        const ids = new Set<string>();
-        for (const e of this.buffered) if (e.id) ids.add(e.id);
-        let changed = false;
-        let prevId: string | null = null;
-        for (const e of this.buffered) {
-            if (!e.id) {
-                e.id = generateEntryId((id) => ids.has(id));
-                ids.add(e.id);
-                e.parentId = prevId;
-                changed = true;
-            } else if (e.parentId === undefined) {
-                e.parentId = prevId;
-                changed = true;
-            }
-            prevId = e.id;
-        }
-        return changed;
+        return ensureTreeFields(this.buffered);
     }
 
-    private rewriteFile(): void {
-        if (!existsSync(this.path)) return;
-        writeFileSync(
-            this.path,
-            this.buffered.map((e) => JSON.stringify(e)).join("\n") + (this.buffered.length ? "\n" : ""),
-        );
+    /** Persist a legacy upgrade (ids assigned on load) — only if this session
+     * already has rows; an unsaved in-memory session stays unsaved. */
+    private rewriteStored(): void {
+        const store = getSessionStore();
+        const record = store.getSession(this.id);
+        if (!record) return;
+        this.rowId = record.rowId;
+        store.replaceEntries(record.rowId, this.buffered);
+    }
+
+    private ensureRow(): number {
+        if (this.rowId === null) this.rowId = getSessionStore().ensureSession(this.info);
+        return this.rowId;
     }
 
     private rebuildIndex(): void {
@@ -163,13 +171,12 @@ export class Session {
     }
 
     /**
-     * Append several entries as one leaf-chained batch under a single file
-     * lock and write — a step that persists multiple messages pays the lock
-     * acquire/release once, not per entry.
+     * Append several entries as one leaf-chained batch in a single DB
+     * transaction — a step that persists multiple messages commits once,
+     * not per entry.
      */
     async appendAll(entries: Entry[]): Promise<void> {
         if (entries.length === 0) return;
-        const lines: string[] = [];
         for (const entry of entries) {
             if (!entry.id || this.byId.has(entry.id)) {
                 entry.id = generateEntryId((id) => this.byId.has(id));
@@ -182,39 +189,8 @@ export class Session {
             this.leafId = entry.id;
             if (entry.type === "label") this.applyLabel(entry.targetId, entry.label, entry.ts);
             if (entry.type === "session-name") this.sessionName = entry.name?.trim() || undefined;
-            lines.push(JSON.stringify(entry));
         }
-
-        const dir = join(this.path, "..");
-        mkdirSync(dir, { recursive: true });
-        if (!existsSync(this.path)) writeFileSync(this.path, "");
-        const release = await lockfile.lock(this.path, { retries: { retries: 5, minTimeout: 50, maxTimeout: 200 } });
-        try {
-            // A crash mid-append can leave a torn final line with no trailing
-            // newline. Appending directly would glue this batch's first entry
-            // onto that fragment, corrupting a VALID new entry (load already
-            // skips the torn one). Start on a fresh line so the torn tail
-            // stays isolated.
-            let prefix = "";
-            try {
-                const fd = openSync(this.path, "r");
-                try {
-                    const size = fstatSync(fd).size;
-                    if (size > 0) {
-                        const last = Buffer.alloc(1);
-                        readSync(fd, last, 0, 1, size - 1);
-                        if (last[0] !== 0x0a) prefix = "\n";
-                    }
-                } finally {
-                    closeSync(fd);
-                }
-            } catch {
-                debugLog("session-append", `could not inspect tail of ${this.path}`);
-            }
-            appendFileSync(this.path, prefix + lines.join("\n") + "\n");
-        } finally {
-            await release();
-        }
+        getSessionStore().appendEntries(this.ensureRow(), entries);
     }
 
     // =========================================================================

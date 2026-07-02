@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.1] - 2026-07-02
+
+### Added
+
+- **Ctrl+G sends "continue".** The resume-after-interrupt ritual — reopen the session, type `continue`, hit enter — is now one keystroke. Fires only while the agent is idle and the prompt has focus, goes through the normal submit path (hooks, transcript, queue all behave as if you typed it), and is listed in `/hotkeys`.
+
 ## [0.8.0] - 2026-07-02
 
 ### Changed

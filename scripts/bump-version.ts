@@ -7,6 +7,11 @@
  *   bun run bump minor          # 0.7.5 → 0.8.0
  *   bun run bump major          # 0.7.5 → 1.0.0
  *   bun run bump 0.9.1          # set an explicit version
+ *   bun run bump canary         # 0.7.5 → 0.8.0-canary.0 → 0.8.0-canary.1 → …
+ *
+ * Canary versions release as GitHub *prereleases* (see release.yml): testers
+ * opt in with LOOP_VERSION=<tag>, while releases/latest — the installer, brew,
+ * and `loop update` — keeps resolving to stable.
  *
  * Only the `version` line is rewritten (targeted replace), so formatting and key
  * order in each package.json are untouched. Prints the next tag to push.
@@ -37,21 +42,30 @@ function bump(version: string, level: "patch" | "minor" | "major"): string {
     return `${major}.${minor}.${patch + 1}`;
 }
 
+/** 0.7.5 → 0.8.0-canary.0; 0.8.0-canary.1 → 0.8.0-canary.2. */
+function bumpCanary(version: string): string {
+    const m = version.match(/^(\d+\.\d+\.\d+)-canary\.(\d+)$/);
+    if (m) return `${m[1]}-canary.${Number(m[2]) + 1}`;
+    return `${bump(version, "minor")}-canary.0`;
+}
+
 const arg = process.argv[2];
 if (!arg) {
-    console.error("usage: bun run bump <patch|minor|major|x.y.z>");
+    console.error("usage: bun run bump <patch|minor|major|canary|x.y.z[-pre]>");
     process.exit(1);
 }
 
 // cli is the source of truth for the current version.
 const current = readVersion(pkgPath("cli"));
 let next: string;
-if (/^\d+\.\d+\.\d+$/.test(arg)) {
+if (/^\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$/.test(arg)) {
     next = arg;
 } else if (arg === "patch" || arg === "minor" || arg === "major") {
-    next = bump(current, arg);
+    next = bump(current.replace(/-.*$/, ""), arg);
+} else if (arg === "canary") {
+    next = bumpCanary(current);
 } else {
-    console.error(`invalid argument "${arg}" — use patch|minor|major or an explicit x.y.z`);
+    console.error(`invalid argument "${arg}" — use patch|minor|major|canary or an explicit x.y.z[-pre]`);
     process.exit(1);
 }
 
@@ -63,4 +77,5 @@ for (const name of PACKAGES) {
 }
 
 console.log(`bumped ${current} → ${next}  (${PACKAGES.join(", ")})`);
-console.log(`next: add a CHANGELOG entry, commit, then  git tag v${next} && git push origin main v${next}`);
+const branch = next.includes("-") ? "<branch>" : "main";
+console.log(`next: add a CHANGELOG entry, commit, then  git tag v${next} && git push origin ${branch} v${next}`);

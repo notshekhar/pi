@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.0] - 2026-07-02
+
+### Changed
+
+- **Sessions now live in a single SQLite database (`~/.loop/loop.db`) instead of one JSONL file per transcript.** On first launch, every existing transcript is migrated automatically — your sessions, names, branches, and usage history all come along, and `/resume` ordering is preserved. The original `.jsonl` files are **left untouched on disk**, so downgrading to 0.7.x just works (sessions created on 0.8.0 won't appear there, but nothing is lost or rewritten). This retires the whole class of file-corruption bugs patched over the last releases — torn-tail writes, per-append lockfiles, cross-process lost updates — by construction: appends are transactions, `/resume` is an indexed query instead of a directory scan, and two loop processes can write concurrently under WAL. `/export` and `/import` still speak JSONL, unchanged.
+
 ## [0.7.19] - 2026-07-02
 
 ### Fixed

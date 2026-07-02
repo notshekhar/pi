@@ -195,17 +195,6 @@ Env knobs: `$env:LOOP_VERSION`, `$env:LOOP_FORCE`, `$env:LOOP_HOME`, `$env:LOOP_
 
 `/update` inside the TUI, or `loop update` from the shell — both check the latest release and run the platform installer in place (self-update works while loop is running, on Windows too). The TUI also tells you at startup when a newer release exists. `LOOP_SKIP_VERSION_CHECK=1` silences the startup check.
 
-### Canary channel
-
-Prerelease tags (e.g. `v0.8.0-canary.0`) publish as GitHub prereleases with the same per-platform binaries. Stable never sees them — the installer, `loop update`, and brew all resolve `releases/latest`, which skips prereleases. To try a canary, pin its tag:
-
-```bash
-LOOP_VERSION=v0.8.0-canary.0 LOOP_FORCE=1 \
-  curl -fsSL https://raw.githubusercontent.com/notshekhar/loop/main/install.sh | bash
-```
-
-(Windows: `$env:LOOP_VERSION = 'v0.8.0-canary.0'; $env:LOOP_FORCE = '1'` before the installer.) Once the matching stable lands, `loop update` moves you back to the stable channel. The list of prereleases lives on the [releases page](https://github.com/notshekhar/loop/releases).
-
 ### From source
 
 ```bash

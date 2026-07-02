@@ -5,14 +5,10 @@ on:
     push:
         tags:
             - "v*.*.*"
-            # Canary channel: prerelease tags (v0.8.0-canary.0) build the same
-            # binaries but publish as a GitHub *prerelease* — releases/latest
-            # (the installer, `loop update`, and brew) never resolves to them.
-            - "v*.*.*-*"
     workflow_dispatch:
         inputs:
             tag:
-                description: "Version tag (e.g. v0.1.5, v0.8.0-canary.0)."
+                description: "Version tag (e.g. v0.1.5)."
                 required: true
 
 permissions:
@@ -26,7 +22,6 @@ jobs:
         outputs:
             tag: ${{ steps.tag.outputs.tag }}
             ver: ${{ steps.tag.outputs.ver }}
-            prerelease: ${{ steps.tag.outputs.prerelease }}
         steps:
             - name: Resolve tag
               id: tag
@@ -38,11 +33,8 @@ jobs:
                   fi
                   case "$tag" in v*) ;; *) tag="v$tag" ;; esac
                   v="${tag#v}"
-                  # A semver prerelease suffix (v0.8.0-canary.0) marks a canary.
-                  case "$v" in *-*) pre=true ;; *) pre=false ;; esac
                   echo "tag=$tag" >> "$GITHUB_OUTPUT"
                   echo "ver=$v"   >> "$GITHUB_OUTPUT"
-                  echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
 
     # ─── Job 2: per-platform binary build (matrix) ───────────────────────────
     # loop has no native NAPI modules anymore, so `bun build --compile
@@ -176,10 +168,6 @@ jobs:
               with:
                   tag_name: ${{ needs.prepare.outputs.tag }}
                   name: ${{ needs.prepare.outputs.tag }}
-                  # Canary builds are prereleases: releases/latest keeps
-                  # pointing at the newest stable, so auto-update and the
-                  # installer never pick a canary up on their own.
-                  prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
                   generate_release_notes: true
                   files: |
                       release/loop-*.tar.gz
@@ -194,9 +182,6 @@ jobs:
     update-homebrew-tap:
         name: update-homebrew-tap
         needs: [prepare, release]
-        # Never point the tap at a canary — `brew upgrade` must keep tracking
-        # stable tags only.
-        if: needs.prepare.outputs.prerelease != 'true'
         runs-on: ubuntu-latest
         steps:
             - name: Check out loop (for the render script)

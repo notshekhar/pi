@@ -48,11 +48,7 @@ function semverGt(a: string, b: string): boolean {
     const [b1, b2, b3] = norm(b);
     if (a1 !== b1) return a1 > b1;
     if (a2 !== b2) return a2 > b2;
-    if (a3 !== b3) return a3 > b3;
-    // Equal triples: a stable release outranks a prerelease of it, so a canary
-    // build (0.8.0-canary.N) is offered the move to stable 0.8.0 when it lands.
-    const pre = (v: string) => v.replace(/^v/, "").includes("-");
-    return !pre(a) && pre(b);
+    return a3 > b3;
 }
 
 async function fetchLatestTag(): Promise<string | null> {

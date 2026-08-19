@@ -764,6 +764,93 @@ The first tag's workflows both failed, and neither was a workflow problem.
 
 ---
 
+## 16. Shipping, and the parity gaps it exposed (2026-08-19/20)
+
+Public as `github.com/notshekhar/pi` (MIT). The module and command are both
+`pi`; the config dir stays `~/.pi-agent` deliberately, since renaming it would
+orphan the sessions the SQLite migration had just imported.
+
+**Installers**, ported from loop's: `install.sh` with the ■■■･･･ 42% bar
+(curl's `--trace-ascii` parsed through a FIFO), checksum verification, atomic
+directory swap, PATH written to the right shell rc, and a smoke test so a libc
+or architecture surprise surfaces at install time rather than on first use.
+Four targets — darwin arm64/x64, linux x64/arm64 — each built where a cgo
+toolchain for it exists, except darwin/x64 which cross-builds on the arm64
+runner because Apple's clang takes `-arch` and the Intel runners are retiring.
+
+**Windows is deliberately not shipped.** The tree compiles for it (CI
+cross-compiles so the next break surfaces there), but `makeRaw`/`isTerminal`
+have no console implementation and six sites shell out to `sh -c`, so a
+windows binary would exit at "not a tty" or fail on its first tool call.
+
+Two CI failures on the first tag were real bugs, not workflow problems: a
+platform fallback file defining two of three functions (so the package built
+nowhere but darwin and linux), and `SIGWINCH` used unguarded.
+
+### The menu that would not close
+
+`/model` used the manager LOOP, so choosing a model reopened the list. A
+manager loops because editing a list should not mean retyping the command; a
+SELECTION is the terminal action. Panel actions now say which they are —
+`/model` closes on a pick, while its add and remove rows still return to the
+list, and backing out of the sub-menu returns to the list rather than out of
+everything.
+
+### Custom providers were configurable and dead
+
+`LanguageModel` fell through to `default:` and returned "unknown provider", so
+a custom endpoint could be configured, appeared in the picker, and failed on
+the first turn. Fixing it exposed the rest of the gap against loop:
+
+- **The API SHAPE is stored, not sniffed** (`openai` / `anthropic` / `google`).
+  A gateway serves several surfaces from one host — bifrost has /anthropic and
+  /openai — and the URL says nothing about which; the wrong body shape fails
+  in ways that read like a broken model.
+- **Models carry metadata**: name, context window, `$`/MTok. That is what makes
+  a custom provider appear in `/cost` at all, and a window of 0 meant
+  auto-compaction could never fire. One resolver, `config.ModelInfo`, now
+  answers for the catalog and custom endpoints alike. Verified: 1M in + 1M out
+  at 3/15 reports $18.00 against the right provider.
+- **Discovery first.** The wizard asks the endpoint's `/models` before asking
+  the user; typing ids by hand is the fallback. Failure is a nil result rather
+  than an error, because a 404, a timeout, an HTML page and an auth rejection
+  are one fact from the user's side and lead to one next question.
+- Key helpers cache for five minutes (loop's TTL) instead of forking a vault
+  client per request; a failure is deliberately not cached.
+- A stored provider that no longer resolves **used to brick startup** — remove
+  a custom endpoint while it is selected and the app would not launch, leaving
+  no way to reach its own settings. It falls back and says so.
+
+### Skills
+
+Progressive disclosure was already right in both: the index (name +
+description) goes in the system prompt, the body is loaded by the `skill`
+tool on demand. Proven live in both binaries with a skill whose body demands
+exact strings the model could not otherwise produce.
+
+What was missing in pi was AUTHORING. `/skills new` writes the frontmatter and
+reads it back through the real parser, because a hand-written manifest that is
+subtly wrong is skipped in silence. The description is required rather than
+defaulted — it is the only thing the model sees before deciding to load the
+skill — and Create refuses to overwrite.
+
+### The composer had no highlighting
+
+A leading `/command` or `!` is tinted as it is typed, as loop does. It is the
+fastest confirmation that a line will be read as a command rather than sent to
+the model, which is the one thing a leading slash decides and the one mistake
+a plain composer lets you make silently.
+
+### And the startup shift
+
+Settings are applied through `Do`, which queues onto the render loop's
+channel — and the loop painted BEFORE it drained, so a pinned composer arrived
+one frame late and the masthead was drawn at the top and then visibly jumped
+down six rows. Setup queued before the loop starts is now drained into the
+first frame, which fixes the stored-theme flash for the same reason.
+
+---
+
 ## Suggested order
 
 Done: the rail, diamond rows, thinking blocks, tool rendering, nav mode, and

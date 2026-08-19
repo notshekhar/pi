@@ -1,0 +1,59 @@
+# Build the release binaries when a version tag is pushed.
+#
+# Each target builds on its OWN runner rather than cross-compiling: the SQLite
+# driver is cgo, so a cross build needs a cross C toolchain, and the honest way
+# to get a working darwin binary is to build it on darwin.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go test ./...
+      - name: build
+        env:
+          CGO_ENABLED: "1"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -trimpath -ldflags "-s -w" -o pi ./cmd/pi
+          tar czf pi_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz pi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: pi_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.tar.gz"
+          generate_release_notes: true

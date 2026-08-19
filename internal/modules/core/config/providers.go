@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/notshekhar/pi/internal/modules/core/catalog"
@@ -21,8 +22,16 @@ import (
 // code change for each is the wrong shape. A custom provider is three fields
 // in settings and it appears in `/provider` beside the built-ins.
 
-// CustomProvider is an OpenAI-compatible endpoint.
+// CustomProvider is a user-defined endpoint.
 type CustomProvider struct {
+	// SDK is the API SHAPE the endpoint speaks: "openai" (the default),
+	// "anthropic", or "google".
+	//
+	// Not cosmetic and not guessable from the URL. A gateway commonly exposes
+	// several surfaces — bifrost serves /anthropic and /openai from one host —
+	// and sending Claude's message shape to a chat-completions endpoint fails
+	// in ways that read like a model problem rather than a routing one.
+	SDK string `json:"sdk,omitempty"`
 	// BaseURL is the API root, e.g. https://api.example.com/v1
 	BaseURL string `json:"baseUrl"`
 	// APIKey is the credential. Empty means read it from EnvVar or the
@@ -39,11 +48,56 @@ type CustomProvider struct {
 	// credential is not a bearer token at all — a proxy wanting `x-api-key`,
 	// a gateway wanting a tenant id.
 	Headers map[string]string `json:"headers,omitempty"`
-	// Models are the ids this endpoint serves. Without them the provider
-	// works but `/model` has nothing to offer.
-	Models []string `json:"models,omitempty"`
-	// Context is the window for its models, when they share one.
+	// Models are the ids this endpoint serves, with whatever is known about
+	// each. Without them the provider works but `/model` has nothing to
+	// offer.
+	Models []CustomModel `json:"models,omitempty"`
+	// Context is the default window for models that do not state their own.
 	Context int `json:"context,omitempty"`
+}
+
+// CustomModel is one model on a custom endpoint.
+//
+// The pricing fields are what make a custom provider appear in `/cost` at all.
+// A gateway is not in the catalog, so nothing else knows what its tokens
+// cost — and a model with no rate bills at zero, which is the one wrong answer
+// a cost report can give: it looks like the work was free.
+type CustomModel struct {
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	Context int    `json:"context,omitempty"`
+	// MaxOutput is the output cap, 0 for the provider default.
+	MaxOutput int `json:"maxOutput,omitempty"`
+	// Reasoning marks a model that thinks, so the status line offers a level.
+	Reasoning bool `json:"reasoning,omitempty"`
+	// Cost is $/MTok, matching the catalog's units.
+	Cost *CustomCost `json:"cost,omitempty"`
+}
+
+// CustomCost is $/MTok for a custom model.
+type CustomCost struct {
+	Input     float64 `json:"input,omitempty"`
+	Output    float64 `json:"output,omitempty"`
+	CacheRead float64 `json:"cacheRead,omitempty"`
+}
+
+// ModelIDs is just the ids, for the places that only need names.
+func (p CustomProvider) ModelIDs() []string {
+	out := make([]string, 0, len(p.Models))
+	for _, m := range p.Models {
+		out = append(out, m.ID)
+	}
+	return out
+}
+
+// LookupModel finds one of this provider's models by id.
+func (p CustomProvider) LookupModel(id string) (CustomModel, bool) {
+	for _, m := range p.Models {
+		if m.ID == id {
+			return m, true
+		}
+	}
+	return CustomModel{}, false
 }
 
 // CustomProviders returns the configured endpoints, sorted by name.
@@ -93,19 +147,62 @@ func (p CustomProvider) CustomKey() string {
 // the agent's first request.
 const keyCommandTimeout = 10 * time.Second
 
+// keyCommandTTL is how long a helper's output is reused. loop's five minutes.
+//
+// Without it the helper runs on EVERY request — forking a vault client per
+// turn, which is both slow and, for an SSO helper that rate-limits, a way to
+// get locked out mid-conversation.
+const keyCommandTTL = 5 * time.Minute
+
+var (
+	keyCacheMu sync.Mutex
+	keyCache   = map[string]cachedKey{}
+)
+
+type cachedKey struct {
+	value string
+	at    time.Time
+}
+
+// InvalidateKeyCommands drops every cached helper result.
+//
+// The caller for this is a 401: a token that the endpoint has just rejected is
+// worth re-fetching immediately rather than waiting out the TTL, which is the
+// difference between one failed turn and five minutes of them.
+func InvalidateKeyCommands() {
+	keyCacheMu.Lock()
+	keyCache = map[string]cachedKey{}
+	keyCacheMu.Unlock()
+}
+
 // runKeyCommand executes a key helper and returns its trimmed stdout.
 //
 // Errors are swallowed into "" on purpose: the caller's next step is the same
 // either way — no credential — and the request that follows reports the
 // failure with the context the user actually needs.
 func runKeyCommand(command string) string {
+	keyCacheMu.Lock()
+	if hit, ok := keyCache[command]; ok && time.Since(hit.at) < keyCommandTTL {
+		keyCacheMu.Unlock()
+		return hit.value
+	}
+	keyCacheMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), keyCommandTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "sh", "-c", command).Output()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	key := strings.TrimSpace(string(out))
+	// A failure is NOT cached: the next request should try again rather than
+	// wait out five minutes of a credential the helper could produce now.
+	if key != "" {
+		keyCacheMu.Lock()
+		keyCache[command] = cachedKey{value: key, at: time.Now()}
+		keyCacheMu.Unlock()
+	}
+	return key
 }
 
 // AddCustomProvider stores an endpoint.
@@ -251,4 +348,57 @@ func writeAuthDoc(doc map[string]any) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// ModelInfo is what is known about a model, from the catalog OR from a custom
+// provider's own configuration.
+//
+// One resolver, because every caller wants the same three facts — the display
+// name, the context window, and the price — and `catalog.Lookup` alone knows
+// nothing about a user-defined endpoint. That gap was not cosmetic: a custom
+// model resolved to the zero value, so its context window was 0 (auto-
+// compaction could never trigger) and its rates were 0, which reports every
+// turn as free. Costing work at zero is the one wrong answer a cost report
+// must not give.
+func ModelInfo(provider, modelID string) (catalog.Model, bool) {
+	if m, ok := catalog.Lookup(provider, modelID, APIKey(provider)); ok {
+		return m, true
+	}
+	p, ok := LookupCustom(provider)
+	if !ok {
+		return catalog.Model{}, false
+	}
+	custom, ok := p.LookupModel(modelID)
+	if !ok {
+		return catalog.Model{}, false
+	}
+	out := catalog.Model{
+		ID:        provider + "/" + custom.ID,
+		Provider:  provider,
+		ShortID:   custom.ID,
+		Name:      firstNonEmpty(custom.Name, custom.ID),
+		Context:   custom.Context,
+		MaxOut:    custom.MaxOutput,
+		Reasoning: custom.Reasoning,
+	}
+	if out.Context == 0 {
+		out.Context = p.Context
+	}
+	if custom.Cost != nil {
+		out.Cost = catalog.Cost{
+			Input:     custom.Cost.Input,
+			Output:    custom.Cost.Output,
+			CacheRead: custom.Cost.CacheRead,
+		}
+	}
+	return out, true
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

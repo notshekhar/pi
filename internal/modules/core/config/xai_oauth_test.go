@@ -165,7 +165,7 @@ func TestCustomProviderResolvesToAModel(t *testing.T) {
 	if err := AddCustomProvider("mygw", CustomProvider{
 		BaseURL: "http://127.0.0.1:9/v1",
 		APIKey:  "k",
-		Models:  []string{"gw-model-1", "gw-model-2"},
+		Models:  []CustomModel{{ID: "gw-model-1"}, {ID: "gw-model-2"}},
 	}); err != nil {
 		t.Fatal(err)
 	}

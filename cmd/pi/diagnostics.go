@@ -138,7 +138,7 @@ func (t *repl) setThinking(rest string) {
 // the catalog does not know (a custom endpoint) is assumed to reason, because
 // refusing to set a level the model does support is the worse mistake.
 func (t *repl) modelReasons() bool {
-	info, ok := catalog.Lookup(t.cfg.Provider, t.cfg.ModelID)
+	info, ok := config.ModelInfo(t.cfg.Provider, t.cfg.ModelID)
 	return !ok || info.Reasoning
 }
 

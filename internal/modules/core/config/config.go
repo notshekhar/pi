@@ -25,6 +25,11 @@ type Config struct {
 	CWD       string
 	Reasoning provider.ReasoningEffort
 	MaxSteps  int
+	// UnknownProvider is the stored provider that no longer resolves, when
+	// Resolve had to fall back to a detected one. Set so the app can SAY so —
+	// silently using a different provider than the one configured is worse
+	// than the error this replaced.
+	UnknownProvider string
 }
 
 // Defaults used when nothing is specified.
@@ -82,7 +87,22 @@ func Resolve(c Config) (Config, error) {
 	c.Provider = strings.ToLower(c.Provider)
 	custom, isCustom := LookupCustom(c.Provider)
 	if !catalog.IsProvider(c.Provider) && !isCustom {
-		return c, fmt.Errorf("config: unknown provider %q — try /provider", c.Provider)
+		// A provider that no longer exists must not be able to stop the agent
+		// from starting. The stored one is a PREFERENCE, and the way to lose
+		// it is ordinary — remove a custom endpoint while it is selected, or
+		// open a config written by a newer build. Refusing to launch leaves
+		// the user with an app they cannot reach the settings of; falling
+		// back to detection leaves them with a working one.
+		unknown := c.Provider
+		c.Provider = detectProvider()
+		if c.Provider == "" {
+			return c, fmt.Errorf("config: no provider %q, and no credential for any other — try /login", unknown)
+		}
+		c.UnknownProvider = unknown
+		// The model went with it: an id from a provider that is gone cannot
+		// mean anything on the one detected in its place.
+		c.ModelID = ""
+		custom, isCustom = LookupCustom(c.Provider)
 	}
 
 	if c.ModelID == "" {
@@ -90,7 +110,7 @@ func Resolve(c Config) (Config, error) {
 		// first model the user listed for it — which is why the wizard asks
 		// for them in preference order.
 		if isCustom && len(custom.Models) > 0 {
-			c.ModelID = custom.Models[0]
+			c.ModelID = custom.Models[0].ID
 		} else if def, ok := catalog.Default(c.Provider, APIKey(c.Provider)); ok {
 			c.ModelID = def.ShortID
 		}
@@ -160,17 +180,44 @@ func LanguageModel(c Config) (provider.LanguageModel, error) {
 		// unusable — the setting existed, the picker listed it, and choosing
 		// it failed at the first turn.
 		if p, ok := LookupCustom(c.Provider); ok {
-			return openaicompat.New(openaicompat.Options{
-				Name:    c.Provider,
-				BaseURL: p.BaseURL,
-				APIKey:  p.CustomKey(),
-				Headers: p.Headers,
-				// An endpoint reached through headers or mTLS has no bearer
-				// token at all, and demanding one would lock it out.
-				AllowMissingAPIKey: p.CustomKey() == "",
-			}).LanguageModel(c.ModelID), nil
+			return customModel(c.Provider, c.ModelID, p)
 		}
 		return nil, fmt.Errorf("config: unknown provider %q", c.Provider)
+	}
+}
+
+// customModel builds a model for a user-defined endpoint, in the API shape the
+// endpoint actually speaks.
+//
+// The shape is stored, not sniffed. A gateway commonly serves several from one
+// host — bifrost exposes /anthropic and /openai — and the URL says nothing
+// about which is which; sending the wrong body shape fails in ways that read
+// like a broken model rather than a misrouted request.
+func customModel(name, modelID string, p CustomProvider) (provider.LanguageModel, error) {
+	key := p.CustomKey()
+	switch strings.ToLower(p.SDK) {
+	case "anthropic":
+		return anthropic.New(anthropic.Options{
+			APIKey:  key,
+			BaseURL: p.BaseURL,
+			Headers: provider.Headers(p.Headers),
+		}).LanguageModel(modelID), nil
+	case "google", "gemini":
+		return google.New(google.Options{
+			APIKey:  key,
+			BaseURL: p.BaseURL,
+			Headers: provider.Headers(p.Headers),
+		}).LanguageModel(modelID), nil
+	default:
+		return openaicompat.New(openaicompat.Options{
+			Name:    name,
+			BaseURL: p.BaseURL,
+			APIKey:  key,
+			Headers: provider.Headers(p.Headers),
+			// An endpoint reached through headers or mTLS has no bearer token
+			// at all, and demanding one would lock it out.
+			AllowMissingAPIKey: key == "",
+		}).LanguageModel(modelID), nil
 	}
 }
 

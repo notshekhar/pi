@@ -551,8 +551,8 @@ func (t *repl) customProviders(rest string) {
 		if len(fields) > 2 {
 			p.EnvVar = fields[2]
 		}
-		if len(fields) > 3 {
-			p.Models = fields[3:]
+		for _, id := range fields[3:] {
+			p.Models = append(p.Models, config.CustomModel{ID: id})
 		}
 		if err := config.AddCustomProvider(fields[0], p); err != nil {
 			t.fail("%s", err)
@@ -780,12 +780,39 @@ func (t *repl) customProviderWizard() {
 	models := strings.TrimSpace(t.ask("Model ids it serves, comma separated (the first is the default)", ""))
 	for _, id := range strings.Split(models, ",") {
 		if id = strings.TrimSpace(id); id != "" {
-			p.Models = append(p.Models, id)
+			p.Models = append(p.Models, config.CustomModel{ID: id})
 		}
 	}
 	if len(p.Models) == 0 {
 		t.fail("no models given — %q not saved, since nothing could be selected on it", name)
 		return
+	}
+
+	// The context window, which is not a nicety: auto-compaction is a
+	// fraction OF it, so a window of zero means a session that never compacts
+	// and eventually just fails on a too-long request.
+	if ctx := strings.TrimSpace(t.ask("Context window in tokens, optional (e.g. 200000)", "")); ctx != "" {
+		if n, err := strconv.Atoi(strings.ReplaceAll(ctx, ",", "")); err == nil && n > 0 {
+			p.Context = n
+			for i := range p.Models {
+				p.Models[i].Context = n
+			}
+		}
+	}
+
+	// And the price. A gateway is not in the catalog, so nothing else knows
+	// what its tokens cost — and a model with no rate bills at zero, which
+	// makes /cost report the work as free.
+	if rates := strings.TrimSpace(t.ask(`Price $/million tokens, optional — "input,output" (e.g. 3,15)`, "")); rates != "" {
+		in, out, _ := strings.Cut(rates, ",")
+		cost := &config.CustomCost{}
+		cost.Input, _ = strconv.ParseFloat(strings.TrimSpace(in), 64)
+		cost.Output, _ = strconv.ParseFloat(strings.TrimSpace(out), 64)
+		if cost.Input > 0 || cost.Output > 0 {
+			for i := range p.Models {
+				p.Models[i].Cost = cost
+			}
+		}
 	}
 
 	if err := config.AddCustomProvider(name, p); err != nil {
@@ -796,7 +823,7 @@ func (t *repl) customProviderWizard() {
 	// Selected straight away: someone who just configured an endpoint wants
 	// to use it, and making them run /provider afterwards is a step with no
 	// decision in it.
-	t.cfg.Provider, t.cfg.ModelID = name, p.Models[0]
+	t.cfg.Provider, t.cfg.ModelID = name, p.Models[0].ID
 	t.apply()
 }
 

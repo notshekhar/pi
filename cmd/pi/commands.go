@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/notshekhar/pi/internal/modules/core/agent"
-	"github.com/notshekhar/pi/internal/modules/core/catalog"
 	"github.com/notshekhar/pi/internal/modules/core/config"
 	"github.com/notshekhar/pi/internal/modules/core/hooks"
 	"github.com/notshekhar/pi/internal/modules/core/session"
@@ -273,7 +272,7 @@ func (t *repl) showContext() {
 // modelName is the catalog's display name for the active model, falling back
 // to the id when the catalog does not carry it.
 func (t *repl) modelName() string {
-	if m, ok := catalog.Lookup(t.cfg.Provider, t.cfg.ModelID, config.APIKey(t.cfg.Provider)); ok && m.Name != "" {
+	if m, ok := config.ModelInfo(t.cfg.Provider, t.cfg.ModelID); ok && m.Name != "" {
 		return m.Name
 	}
 	return t.cfg.FullID()

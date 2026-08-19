@@ -165,6 +165,13 @@ func replTUI(parent context.Context, cfg config.Config) error {
 	// which is exactly how the permission rules and the extension tools ended
 	// up applying on reload but not at startup.
 	t.applySettings()
+	// Say it, rather than quietly running on a different provider than the
+	// one configured. Resolve falls back so the app still starts; staying
+	// silent about it would leave the user reading a model name they never
+	// chose and wondering what happened to theirs.
+	if cfg.UnknownProvider != "" {
+		t.dim("provider %q is no longer configured — using %s", cfg.UnknownProvider, cfg.Provider)
+	}
 	// The `ask` and `plan` tools put their question to the user through the
 	// same picker every other choice uses.
 	t.run.Tools.Ask = func(ctx context.Context, question string, options []string) string {
@@ -237,7 +244,7 @@ func replTUI(parent context.Context, cfg config.Config) error {
 	}
 	app.SetThinking(thinkingName(cfg.Reasoning))
 	app.SetSession(sess.ID)
-	if m, ok := catalog.Lookup(cfg.Provider, cfg.ModelID, config.APIKey(cfg.Provider)); ok {
+	if m, ok := config.ModelInfo(cfg.Provider, cfg.ModelID); ok {
 		app.SetUsage(0, 0, m.Context, 0)
 	}
 	app.ShowWelcome(t.welcomeInfo())
@@ -471,7 +478,7 @@ func (t *repl) finishUsage(final *ai.Result) {
 	}
 	var cost float64
 	ctxWindow := 0
-	if m, ok := catalog.Lookup(t.cfg.Provider, t.cfg.ModelID, config.APIKey(t.cfg.Provider)); ok {
+	if m, ok := config.ModelInfo(t.cfg.Provider, t.cfg.ModelID); ok {
 		ctxWindow = m.Context
 		cost = float64(in)*m.Cost.Input/1e6 + float64(out)*m.Cost.Output/1e6
 		if v := final.Usage.InputTokens.CacheRead; v != nil && m.Cost.CacheRead > 0 {
@@ -649,7 +656,7 @@ func (t *repl) welcomeInfo() tui.WelcomeInfo {
 // contextWindow is the active model's window, 0 when the catalog does not
 // know the model.
 func (t *repl) contextWindow() int {
-	if m, ok := catalog.Lookup(t.cfg.Provider, t.cfg.ModelID, config.APIKey(t.cfg.Provider)); ok {
+	if m, ok := config.ModelInfo(t.cfg.Provider, t.cfg.ModelID); ok {
 		return m.Context
 	}
 	return 0
@@ -868,7 +875,7 @@ func (t *repl) apply() {
 		// Whether the status line shows a thinking level at all. A model
 		// missing from the catalog (a custom endpoint) keeps the previous
 		// answer rather than being declared non-reasoning.
-		if info, ok := catalog.Lookup(resolved.Provider, resolved.ModelID); ok {
+		if info, ok := config.ModelInfo(resolved.Provider, resolved.ModelID); ok {
 			t.app.SetModelReasoning(info.Reasoning)
 		}
 		_ = config.Update(func(s *config.Settings) {

@@ -1,0 +1,10 @@
+# Built example binaries. The leading slash matters: a bare "agent" also
+# matches the examples/agent directory, which kept the examples out of the
+# repository entirely.
+/agent
+/object
+/hosted
+/embed
+/image
+
+*.test

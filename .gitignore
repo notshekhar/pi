@@ -1,0 +1,13 @@
+# Built binaries. `go build ./cmd/pi-agent` drops one here by default and it
+# is 17MB — the one thing that must never be committed.
+/pi-agent
+/pi
+*.exe
+
+# The agent's own state, if anyone points HOME at the checkout.
+*.db
+*.db-wal
+*.db-shm
+
+# Editor and OS noise.
+.DS_Store

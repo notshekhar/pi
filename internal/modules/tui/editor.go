@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // Editor is a multiline input with history, word navigation, and a kill
@@ -434,19 +435,37 @@ func (e *Editor) View(width int) (lines []string, curRow, curCol int) {
 	out := []string{rule}
 	curRow, curCol = -1, 0
 
+	// The leading command token, tinted as it is typed — `/model`, `!ls`.
+	//
+	// It is the fastest possible confirmation that the line will be READ as a
+	// command rather than sent to the model, which is the one thing a leading
+	// slash decides and the one mistake a plain composer lets you make
+	// silently.
+	tokenLen := commandTokenLen(e.lines)
+
 	for i, line := range e.lines {
 		body := string(line)
 		folded := wrapLine(body, layoutWidth)
 		colAcc := 0
+		// Where in the ORIGINAL line each folded segment starts, so a token
+		// that wraps is tinted across both halves rather than from the top of
+		// each one.
+		offset := 0
 		for j, fl := range folded {
+			runes := []rune(fl)
 			if i == e.row && curRow == -1 {
-				w := len([]rune(fl))
+				w := len(runes)
 				if e.col <= colAcc+w || j == len(folded)-1 {
 					curRow, curCol = len(out), e.col-colAcc+padX
 				}
 				colAcc += w
 			}
-			out = append(out, strings.Repeat(" ", padX)+fl)
+			text := fl
+			if i == 0 && tokenLen > offset {
+				text = tintPrefix(t, runes, tokenLen-offset)
+			}
+			offset += len(runes)
+			out = append(out, strings.Repeat(" ", padX)+text)
 		}
 	}
 	if curRow == -1 {
@@ -604,4 +623,45 @@ func (e *Editor) Insert(text string) {
 		}
 	}
 	e.menu = nil
+}
+
+// commandTokenLen is the length in runes of a leading command token, or 0.
+//
+// Only on the FIRST line, and only when the token is the very start of it: a
+// slash further in is a path, and `/usr/bin` in the middle of a sentence is
+// not a command. A lone "/" is not tinted either — nothing has been typed
+// yet, and colouring the bare character would announce a command the user has
+// not written.
+func commandTokenLen(lines [][]rune) int {
+	if len(lines) == 0 {
+		return 0
+	}
+	first := lines[0]
+	if len(first) < 2 {
+		return 0
+	}
+	if first[0] != '/' && first[0] != '!' {
+		return 0
+	}
+	// `!` runs the rest of the line as a shell command, so only its marker is
+	// the token; `/name` is a word.
+	if first[0] == '!' {
+		return 1
+	}
+	n := 1
+	for n < len(first) && !unicode.IsSpace(first[n]) {
+		n++
+	}
+	return n
+}
+
+// tintPrefix colours the first n runes of a segment.
+func tintPrefix(t *Theme, runes []rune, n int) string {
+	if n <= 0 {
+		return string(runes)
+	}
+	if n >= len(runes) {
+		return t.Fg(SlotAccent, string(runes))
+	}
+	return t.Fg(SlotAccent, string(runes[:n])) + string(runes[n:])
 }

@@ -774,28 +774,54 @@ func (t *repl) customProviderWizard() {
 		p.Headers = parseHeaders(headers)
 	}
 
-	// Models last, because they are the one answer the endpoint cannot be
-	// asked for: an OpenAI-compatible gateway need not serve /models, and a
-	// model nobody can name is a model nobody can pick.
-	models := strings.TrimSpace(t.ask("Model ids it serves, comma separated (the first is the default)", ""))
-	for _, id := range strings.Split(models, ",") {
-		if id = strings.TrimSpace(id); id != "" {
-			p.Models = append(p.Models, config.CustomModel{ID: id})
+	// ASK THE ENDPOINT first. Most gateways answer /models with the list they
+	// proxy, and it is a better list than anyone will type: complete,
+	// correctly spelled, and often carrying the context window with it.
+	// Typing ids by hand is the fallback, not the path.
+	t.dim("asking %s what it serves…", p.BaseURL)
+	discovered := config.DiscoverModels(context.Background(), p)
+	if len(discovered) > 0 {
+		p.Models = discovered
+		t.dim("found %d models", len(discovered))
+		t.app.Do(func() {
+			th := t.app.Theme()
+			var lines []string
+			for _, m := range discovered[:min(len(discovered), 12)] {
+				lines = append(lines, th.Fg(tui.SlotDim, "  • "+m.ID))
+			}
+			if len(discovered) > 12 {
+				lines = append(lines, th.Fg(tui.SlotDim,
+					fmt.Sprintf("  … +%d more", len(discovered)-12)))
+			}
+			t.app.Print(lines...)
+		})
+	} else {
+		t.dim("it does not list its models — name them yourself")
+		models := strings.TrimSpace(t.ask("Model ids, comma separated (the first is the default)", ""))
+		for _, id := range strings.Split(models, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				p.Models = append(p.Models, config.CustomModel{ID: id})
+			}
 		}
-	}
-	if len(p.Models) == 0 {
-		t.fail("no models given — %q not saved, since nothing could be selected on it", name)
-		return
+		if len(p.Models) == 0 {
+			t.fail("no models given — %q not saved, since nothing could be selected on it", name)
+			return
+		}
 	}
 
 	// The context window, which is not a nicety: auto-compaction is a
 	// fraction OF it, so a window of zero means a session that never compacts
-	// and eventually just fails on a too-long request.
-	if ctx := strings.TrimSpace(t.ask("Context window in tokens, optional (e.g. 200000)", "")); ctx != "" {
-		if n, err := strconv.Atoi(strings.ReplaceAll(ctx, ",", "")); err == nil && n > 0 {
-			p.Context = n
-			for i := range p.Models {
-				p.Models[i].Context = n
+	// and eventually just fails on a too-long request. Only asked for when
+	// discovery did not already supply one.
+	if p.Models[0].Context == 0 {
+		if ctx := strings.TrimSpace(t.ask("Context window in tokens, optional (e.g. 200000)", "")); ctx != "" {
+			if n, err := strconv.Atoi(strings.ReplaceAll(ctx, ",", "")); err == nil && n > 0 {
+				p.Context = n
+				for i := range p.Models {
+					if p.Models[i].Context == 0 {
+						p.Models[i].Context = n
+					}
+				}
 			}
 		}
 	}

@@ -129,14 +129,15 @@ func (t *repl) extensionsCmd(rest string) {
 			items = append(items, tui.Item{Value: e.Name(), Label: label, Description: e.About()})
 		}
 		return "Extensions (type to filter, Esc to close)", items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		if choice.Value == installRow {
 			if spec := strings.TrimSpace(t.ask("install (path to a Go main package)", "")); spec != "" {
 				t.installExtension(spec)
 			}
-			return
+			return keepPanel
 		}
 		t.extensionActions(choice.Value)
+		return keepPanel
 	})
 }
 

@@ -11,7 +11,12 @@
 #   linux/amd64    native
 #   linux/arm64    native, on the free arm64 runner — cheaper and more honest
 #                  than installing a cross-gcc
-#   windows/amd64  native, with the runner image's own mingw gcc
+#
+# Windows is deliberately absent. The tree compiles for it — that is checked
+# in CI — but the TUI has no console raw-mode implementation and the bash
+# tool, hooks and key helpers all shell out to `sh -c`, so a windows binary
+# would exit at "not a tty" or fail on its first tool call. Shipping one would
+# be shipping a broken install, which is worse than not shipping.
 #
 # Assets are named the way the installer expects: `pi-<os>-<arch>.tar.gz`
 # holding `<os>-<arch>/pi`, plus a `.sha256` beside each one. The directory
@@ -49,10 +54,6 @@ jobs:
             target: linux-arm64
             goos: linux
             goarch: arm64
-          - os: windows-latest
-            target: windows-x64
-            goos: windows
-            goarch: amd64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -75,10 +76,8 @@ jobs:
           CGO_LDFLAGS: ${{ matrix.arch_flags }}
         run: |
           set -euo pipefail
-          bin=pi
-          [ "$GOOS" = "windows" ] && bin=pi.exe
           mkdir -p "${{ matrix.target }}"
-          go build -trimpath -ldflags "-s -w" -o "${{ matrix.target }}/$bin" ./cmd/pi
+          go build -trimpath -ldflags "-s -w" -o "${{ matrix.target }}/pi" ./cmd/pi
           tar czf "pi-${{ matrix.target }}.tar.gz" "${{ matrix.target }}"
           # The installer verifies this when it is present, so it is always
           # written — a missing checksum silently downgrades every install.

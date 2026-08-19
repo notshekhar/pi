@@ -127,12 +127,13 @@ func (t *repl) reminders(string) {
 			items = append(items, tui.Item{Value: r.ID, Label: r.Text, Description: r.Schedule()})
 		}
 		return fmt.Sprintf("Reminders · %d", len(list)), items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		if choice.Value == addReminder {
 			t.addReminder()
-			return
+			return keepPanel
 		}
 		t.editReminder(choice.Value)
+		return keepPanel
 	})
 }
 

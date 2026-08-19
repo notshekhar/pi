@@ -149,12 +149,12 @@ func (t *repl) backgroundManager(parent context.Context) {
 			items = append(items, tui.Item{Value: task.ID, Label: firstLine(task.Prompt), Description: task.Status()})
 		}
 		return fmt.Sprintf("Background · %d", len(tasks)), items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		if choice.Value == addRow {
 			if text := strings.TrimSpace(t.ask("background task", "")); text != "" {
 				t.background(parent, text)
 			}
-			return
+			return keepPanel
 		}
 		for _, task := range t.bg.list() {
 			if task.ID != choice.Value {
@@ -163,13 +163,14 @@ func (t *repl) backgroundManager(parent context.Context) {
 			if !task.Done.IsZero() {
 				result := task.Result
 				t.app.Do(func() { t.app.Print(result) })
-				return
+				return keepPanel
 			}
 			if t.confirmRemove(firstLine(task.Prompt), "cancel this running task") {
 				task.cancel()
 				t.dim("%s cancelled", task.ID)
 			}
 		}
+		return keepPanel
 	})
 }
 

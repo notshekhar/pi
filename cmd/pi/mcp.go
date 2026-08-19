@@ -128,12 +128,13 @@ func (t *repl) mcpPanel() {
 			})
 		}
 		return "MCP servers (type to filter, Esc to close)", items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		if choice.Value == addServer {
 			t.addMCPServer()
-			return
+			return keepPanel
 		}
 		t.mcpActions(choice.Value)
+		return keepPanel
 	})
 }
 

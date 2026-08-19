@@ -80,7 +80,14 @@ func (t *repl) pickPlain(title string, items []tui.Item, initial int, current st
 //
 // build is called fresh each pass so the rows reflect the edit just made.
 // Returning no rows ends the loop — a manager with nothing to manage.
-func (t *repl) manage(build func() (string, []tui.Item), act func(tui.Item)) {
+// closePanel / keepPanel are what an action returns to say whether the
+// manager should reopen its list.
+const (
+	closePanel = false
+	keepPanel  = true
+)
+
+func (t *repl) manage(build func() (string, []tui.Item), act func(tui.Item) bool) {
 	// A panel opened FROM a panel (a /settings row that opens the denylist)
 	// runs inline on the goroutine that is already waiting for it. Spawning a
 	// second goroutine there would leave two loops both trying to own the
@@ -98,7 +105,15 @@ func (t *repl) manage(build func() (string, []tui.Item), act func(tui.Item)) {
 
 // managePanel is the loop itself, run on whichever goroutine already owns the
 // panel.
-func (t *repl) managePanel(build func() (string, []tui.Item), act func(tui.Item)) {
+// A manager LOOPS by default — list, act, back to the list — because that is
+// what editing a list is: adding three rules should not mean typing the
+// command three times.
+//
+// A SELECTION is not an edit. Picking a model is the terminal action, and
+// reopening the list afterwards leaves the user looking at a menu they have
+// finished with, hunting for the key that dismisses it. Those actions return
+// closePanel.
+func (t *repl) managePanel(build func() (string, []tui.Item), act func(tui.Item) bool) {
 	last := 0
 	for first := true; ; first = false {
 		title, items := build()
@@ -121,7 +136,9 @@ func (t *repl) managePanel(build func() (string, []tui.Item), act func(tui.Item)
 			return
 		}
 		last = indexOf(items, choice.Value)
-		act(*choice)
+		if !act(*choice) {
+			return
+		}
 	}
 }
 
@@ -289,15 +306,16 @@ func (t *repl) pickBashDeny() {
 			})
 		}
 		return fmt.Sprintf("Bash denylist · %d", len(denied)), items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		if choice.Value == addPattern {
 			t.addBashDeny()
-			return
+			return keepPanel
 		}
 		if t.confirmRemove(choice.Label, fmt.Sprintf("stop blocking %q", choice.Label)) {
 			t.removePermissionRule(choice.Value)
 			t.dim("unblocked %q", choice.Label)
 		}
+		return keepPanel
 	})
 }
 
@@ -372,14 +390,15 @@ func (t *repl) pickPermission() {
 			items = append(items, tui.Item{Value: rule, Label: rule, Description: "select to remove"})
 		}
 		return fmt.Sprintf("Permission rules · %d (deny > ask > allow)", len(stored)), items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		if choice.Value == addRule {
 			t.addPermissionRule()
-			return
+			return keepPanel
 		}
 		if t.confirmRemove(choice.Value, "drop this rule") {
 			t.removePermissionRule(choice.Value)
 		}
+		return keepPanel
 	})
 }
 
@@ -466,8 +485,9 @@ func (t *repl) pickSkill() {
 			items = append(items, tui.Item{Value: s.Name, Label: s.Name, Description: s.Description})
 		}
 		return fmt.Sprintf("Skills · %d", len(found)), items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		t.skillsCmd(choice.Value)
+		return keepPanel
 	})
 }
 
@@ -499,18 +519,19 @@ func (t *repl) pickHook() {
 			})
 		}
 		return fmt.Sprintf("Hooks — %d loaded (Esc to close)", len(entries)), items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		if choice.Value == addHook {
 			t.addHook()
-			return
+			return keepPanel
 		}
 		parts := strings.SplitN(choice.Value, "\x00", 3)
 		if len(parts) != 3 {
-			return
+			return keepPanel
 		}
 		if t.confirmRemove(parts[0]+": "+elide(parts[2], 50), "delete this hook") {
 			t.removeHook(hooks.Event(parts[0]), parts[1], parts[2])
 		}
+		return keepPanel
 	})
 }
 

@@ -15,6 +15,13 @@ jobs:
           go-version: stable
       - run: go vet ./...
       - run: go test ./...
+      # Windows is not a release target yet, but the tree must keep compiling
+      # for it — the last break was a platform fallback file that defined two
+      # of three functions, and it only surfaced when a release tried to build.
+      - name: cross-compile check
+        run: |
+          GOOS=windows GOARCH=amd64 go build ./...
+          GOOS=linux GOARCH=arm64 go build ./...
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)

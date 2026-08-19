@@ -12,16 +12,14 @@ macOS and Linux:
 curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | bash
 ```
 
-Windows (PowerShell):
+Prebuilt for macOS (arm64, x64) and Linux (x64, arm64). The installer verifies
+the checksum, symlinks `pi` onto your PATH, and checks the binary runs before
+claiming success. `--uninstall` removes it; your sessions and settings in
+`~/.pi-agent` are kept.
 
-```powershell
-irm https://raw.githubusercontent.com/notshekhar/pi/main/install.ps1 | iex
-```
-
-Prebuilt for macOS (arm64, x64), Linux (x64, arm64) and Windows (x64). The
-installer verifies the checksum, symlinks `pi` onto your PATH, and checks the
-binary runs before claiming success. `--uninstall` removes it; your sessions
-and settings in `~/.pi-agent` are kept.
+Windows is not supported yet. The code compiles for it, but the TUI needs a
+console raw-mode implementation and the shell-backed tools need a non-POSIX
+path, so there is no Windows binary rather than one that exits on launch.
 
 With Go instead:
 

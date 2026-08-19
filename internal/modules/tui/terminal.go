@@ -15,6 +15,10 @@ func afterMs(ms int) <-chan time.Time {
 	return time.After(time.Duration(ms) * time.Millisecond)
 }
 
+// TerminalSize is the current grid, for callers outside this package — the
+// Windows resize watcher polls it, having no SIGWINCH to wait on.
+func TerminalSize() Size { return size(os.Stdout) }
+
 // Size is the terminal grid in cells.
 type Size struct {
 	Cols int

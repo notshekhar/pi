@@ -606,8 +606,9 @@ func (t *repl) settingsMenu() {
 			})
 		}
 		return "Settings (type to filter, Esc to close)", items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		t.editSetting(choice.Value)
+		return keepPanel
 	})
 }
 

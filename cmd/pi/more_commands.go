@@ -957,8 +957,9 @@ func (t *repl) gatewayPanel(parent context.Context) {
 			Label:       "Telegram — " + state,
 			Description: about,
 		}}
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
 		t.telegramActions(parent)
+		return keepPanel
 	})
 }
 

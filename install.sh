@@ -197,10 +197,11 @@ detect_target() {
     Darwin) os="darwin" ;;
     Linux)  os="linux" ;;
     MINGW*|MSYS*|CYGWIN*)
-      err "Detected Git Bash / MSYS on Windows. Use the PowerShell installer instead:"
-      err "  irm https://raw.githubusercontent.com/${REPO_SLUG}/main/install.ps1 | iex"
-      err "Or from cmd.exe:"
-      err "  curl -fsSLo %TEMP%\\pi-install.cmd https://raw.githubusercontent.com/${REPO_SLUG}/main/install.cmd && %TEMP%\\pi-install.cmd"
+      err "Windows is not supported yet."
+      err "  The TUI needs a console raw-mode implementation, and the bash tool,"
+      err "  hooks and key helpers all shell out to \`sh\`. Rather than ship a"
+      err "  binary that exits on launch, there is no Windows build."
+      err "  WSL works today: install pi inside it."
       exit 1
       ;;
     *)      err "unsupported OS: $uname_s"; exit 1 ;;

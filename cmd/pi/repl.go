@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -225,14 +223,8 @@ func replTUI(parent context.Context, cfg config.Config) error {
 
 	app.SetSources(t.commandItems(), fileItems(cfg.CWD))
 
-	winch := make(chan os.Signal, 1)
-	signal.Notify(winch, syscall.SIGWINCH)
-	defer signal.Stop(winch)
-	go func() {
-		for range winch {
-			app.Do(app.Resize)
-		}
-	}()
+	stopResize := watchResize(func() { app.Do(app.Resize) })
+	defer stopResize()
 	// Restore the saved persona — but never `plan`. Plan mode is a mode you
 	// are in, not a preference you hold, and a fresh session starting
 	// read-only because the last one ended mid-plan is a surprise nobody can
@@ -719,10 +711,12 @@ func (t *repl) pickModel(rest string) {
 			})
 		}
 		return "Model · " + t.cfg.Provider + " (type to filter)", items
-	}, func(choice tui.Item) {
+	}, func(choice tui.Item) bool {
+		// Registering a model id is an EDIT: the answer to "what is there
+		// now" is the list, so it reopens with the new entry in it.
 		if choice.Value == addModel {
 			t.addCustomModel()
-			return
+			return keepPanel
 		}
 		// A custom model offers removal; a catalog one is just selected.
 		if customModels(t.cfg.Provider)[choice.Value] {
@@ -731,16 +725,20 @@ func (t *repl) pickModel(rest string) {
 				tui.Item{Value: "remove", Label: "remove custom model",
 					Description: "forget this model id"},
 			)
+			// Backing out of the sub-menu returns to the list it was opened
+			// from, not out of the picker entirely.
 			if action == nil {
-				return
+				return keepPanel
 			}
 			if action.Value == "remove" {
 				t.removeCustomModel(choice.Value)
-				return
+				return keepPanel
 			}
 		}
+		// Choosing a model is the whole point of the picker, so it closes.
 		t.cfg.ModelID = choice.Value
 		t.apply()
+		return closePanel
 	})
 }
 

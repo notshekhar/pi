@@ -1,8 +1,10 @@
 # Build the release binaries when a version tag is pushed.
 #
-# Each target builds on its OWN runner rather than cross-compiling: the SQLite
-# driver is cgo, so a cross build needs a cross C toolchain, and the honest way
-# to get a working darwin binary is to build it on darwin.
+# The SQLite driver is cgo, so every target needs a C toolchain that can emit
+# for it. Linux builds on Linux and macOS builds on macOS — but BOTH macOS
+# architectures build on the arm64 runner, because Apple's clang targets
+# x86_64 natively with `-arch` and the Intel runners are being retired. A job
+# pinned to `macos-13` sat queued forever and the release never published.
 name: release
 
 on:
@@ -20,9 +22,10 @@ jobs:
           - os: macos-latest
             goos: darwin
             goarch: arm64
-          - os: macos-13
+          - os: macos-latest
             goos: darwin
             goarch: amd64
+            arch_flags: "-arch x86_64"
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
@@ -32,12 +35,17 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-      - run: go test ./...
+      # Only where the binary can actually run. A cross-built darwin/amd64
+      # cannot be executed on the arm64 runner that produced it.
+      - if: ${{ !matrix.arch_flags }}
+        run: go test ./...
       - name: build
         env:
           CGO_ENABLED: "1"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          CGO_CFLAGS: ${{ matrix.arch_flags }}
+          CGO_LDFLAGS: ${{ matrix.arch_flags }}
         run: |
           go build -trimpath -ldflags "-s -w" -o pi ./cmd/pi
           tar czf pi_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz pi

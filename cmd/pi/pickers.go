@@ -621,11 +621,77 @@ func (t *repl) agentsCmd(rest string) {
 
 // skillsMenu is `/skills`: a picker with no argument, the skill itself with one.
 func (t *repl) skillsMenu(rest string) {
-	if strings.TrimSpace(rest) != "" {
+	if arg := strings.TrimSpace(rest); arg != "" {
+		if arg == "new" {
+			t.newSkill()
+			return
+		}
 		t.skillsCmd(rest)
 		return
 	}
 	t.pickSkill()
+}
+
+// newSkill is `/skills new`: author one.
+//
+// A skill is three things — a name, a description saying WHEN it applies, and
+// the instructions — and the only fiddly part is the frontmatter, which is
+// exactly the part a hand-written file gets wrong in a way the loader can
+// only respond to by silently skipping it. This writes it and reads it back.
+func (t *repl) newSkill() {
+	name := strings.TrimSpace(t.ask("Skill name (also its directory)", ""))
+	if name == "" {
+		return
+	}
+	// Asked for in the model's own terms. A description that says what the
+	// skill IS ("git helper") rather than when it APPLIES ("use when writing
+	// commit messages") is the single most common reason a skill is never
+	// chosen — it is all the model has to go on.
+	desc := strings.TrimSpace(t.ask("When should the agent use it? (one line — this is all the model sees)", ""))
+	if desc == "" {
+		t.dim("a skill with no description can never be chosen — nothing written")
+		return
+	}
+
+	where := t.app.Select("Where does it live?", []tui.Item{
+		{Value: "project", Label: "this project",
+			Description: ".pi-agent/skills — committed with the repo, shared with the team"},
+		{Value: "user", Label: "just me",
+			Description: "~/.pi-agent/skills — available in every project"},
+	}, 0, "")
+	if where == nil {
+		return
+	}
+	dir := skills.ProjectDir(t.cfg.CWD)
+	if where.Value == "user" {
+		userDir, err := skills.UserDir()
+		if err != nil {
+			t.fail("skills: %s", err)
+			return
+		}
+		dir = userDir
+	}
+
+	// The body goes through $EDITOR rather than a one-line prompt:
+	// instructions are the long part, and a composer that submits on Enter is
+	// the wrong shape for writing them.
+	body := "# " + name + "\n\nWrite the instructions here. They replace the agent's\n" +
+		"default approach for this kind of work, so be specific about what to\n" +
+		"do and what not to.\n"
+	edited, err := t.editText(name+"-SKILL.md", body)
+	if err != nil {
+		t.fail("skills: %s", err)
+		return
+	}
+	path, err := skills.Create(dir, name, desc, edited)
+	if err != nil {
+		t.fail("skills: %s", err)
+		return
+	}
+	t.dim("wrote %s", path)
+	// The index is built from disk on every turn, so it is already live —
+	// worth saying, because "do I have to restart" is the next question.
+	t.dim("the agent can use it from the next message")
 }
 
 // hooksMenu is `/hooks`: the manager.

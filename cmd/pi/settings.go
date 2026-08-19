@@ -744,3 +744,43 @@ func statusSnapshot(ctx tui.StatusContext) statusline.Snapshot {
 		Width: ctx.Width,
 	}
 }
+
+// editText opens a scratch file in $EDITOR seeded with `initial`, and returns
+// what the user saved.
+//
+// A scratch file rather than the destination, because the destination should
+// not exist until the content is known to be good: a skill written straight
+// to its directory and then abandoned mid-edit leaves a half-file the loader
+// has to skip, which is a worse outcome than nothing at all.
+func (t *repl) editText(name, initial string) (string, error) {
+	dir, err := os.MkdirTemp("", "pi-edit-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
+		return "", err
+	}
+
+	editor := firstNonEmpty(os.Getenv("VISUAL"), os.Getenv("EDITOR"), "vi")
+	shell := firstNonEmpty(os.Getenv("SHELL"), "/bin/sh")
+	quoted := "'" + strings.ReplaceAll(path, "'", `'''`) + "'"
+	t.app.Suspend(func() {
+		cmd := exec.Command(shell, "-c", editor+" "+quoted)
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		_ = cmd.Run()
+	})
+
+	out, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	// Unchanged means the user did not write anything of their own, and
+	// saving the placeholder as a skill would create one that instructs the
+	// agent to do nothing in particular.
+	if strings.TrimSpace(string(out)) == strings.TrimSpace(initial) {
+		return "", fmt.Errorf("nothing written")
+	}
+	return string(out), nil
+}

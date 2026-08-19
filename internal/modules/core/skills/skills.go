@@ -167,3 +167,54 @@ func Index(cwd string) string {
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// Create scaffolds a new skill directory with a SKILL.md in it.
+//
+// Authoring is the half that was missing. A skill is only three things — a
+// name, a description saying WHEN it applies, and the instructions — but
+// getting the frontmatter shape right by hand is exactly the sort of detail
+// that turns a good idea into a file the loader silently skips.
+//
+// The description is not optional and not cosmetic: it is the only thing the
+// model sees until it decides to load the skill, so a skill without one can
+// never be chosen. That is why an empty description is an error here rather
+// than a default.
+func Create(dir, name, description, body string) (string, error) {
+	name = strings.TrimSpace(name)
+	description = oneLine(description)
+	if name == "" {
+		return "", fmt.Errorf("a skill needs a name")
+	}
+	if strings.ContainsAny(name, `/\:`) {
+		return "", fmt.Errorf("a skill name is a directory name: no slashes or colons")
+	}
+	if description == "" {
+		return "", fmt.Errorf("a skill needs a description — it is the only thing the model sees when deciding whether to load it")
+	}
+	if strings.TrimSpace(body) == "" {
+		return "", fmt.Errorf("a skill needs instructions")
+	}
+
+	target := filepath.Join(dir, name)
+	path := filepath.Join(target, FileName)
+	// Never overwrite. A skill is something the user wrote, and clobbering it
+	// because a name collided is not a recoverable mistake.
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("a skill named %q already exists at %s", name, path)
+	}
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return "", err
+	}
+	doc := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s\n",
+		name, description, strings.TrimRight(body, "\n"))
+	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+		return "", err
+	}
+	// Read it back through the ordinary parser, so a skill this function
+	// wrote can never be one the loader silently skips — which is the exact
+	// failure mode hand-written frontmatter has.
+	if got := parse(name, doc); got.Description == "" || got.Body == "" {
+		return "", fmt.Errorf("wrote %s but it does not parse as a skill", path)
+	}
+	return path, nil
+}

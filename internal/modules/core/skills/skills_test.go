@@ -157,3 +157,86 @@ func TestDescriptionIsFlattened(t *testing.T) {
 		t.Errorf("description = %q", s.Description)
 	}
 }
+
+// Authoring writes a file the LOADER accepts — which is the whole point of
+// having a Create at all, since hand-written frontmatter that is subtly wrong
+// is skipped in silence.
+func TestCreateWritesALoadableSkill(t *testing.T) {
+	dir := t.TempDir()
+	path, err := Create(dir, "commit-style", "Use when writing a commit message.", "Body first.\n\n- be terse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(path, filepath.Join("commit-style", FileName)) {
+		t.Errorf("wrote %q", path)
+	}
+	got := scan(dir, false)
+	if len(got) != 1 {
+		t.Fatalf("the loader found %d skills in what Create wrote", len(got))
+	}
+	if got[0].Name != "commit-style" {
+		t.Errorf("name = %q", got[0].Name)
+	}
+	if got[0].Description != "Use when writing a commit message." {
+		t.Errorf("description = %q", got[0].Description)
+	}
+	if !strings.Contains(got[0].Body, "be terse") {
+		t.Errorf("body lost: %q", got[0].Body)
+	}
+}
+
+// A description is the ONLY thing the model sees before deciding to load a
+// skill, so one without it can never be chosen. That makes an empty
+// description an error rather than a default.
+func TestCreateRefusesWhatCannotBeChosen(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct{ name, desc, body, why string }{
+		{"", "d", "b", "no name"},
+		{"n", "", "b", "no description"},
+		{"n", "d", "  ", "no instructions"},
+		{"a/b", "d", "b", "a name that is not a directory name"},
+	}
+	for _, c := range cases {
+		if _, err := Create(dir, c.name, c.desc, c.body); err == nil {
+			t.Errorf("accepted %s", c.why)
+		}
+	}
+}
+
+// A skill is something the user wrote. Clobbering it because a name collided
+// is not a recoverable mistake.
+func TestCreateNeverOverwrites(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Create(dir, "dup", "Use when X.", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(dir, "dup", "Use when Y.", "second"); err == nil {
+		t.Fatal("overwrote an existing skill")
+	}
+	got := scan(dir, false)
+	if len(got) != 1 || !strings.Contains(got[0].Body, "first") {
+		t.Errorf("the original was disturbed: %+v", got)
+	}
+}
+
+// The whole point of progressive disclosure: a new skill appears in the INDEX
+// (name + description only), and its body stays out until it is loaded.
+func TestNewSkillEntersTheIndexButNotTheContext(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dir, err := UserDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(dir, "changelog", "Use when writing release notes.", "SECRET-BODY-TEXT"); err != nil {
+		t.Fatal(err)
+	}
+	index := Index(t.TempDir())
+	if !strings.Contains(index, "changelog") || !strings.Contains(index, "Use when writing release notes.") {
+		t.Errorf("a new skill did not reach the index:\n%s", index)
+	}
+	if strings.Contains(index, "SECRET-BODY-TEXT") {
+		t.Errorf("the index carried the body — that is not progressive disclosure:\n%s", index)
+	}
+}

@@ -96,3 +96,24 @@ func TestLastFrameIgnoresTheBudget(t *testing.T) {
 		t.Fatalf("the exit frame was held back: wait=%v", wait)
 	}
 }
+
+// Setup queued before the loop starts must land in the FIRST frame.
+//
+// The bug: /settings is applied through Do, which queues onto the render
+// loop's channel — and the loop painted before it drained, so a pinned
+// composer arrived one frame late and the masthead was drawn at the top and
+// then visibly jumped down. The stored theme had the same problem, flashing
+// the default palette first.
+func TestQueuedSetupLandsInTheFirstFrame(t *testing.T) {
+	a := &App{mut: make(chan func(), 8), keys: &KeyDecoder{Ch: make(chan Key)}}
+	applied := false
+	a.Do(func() { applied = true })
+
+	a.drain()
+	if !applied {
+		t.Fatal("setup queued before the loop started was not drained before the first paint")
+	}
+	if !a.needsPaint {
+		t.Error("draining setup did not mark a frame as owed")
+	}
+}

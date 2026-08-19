@@ -4,19 +4,38 @@ A coding agent that lives in your terminal. One Go module, no runtime to
 install, and a TUI that draws inline so your conversation stays in the
 terminal's own scrollback when the process exits.
 
+## Install
+
+macOS and Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/notshekhar/pi/main/install.sh | bash
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/notshekhar/pi/main/install.ps1 | iex
+```
+
+Prebuilt for macOS (arm64, x64), Linux (x64, arm64) and Windows (x64). The
+installer verifies the checksum, symlinks `pi` onto your PATH, and checks the
+binary runs before claiming success. `--uninstall` removes it; your sessions
+and settings in `~/.pi-agent` are kept.
+
+With Go instead:
+
 ```bash
 go install github.com/notshekhar/pi/cmd/pi@latest
-pi
 ```
 
-Or from a clone:
+Building from source needs a C toolchain — sessions live in SQLite and the
+driver is cgo.
 
 ```bash
-go run ./cmd/pi -provider kimi
-go run ./cmd/pi -model kimi/k3 run "what is in ./internal/modules/core/tools?"
+pi                                   # in any project directory
+pi -model kimi/k3 run "what is in ./internal?"
 ```
-
-Building needs a C toolchain — sessions live in SQLite and the driver is cgo.
 
 ## What it does
 

@@ -1,10 +1,22 @@
 # Build the release binaries when a version tag is pushed.
 #
-# The SQLite driver is cgo, so every target needs a C toolchain that can emit
-# for it. Linux builds on Linux and macOS builds on macOS — but BOTH macOS
-# architectures build on the arm64 runner, because Apple's clang targets
-# x86_64 natively with `-arch` and the Intel runners are being retired. A job
-# pinned to `macos-13` sat queued forever and the release never published.
+# Five targets, and the constraint that shapes all of them is cgo: the SQLite
+# driver needs a C toolchain that can emit for the target, so every job runs
+# where such a toolchain already exists.
+#
+#   darwin/arm64   native
+#   darwin/amd64   cross-built on the SAME arm64 runner — Apple's clang targets
+#                  x86_64 with `-arch`, and the Intel runners are being retired
+#                  (a job pinned to macos-13 sat queued forever)
+#   linux/amd64    native
+#   linux/arm64    native, on the free arm64 runner — cheaper and more honest
+#                  than installing a cross-gcc
+#   windows/amd64  native, with the runner image's own mingw gcc
+#
+# Assets are named the way the installer expects: `pi-<os>-<arch>.tar.gz`
+# holding `<os>-<arch>/pi`, plus a `.sha256` beside each one. The directory
+# inside the tarball is what lets the installer swap a whole directory into
+# place atomically rather than a bare file.
 name: release
 
 on:
@@ -17,17 +29,29 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
+            target: darwin-arm64
             goos: darwin
             goarch: arm64
           - os: macos-latest
+            target: darwin-x64
             goos: darwin
             goarch: amd64
             arch_flags: "-arch x86_64"
           - os: ubuntu-latest
+            target: linux-x64
             goos: linux
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            goos: linux
+            goarch: arm64
+          - os: windows-latest
+            target: windows-x64
+            goos: windows
             goarch: amd64
     runs-on: ${{ matrix.os }}
     steps:
@@ -35,11 +59,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+
       # Only where the binary can actually run. A cross-built darwin/amd64
       # cannot be executed on the arm64 runner that produced it.
       - if: ${{ !matrix.arch_flags }}
         run: go test ./...
+
       - name: build
+        shell: bash
         env:
           CGO_ENABLED: "1"
           GOOS: ${{ matrix.goos }}
@@ -47,12 +74,26 @@ jobs:
           CGO_CFLAGS: ${{ matrix.arch_flags }}
           CGO_LDFLAGS: ${{ matrix.arch_flags }}
         run: |
-          go build -trimpath -ldflags "-s -w" -o pi ./cmd/pi
-          tar czf pi_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz pi
+          set -euo pipefail
+          bin=pi
+          [ "$GOOS" = "windows" ] && bin=pi.exe
+          mkdir -p "${{ matrix.target }}"
+          go build -trimpath -ldflags "-s -w" -o "${{ matrix.target }}/$bin" ./cmd/pi
+          tar czf "pi-${{ matrix.target }}.tar.gz" "${{ matrix.target }}"
+          # The installer verifies this when it is present, so it is always
+          # written — a missing checksum silently downgrades every install.
+          if command -v sha256sum >/dev/null; then
+            sha256sum "pi-${{ matrix.target }}.tar.gz" > "pi-${{ matrix.target }}.tar.gz.sha256"
+          else
+            shasum -a 256 "pi-${{ matrix.target }}.tar.gz" > "pi-${{ matrix.target }}.tar.gz.sha256"
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
-          name: pi_${{ matrix.goos }}_${{ matrix.goarch }}
-          path: pi_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+          name: pi-${{ matrix.target }}
+          path: |
+            pi-${{ matrix.target }}.tar.gz
+            pi-${{ matrix.target }}.tar.gz.sha256
 
   release:
     needs: build
@@ -63,5 +104,7 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          files: "*.tar.gz"
+          files: |
+            *.tar.gz
+            *.tar.gz.sha256
           generate_release_notes: true

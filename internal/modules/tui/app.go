@@ -770,6 +770,13 @@ func (a *App) Run() error {
 	defer frame.Stop()
 	armed := false
 
+	// Everything the caller queued BEFORE the loop started is setup — the
+	// stored theme, whether the composer is pinned, the status-line layout —
+	// and setup belongs in the first frame. Draining first is what stops the
+	// masthead being painted at the top and then visibly jumping down six
+	// rows as pinning arrives, or the default palette flashing before the
+	// user's theme replaces it.
+	a.drain()
 	a.paint()
 	for !a.done {
 		// Repaint on CHANGE, not on schedule. A tick only earns a frame when

@@ -60,7 +60,7 @@ func Connect(ctx context.Context, cfg ServerConfig, cwd string) (*Client, error)
 	if err := c.call(ctx, "initialize", initializeParams{
 		ProtocolVersion: ProtocolVersion,
 		Capabilities:    map[string]any{},
-		ClientInfo:      clientInfo{Name: "pi-agent", Version: "0.1.1"},
+		ClientInfo:      clientInfo{Name: "pi-agent", Version: "0.1.2"},
 	}, &result); err != nil {
 		transport.Close()
 		return nil, fmt.Errorf("mcp %s: handshake: %w", cfg.Name, err)

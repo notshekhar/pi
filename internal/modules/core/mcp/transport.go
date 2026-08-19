@@ -40,7 +40,11 @@ type stdioTransport struct {
 	// of correlation bugs for no practical cost.
 	mu sync.Mutex
 
-	stderr *strings.Builder
+	stderr *stderrTail
+	// exited closes when the child has been reaped, which is also when its
+	// stderr has finished being copied. See wrap.
+	exited   chan struct{}
+	waitOnce sync.Once
 }
 
 // StdioConfig describes a subprocess server.
@@ -69,8 +73,11 @@ func newStdioTransport(cfg StdioConfig) (*stdioTransport, error) {
 	}
 	// Stderr is captured rather than discarded: when a server dies during the
 	// handshake, its stderr is the only thing that says why.
-	var stderr strings.Builder
-	cmd.Stderr = &limitedWriter{w: &stderr, remaining: 8 << 10}
+	//
+	// Guarded, because os/exec copies it on ITS OWN goroutine while this one
+	// may be reading it to build an error message.
+	stderr := &stderrTail{remaining: 8 << 10}
+	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
@@ -79,8 +86,18 @@ func newStdioTransport(cfg StdioConfig) (*stdioTransport, error) {
 		cmd:    cmd,
 		stdin:  stdin,
 		stdout: bufio.NewReaderSize(stdout, 1<<20),
-		stderr: &stderr,
+		stderr: stderr,
+		exited: make(chan struct{}),
 	}, nil
+}
+
+// reap waits for the child once, and only once — Close needs the exit status
+// and wrap needs the stderr that waiting flushes.
+func (t *stdioTransport) reap() {
+	t.waitOnce.Do(func() {
+		t.cmd.Wait()
+		close(t.exited)
+	})
 }
 
 func (t *stdioTransport) Send(ctx context.Context, payload []byte, wantReply bool) ([]byte, error) {
@@ -120,7 +137,22 @@ func (t *stdioTransport) Send(ctx context.Context, payload []byte, wantReply boo
 
 // wrap adds the server's stderr to an I/O error, which is otherwise just
 // "EOF" for what is really "the server crashed on startup".
+//
+// It waits for the child first, briefly. A server that dies writes its
+// complaint to stderr and exits, and those are two INDEPENDENT events from
+// this side: stdout reaching EOF says nothing about whether os/exec has
+// finished copying stderr yet. Reading immediately gets an empty string on a
+// fast machine and the useful half of the error is lost — which is exactly
+// how this surfaced, as a test that passed everywhere except CI.
+//
+// Bounded, because the error path must not hang on a server that is still
+// running: an I/O error does not always mean the process is gone.
 func (t *stdioTransport) wrap(err error) error {
+	go t.reap()
+	select {
+	case <-t.exited:
+	case <-time.After(500 * time.Millisecond):
+	}
 	if msg := strings.TrimSpace(t.stderr.String()); msg != "" {
 		return fmt.Errorf("%w: %s", err, lastLines(msg, 5))
 	}
@@ -132,26 +164,38 @@ func (t *stdioTransport) Close() error {
 	if t.cmd.Process != nil {
 		t.cmd.Process.Kill()
 	}
-	return t.cmd.Wait()
+	t.reap()
+	return nil
 }
 
-// limitedWriter keeps a bounded tail of a stream, so a chatty server cannot
-// grow this process's memory without limit.
-type limitedWriter struct {
-	w         io.Writer
+// stderrTail keeps a bounded, concurrency-safe head of a stream: a chatty
+// server must not be able to grow this process's memory, and os/exec writes
+// from its own goroutine while the error path reads.
+type stderrTail struct {
+	mu        sync.Mutex
+	buf       strings.Builder
 	remaining int
 }
 
-func (l *limitedWriter) Write(p []byte) (int, error) {
+func (l *stderrTail) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := len(p)
 	if l.remaining <= 0 {
-		return len(p), nil
+		return n, nil
 	}
 	if len(p) > l.remaining {
 		p = p[:l.remaining]
 	}
 	l.remaining -= len(p)
-	_, err := l.w.Write(p)
-	return len(p), err
+	l.buf.Write(p)
+	return n, nil
+}
+
+func (l *stderrTail) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
 }
 
 func lastLines(s string, n int) string {

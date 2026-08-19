@@ -254,12 +254,32 @@ func TestManagerSurvivesABrokenServer(t *testing.T) {
 	}
 }
 
-func TestLimitedWriterCaps(t *testing.T) {
-	var sb strings.Builder
-	w := &limitedWriter{w: &sb, remaining: 10}
+func TestStderrTailCaps(t *testing.T) {
+	w := &stderrTail{remaining: 10}
 	w.Write([]byte(strings.Repeat("x", 100)))
 	w.Write([]byte(strings.Repeat("y", 100)))
-	if sb.Len() != 10 {
-		t.Errorf("wrote %d bytes, want the 10-byte cap", sb.Len())
+	if len(w.String()) != 10 {
+		t.Errorf("kept %d bytes, want the 10-byte cap", len(w.String()))
 	}
+	// A short write must still report the whole slice as written, or os/exec
+	// treats the cap as an I/O error and tears the copier down.
+	if n, _ := w.Write([]byte("zzz")); n != 3 {
+		t.Errorf("reported %d bytes written, want 3", n)
+	}
+}
+
+// os/exec writes stderr from its own goroutine while the error path reads it.
+func TestStderrTailIsConcurrencySafe(t *testing.T) {
+	w := &stderrTail{remaining: 1 << 20}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			w.Write([]byte("noise\n"))
+		}
+	}()
+	for i := 0; i < 500; i++ {
+		_ = w.String()
+	}
+	<-done
 }

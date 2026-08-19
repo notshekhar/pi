@@ -55,11 +55,22 @@ func Resolve(c Config) (Config, error) {
 	}
 
 	if c.ModelID != "" {
-		prov, model := catalog.Parse(c.ModelID, c.Provider)
-		if catalog.IsProvider(prov) {
-			c.Provider = prov
+		// A custom provider's name is a valid prefix too, and it has to be
+		// tried FIRST: catalog.Parse only knows the built-in list, so it
+		// hands back `mygw/gw-model-2` whole and the provider is then
+		// auto-detected into whatever else has a key.
+		if prefix, model, ok := strings.Cut(c.ModelID, "/"); ok {
+			if _, custom := LookupCustom(prefix); custom {
+				c.Provider, c.ModelID = prefix, model
+			}
 		}
-		c.ModelID = model
+		if _, custom := LookupCustom(c.Provider); !custom {
+			prov, model := catalog.Parse(c.ModelID, c.Provider)
+			if catalog.IsProvider(prov) {
+				c.Provider = prov
+			}
+			c.ModelID = model
+		}
 	}
 
 	if c.Provider == "" {
@@ -69,12 +80,18 @@ func Resolve(c Config) (Config, error) {
 		c.Provider = "google"
 	}
 	c.Provider = strings.ToLower(c.Provider)
-	if !catalog.IsProvider(c.Provider) {
+	custom, isCustom := LookupCustom(c.Provider)
+	if !catalog.IsProvider(c.Provider) && !isCustom {
 		return c, fmt.Errorf("config: unknown provider %q — try /provider", c.Provider)
 	}
 
 	if c.ModelID == "" {
-		if def, ok := catalog.Default(c.Provider, APIKey(c.Provider)); ok {
+		// A custom endpoint is not in the catalog, so its default is the
+		// first model the user listed for it — which is why the wizard asks
+		// for them in preference order.
+		if isCustom && len(custom.Models) > 0 {
+			c.ModelID = custom.Models[0]
+		} else if def, ok := catalog.Default(c.Provider, APIKey(c.Provider)); ok {
 			c.ModelID = def.ShortID
 		}
 	}
@@ -138,6 +155,21 @@ func LanguageModel(c Config) (provider.LanguageModel, error) {
 		}
 		return compat("ollama", base, key, "", false, true).LanguageModel(c.ModelID), nil
 	default:
+		// A user-defined endpoint. This branch used to return "unknown
+		// provider", which made every custom provider configurable and
+		// unusable — the setting existed, the picker listed it, and choosing
+		// it failed at the first turn.
+		if p, ok := LookupCustom(c.Provider); ok {
+			return openaicompat.New(openaicompat.Options{
+				Name:    c.Provider,
+				BaseURL: p.BaseURL,
+				APIKey:  p.CustomKey(),
+				Headers: p.Headers,
+				// An endpoint reached through headers or mTLS has no bearer
+				// token at all, and demanding one would lock it out.
+				AllowMissingAPIKey: p.CustomKey() == "",
+			}).LanguageModel(c.ModelID), nil
+		}
 		return nil, fmt.Errorf("config: unknown provider %q", c.Provider)
 	}
 }

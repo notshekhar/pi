@@ -68,7 +68,10 @@ func newToken() string {
 	return hex.EncodeToString(buf)
 }
 
-// Start binds and serves. `host` empty means loopback.
+// Start binds and serves.
+//
+// `host` empty means loopback. `port` 0 means the default; a negative port
+// means any free one.
 func (s *Server) Start(host string, port int) error {
 	if s.Token == "" {
 		return fmt.Errorf("serve: could not generate a token")
@@ -76,8 +79,16 @@ func (s *Server) Start(host string, port int) error {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	if port == 0 {
+	// 0 means "the caller did not choose", which is the default port. A
+	// NEGATIVE port means "any free one" — the distinction matters because
+	// tests need an ephemeral port, and a test that asks for 0 and silently
+	// gets 4517 collides with every other test in the package the moment two
+	// run close together.
+	switch {
+	case port == 0:
 		port = DefaultPort
+	case port < 0:
+		port = 0 // what the OS reads as "pick one"
 	}
 	addr := net.JoinHostPort(host, fmt.Sprint(port))
 

@@ -48,7 +48,7 @@ func bare(f func(*repl)) func(*repl, context.Context, string) {
 func commands() []command {
 	return []command{
 		{"help", "Show available commands", bare((*repl).help)},
-		{"login", "Configure provider authentication", arg((*repl).login)},
+		{"login", "Sign in to a provider (or `custom` for any OpenAI-compatible endpoint)", arg((*repl).login)},
 		{"logout", "Remove provider authentication (opens picker)", arg((*repl).logout)},
 		{"model", "Select model (opens picker, or /model provider/id)", arg((*repl).pickModel)},
 		{"models", "Alias for /model", arg((*repl).pickModel)},

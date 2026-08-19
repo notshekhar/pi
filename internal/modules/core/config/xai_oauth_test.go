@@ -129,3 +129,66 @@ func TestLogoutRemovesASubscription(t *testing.T) {
 		t.Error("a live subscription token was left on disk after logout")
 	}
 }
+
+// A custom endpoint's credential, resolved most-specific first.
+func TestCustomKeyResolutionOrder(t *testing.T) {
+	t.Setenv("PI_TEST_GW_KEY", "from-env")
+
+	both := CustomProvider{APIKey: "typed-in", EnvVar: "PI_TEST_GW_KEY", KeyCommand: "printf from-cmd"}
+	if got := both.CustomKey(); got != "typed-in" {
+		t.Errorf("a typed key lost to something else: %q", got)
+	}
+	if got := (CustomProvider{EnvVar: "PI_TEST_GW_KEY", KeyCommand: "printf from-cmd"}).CustomKey(); got != "from-env" {
+		t.Errorf("env var = %q", got)
+	}
+	if got := (CustomProvider{KeyCommand: "printf from-cmd"}).CustomKey(); got != "from-cmd" {
+		t.Errorf("key command = %q", got)
+	}
+	// An env var that is set but EMPTY falls through, or a stale export
+	// silently disables a working helper.
+	t.Setenv("PI_TEST_GW_KEY", "")
+	if got := (CustomProvider{EnvVar: "PI_TEST_GW_KEY", KeyCommand: "printf from-cmd"}).CustomKey(); got != "from-cmd" {
+		t.Errorf("an empty env var did not fall through: %q", got)
+	}
+	// A helper that fails yields nothing rather than its error text, which
+	// would otherwise be sent to the endpoint as a credential.
+	if got := (CustomProvider{KeyCommand: "exit 3"}).CustomKey(); got != "" {
+		t.Errorf("a failed helper produced a credential: %q", got)
+	}
+}
+
+// A custom provider has to actually build a model. It did not: the branch
+// returned "unknown provider", so every custom endpoint was configurable,
+// listed in the picker, and dead on the first turn.
+func TestCustomProviderResolvesToAModel(t *testing.T) {
+	authHome(t)
+	if err := AddCustomProvider("mygw", CustomProvider{
+		BaseURL: "http://127.0.0.1:9/v1",
+		APIKey:  "k",
+		Models:  []string{"gw-model-1", "gw-model-2"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Resolve(Config{Provider: "mygw", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("a custom provider did not resolve: %v", err)
+	}
+	// The first model listed is its default — which is why the wizard asks
+	// for them in preference order.
+	if cfg.ModelID != "gw-model-1" {
+		t.Errorf("default model = %q, want the first listed", cfg.ModelID)
+	}
+	if _, err := LanguageModel(cfg); err != nil {
+		t.Fatalf("a custom provider did not build a model: %v", err)
+	}
+
+	// And `provider/model` has to split on a custom name too, or
+	// `/model mygw/gw-model-2` resolves against the built-in list and fails.
+	cfg, err = Resolve(Config{ModelID: "mygw/gw-model-2", CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("a qualified custom id did not resolve: %v", err)
+	}
+	if cfg.Provider != "mygw" || cfg.ModelID != "gw-model-2" {
+		t.Errorf("resolved to %s/%s", cfg.Provider, cfg.ModelID)
+	}
+}

@@ -684,7 +684,13 @@ func (t *repl) login(rest string) {
 
 // pickLogin offers every provider, then asks for that provider's key.
 func (t *repl) pickLogin() {
-	items := make([]tui.Item, 0, len(catalog.Providers))
+	// First, because it is the only row that ADDS a provider rather than
+	// signing in to one that already exists.
+	items := make([]tui.Item, 0, len(catalog.Providers)+1)
+	items = append(items, tui.Item{
+		Value: "custom", Label: "custom",
+		Description: "add any OpenAI-compatible endpoint — a gateway, a proxy, a local server",
+	})
 	for _, p := range catalog.Providers {
 		state := "no key"
 		switch {
@@ -704,14 +710,123 @@ func (t *repl) pickLogin() {
 	})
 }
 
+// customProviderWizard is `/login custom` — loop's flow for pointing pi at any
+// OpenAI-compatible endpoint: a gateway, a proxy, a self-hosted server.
+//
+// A wizard rather than the one-line `/provider add` form that already exists,
+// because the one-line form only reaches the two simplest cases. The
+// interesting endpoints authenticate in ways a positional argument cannot
+// express — a key that lives in a vault, a header that is not `Authorization`
+// — and a flow that cannot express them sends people to the settings file.
+func (t *repl) customProviderWizard() {
+	name := strings.ToLower(strings.TrimSpace(t.ask("A name for this endpoint (used as the provider id)", "")))
+	if name == "" {
+		return
+	}
+	if _, taken := catalog.LookupProvider(name); taken {
+		t.fail("%q is a built-in provider — pick another name", name)
+		return
+	}
+	baseURL := strings.TrimSpace(t.ask("Base URL (e.g. https://gateway.internal/v1)", ""))
+	if baseURL == "" {
+		return
+	}
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		t.fail("the base URL must start with http:// or https://")
+		return
+	}
+
+	p := config.CustomProvider{BaseURL: baseURL}
+	method := t.app.Select("How does "+name+" authenticate?", []tui.Item{
+		{Value: "apikey", Label: "API key",
+			Description: "a key you paste now · sent as Authorization: Bearer"},
+		{Value: "env", Label: "Environment variable",
+			Description: "read at request time · nothing stored on disk"},
+		{Value: "command", Label: "Command",
+			Description: "a shell command whose output is the key · vault, SSO helper"},
+		{Value: "none", Label: "None or headers only",
+			Description: "an open endpoint, mTLS, or a credential carried in a header"},
+	}, 0, "")
+	if method == nil {
+		return
+	}
+	switch method.Value {
+	case "apikey":
+		// Through the prompt, never an argument: a key on the command line is
+		// in the shell history and in the transcript.
+		p.APIKey = strings.TrimSpace(t.ask("API key (not echoed back)", ""))
+		if p.APIKey == "" {
+			return
+		}
+	case "env":
+		p.EnvVar = strings.TrimSpace(t.ask("Environment variable holding the key", ""))
+		if p.EnvVar == "" {
+			return
+		}
+	case "command":
+		p.KeyCommand = strings.TrimSpace(t.ask("Command whose output is the key", ""))
+		if p.KeyCommand == "" {
+			return
+		}
+	}
+
+	if headers := strings.TrimSpace(t.ask(`Extra headers, optional — "X-Tenant: acme; X-Env: prod"`, "")); headers != "" {
+		p.Headers = parseHeaders(headers)
+	}
+
+	// Models last, because they are the one answer the endpoint cannot be
+	// asked for: an OpenAI-compatible gateway need not serve /models, and a
+	// model nobody can name is a model nobody can pick.
+	models := strings.TrimSpace(t.ask("Model ids it serves, comma separated (the first is the default)", ""))
+	for _, id := range strings.Split(models, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			p.Models = append(p.Models, id)
+		}
+	}
+	if len(p.Models) == 0 {
+		t.fail("no models given — %q not saved, since nothing could be selected on it", name)
+		return
+	}
+
+	if err := config.AddCustomProvider(name, p); err != nil {
+		t.fail("%s", err)
+		return
+	}
+	t.dim("added %s → %s (%d models)", name, p.BaseURL, len(p.Models))
+	// Selected straight away: someone who just configured an endpoint wants
+	// to use it, and making them run /provider afterwards is a step with no
+	// decision in it.
+	t.cfg.Provider, t.cfg.ModelID = name, p.Models[0]
+	t.apply()
+}
+
+// parseHeaders reads `Name: value; Other: value`.
+func parseHeaders(raw string) map[string]string {
+	out := map[string]string{}
+	for _, pair := range strings.Split(raw, ";") {
+		name, value, ok := strings.Cut(pair, ":")
+		name, value = strings.TrimSpace(name), strings.TrimSpace(value)
+		if ok && name != "" && value != "" {
+			out[name] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // beginLogin starts the right flow for a provider: most have only a key, and
 // the ones with a subscription option ask which the user wants.
 func (t *repl) beginLogin(provider string) {
-	if provider == "xai" {
+	switch provider {
+	case "custom":
+		t.customProviderWizard()
+	case "xai":
 		t.signInXai(context.Background())
-		return
+	default:
+		t.askForKey(provider)
 	}
-	t.askForKey(provider)
 }
 
 // signInXai offers the two ways into xAI.
@@ -820,7 +935,7 @@ func (t *repl) showLogin() {
 				th.Fg(tui.SlotMuted, tui.PadRight(p.Name, 32))+state)
 		}
 		lines = append(lines, "",
-			th.Fg(tui.SlotDim, "/login <provider> <key> · /logout <provider>"),
+			th.Fg(tui.SlotDim, "/login <provider> <key> · /login custom · /logout <provider>"),
 			th.Fg(tui.SlotDim, "credentials are shared with loop in ~/.loop/auth.json"))
 		t.app.Print(lines...)
 	})

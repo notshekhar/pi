@@ -714,6 +714,54 @@ the user chose to bill the subscription.
 Verified live end to end — real browser, real tokens on disk in loop's entry
 shape, a real turn answered by Grok 4 Fast.
 
+### Custom providers (2026-08-19, late)
+
+`/login custom` — loop's wizard for pointing pi at any OpenAI-compatible
+endpoint: a gateway, a proxy, a local server. Name, base URL, auth method,
+optional headers, model ids.
+
+The one-line `/provider add` form already existed and reached only the two
+simplest cases; the interesting endpoints authenticate in ways a positional
+argument cannot express, and a flow that cannot express them sends people to
+the settings file. Auth methods: a key typed in, an environment variable, a
+COMMAND whose stdout is the key (vault, SSO helper — bounded at 10s, and a
+failure yields nothing rather than sending its error text as a credential),
+or none at all for mTLS and header-authenticated endpoints. Resolution is
+most-specific-first, and an env var that is set but EMPTY falls through, so a
+stale export cannot silently disable a working helper.
+
+**And the custom provider never worked.** `LanguageModel` fell through to
+`default:` and returned "unknown provider", so a custom endpoint was
+configurable, listed in the picker, and dead on the first turn — the §13
+pattern again, a setting whose accessor has no caller. Two halves to the fix:
+build an `openaicompat` provider from the stored config, and split a custom
+name off a qualified id BEFORE `catalog.Parse` sees it, since Parse only knows
+the built-in list and hands `mygw/gw-model-2` back whole — after which the
+provider is auto-detected into whatever else happens to have a key.
+
+Verified end to end against a real local gateway: the key command ran, its
+output arrived as `Authorization: Bearer`, `X-Tenant` came through, and the
+turn was answered.
+
+### Two CI failures that were real bugs
+
+The first tag's workflows both failed, and neither was a workflow problem.
+
+- **`serve` bound a fixed port.** The test asked for port 0 meaning "any free
+  one" and `Start` read 0 as "the caller did not choose" → 4517, so every test
+  in the package bound the same port and collided on a runner fast enough to
+  start two before the first released it. A negative port now means ephemeral,
+  and the comment that was describing behaviour that did not exist is true.
+- **MCP stderr was read before it was written.** A server that dies writes to
+  stderr and exits; from this side stdout reaching EOF says NOTHING about
+  whether os/exec has finished copying stderr. `wrap` read immediately, got an
+  empty string on a fast machine, and reported bare "EOF" for what was really
+  "the server crashed and said why" — a test that passed everywhere except CI.
+  It now waits for the child (bounded, since an I/O error does not always mean
+  the process is gone). The buffer was also a plain `strings.Builder` written
+  by the exec goroutine while the error path read it, which is a data race
+  `-race` would have caught.
+
 ---
 
 ## Suggested order

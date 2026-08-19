@@ -1,12 +1,15 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/notshekhar/pi/internal/modules/core/catalog"
 )
@@ -28,6 +31,14 @@ type CustomProvider struct {
 	// EnvVar names an environment variable holding the key, which keeps the
 	// secret out of the settings file.
 	EnvVar string `json:"envVar,omitempty"`
+	// KeyCommand is a shell command whose stdout IS the key. The path for a
+	// vault or an SSO helper: nothing is stored, and a rotated credential is
+	// picked up without editing anything.
+	KeyCommand string `json:"keyCommand,omitempty"`
+	// Headers are sent with every request. The way to reach an endpoint whose
+	// credential is not a bearer token at all — a proxy wanting `x-api-key`,
+	// a gateway wanting a tenant id.
+	Headers map[string]string `json:"headers,omitempty"`
 	// Models are the ids this endpoint serves. Without them the provider
 	// works but `/model` has nothing to offer.
 	Models []string `json:"models,omitempty"`
@@ -58,14 +69,43 @@ func LookupCustom(name string) (CustomProvider, bool) {
 }
 
 // CustomKey resolves a custom provider's credential.
+//
+// Most specific first: a key typed in, then an environment variable, then a
+// command. The command is last because it is the most expensive — it forks a
+// process — and because someone who configured both a key and a helper meant
+// the key.
 func (p CustomProvider) CustomKey() string {
 	if p.APIKey != "" {
 		return p.APIKey
 	}
 	if p.EnvVar != "" {
-		return envValue(p.EnvVar)
+		if v := envValue(p.EnvVar); v != "" {
+			return v
+		}
+	}
+	if p.KeyCommand != "" {
+		return runKeyCommand(p.KeyCommand)
 	}
 	return ""
+}
+
+// keyCommandTimeout bounds a helper. A vault client that hangs must not hang
+// the agent's first request.
+const keyCommandTimeout = 10 * time.Second
+
+// runKeyCommand executes a key helper and returns its trimmed stdout.
+//
+// Errors are swallowed into "" on purpose: the caller's next step is the same
+// either way — no credential — and the request that follows reports the
+// failure with the context the user actually needs.
+func runKeyCommand(command string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), keyCommandTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "sh", "-c", command).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // AddCustomProvider stores an endpoint.

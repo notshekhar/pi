@@ -12,8 +12,10 @@ import (
 func start(t *testing.T, onPrompt func(string)) *Server {
 	t.Helper()
 	s := New(onPrompt)
-	// Port 0: the OS picks a free one, so tests never collide.
-	if err := s.Start("127.0.0.1", 0); err != nil {
+	// A negative port asks the OS for a free one, so tests never collide —
+	// and they did, on a runner fast enough to start two before the first
+	// released 4517.
+	if err := s.Start("127.0.0.1", -1); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Stop)
@@ -58,7 +60,7 @@ func TestHealthWithToken(t *testing.T) {
 // reachable from the network because someone typed a port.
 func TestBindsLoopbackByDefault(t *testing.T) {
 	s := New(nil)
-	if err := s.Start("", 0); err != nil {
+	if err := s.Start("", -1); err != nil {
 		t.Fatal(err)
 	}
 	defer s.Stop()

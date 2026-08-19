@@ -1050,7 +1050,7 @@ func (t *repl) applyTheme(palette tui.Palette) {
 }
 
 // version is what the masthead reports.
-const version = "0.1.2"
+const version = "0.1.3"
 
 // startupNotices prints the status block under the masthead: the things that
 // silently change how a session behaves, stated once where they are read.

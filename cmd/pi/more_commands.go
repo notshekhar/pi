@@ -260,7 +260,7 @@ func (t *repl) share() {
 // package comment in the tui module.
 func (t *repl) setUIMode(rest string) {
 	if name := strings.ToLower(strings.TrimSpace(rest)); name != "" && name != "noir" {
-		t.dim("noir is the only ui mode; /theme switches night and day")
+		t.dim("noir is the only ui mode; /theme switches night, day and system")
 		return
 	}
 	t.dim("ui noir · theme %s", orDefault(config.LoadSettings().Theme, "night"))

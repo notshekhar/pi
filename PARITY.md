@@ -88,9 +88,15 @@ Rendering:
 - [x] Truecolor with 256-colour cube fallback
 - [x] Canvas wash (OSC 11/10) + restore
 - [x] Syntax highlighting — go/js/ts/python/rust/sh/json + generic
-- [x] `/theme` command to switch night ↔ day at runtime
-- [x] Auto light/dark — COLORFGBG then an OSC 11 query
+- [x] `/theme` command to switch night ↔ day ↔ system at runtime
+- [x] Auto light/dark — an OSC 11 query, COLORFGBG as fallback
 - [x] User themes from JSON — `~/.pi-agent/themes/*.json`, primitives in, derivation shared
+- [x] **`system`** — noir with NO canvas of its own, so the terminal's own
+      background shows through. WCAG contrast maths (`ContrastRatio`,
+      `AtLeastContrast`) rebuild every slot — greys, semantic hues, the syntax
+      set — to hold the ratio it holds on noir's own `#141414`, because those
+      hexes are ratios and not magic numbers. One-sided: a terminal darker than
+      noir's canvas is left exactly as it is.
 
 ## 4. The noir transcript
 

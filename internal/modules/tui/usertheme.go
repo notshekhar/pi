@@ -163,7 +163,10 @@ func isHex(s string) bool {
 
 // AllPalettes is the built-ins plus every user theme.
 func AllPalettes() []Palette {
-	return append([]Palette{NightPalette, DayPalette}, LoadUserThemes()...)
+	// SystemPalette is built on every call rather than stored: it is a
+	// function of what the terminal reported, so it must not be captured
+	// before the probe has answered.
+	return append([]Palette{NightPalette, DayPalette, SystemPalette()}, LoadUserThemes()...)
 }
 
 // FindPalette looks up a palette by name.

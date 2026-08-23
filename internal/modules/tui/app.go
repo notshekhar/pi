@@ -307,7 +307,12 @@ func NewApp(model, cwd string) (*App, error) {
 	// on and the key decoder does not exist yet, so no keystroke of the
 	// user's can be mistaken for a reply.
 	ProbeWidths()
-	background := DetectBackground()
+	background, canvas := DetectBackgroundColor()
+	// Remembered for noir's `system` theme, which rebuilds its whole ramp
+	// against the canvas it is really drawn on. Recorded here because this is
+	// the ONLY safe window to ask: the reply arrives as input, and after the
+	// decoder exists it would race the user's typing.
+	SetSystemCanvas(canvas, background == BackgroundLight)
 	// Negotiated here for the same reason as the probes above, and before the
 	// decoder exists: it reads its answer from stdin.
 	leaveKitty := EnableKittyKeyboard()
@@ -317,7 +322,11 @@ func NewApp(model, cwd string) (*App, error) {
 
 	theme := NewTheme(NightPalette)
 	theme.TrueColor = TerminalCaps().TrueColor
-	unwash := SetCanvas(theme.Palette)
+	// The canvas is deliberately NOT washed here. Resolving the stored theme
+	// costs two file reads, and washing night's grey before that only to
+	// release it again is a visible flash on exactly the terminals `system`
+	// exists for — a transparency, an image, a true black. The caller applies
+	// the resolved palette with SetTheme, which washes once, correctly.
 
 	a := &App{
 		size:   size(os.Stdout),
@@ -344,7 +353,7 @@ func NewApp(model, cwd string) (*App, error) {
 		leaveKitty()
 		a.out.Finish(a.chromeRows)
 		leaveInline()
-		unwash()
+		ReleaseCanvas()
 		restore()
 	}
 	// Suspending gives the terminal BACK to the shell for the duration of a
@@ -357,7 +366,7 @@ func NewApp(model, cwd string) (*App, error) {
 		leaveKitty()
 		a.out.Finish(a.chromeRows)
 		leaveInline()
-		unwash()
+		ReleaseCanvas()
 		restore()
 
 		f()
@@ -371,7 +380,7 @@ func NewApp(model, cwd string) (*App, error) {
 		leaveKitty = EnableKittyKeyboard()
 		leaveInline = InlineScreen()
 		leavePaste = EnableBracketedPaste()
-		unwash = SetCanvas(a.theme.Palette)
+		SetCanvas(a.theme.Palette)
 		a.keys = DecodeKeys()
 		// The child scribbled over the screen, so the writer's idea of where
 		// its region sits is a lie — and acting on a stale row count walks

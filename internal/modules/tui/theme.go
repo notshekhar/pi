@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -377,11 +378,89 @@ func abs(n int) int {
 // whatever the terminal happened to have. The returned func restores both.
 func SetCanvas(p Palette) func() {
 	if !p.Wash {
+		// Hand the canvas back rather than doing nothing. Switching from a
+		// washing theme to this one has to UNDO the previous wash, or the
+		// terminal keeps night's grey behind a theme whose entire point is
+		// that your own background shows through. Doing it here rather than at
+		// the call sites means no theme switch can forget it.
+		ReleaseCanvas()
 		return func() {}
 	}
 	fmt.Print("\x1b]11;" + p.Bg + "\x07\x1b]10;" + p.Text + "\x07")
-	return func() {
-		// OSC 111/110 hand background/foreground back to the terminal.
-		fmt.Print("\x1b]111\x07\x1b]110\x07")
+	return ReleaseCanvas
+}
+
+// ReleaseCanvas hands background and foreground back to the terminal
+// (OSC 111/110). Safe to call when nothing was ever washed.
+func ReleaseCanvas() {
+	fmt.Print("\x1b]111\x07\x1b]110\x07")
+}
+
+// WCAG relative luminance, and the contrast ratio between two colours.
+//
+// Deliberately distinct from Luminance above, which is the cheap Rec.601 luma
+// used to decide "does this read as light or dark". Contrast needs the real
+// thing: a ramp is only legible relative to what it sits ON, and that is what
+// lets a palette be rebuilt for a canvas it did not choose (see SystemPalette).
+func channelLuminance(c int) float64 {
+	v := float64(c) / 255
+	if v <= 0.04045 {
+		return v / 12.92
 	}
+	return math.Pow((v+0.055)/1.055, 2.4)
+}
+
+func relLuminance(hex string) float64 {
+	r, g, b := rgb(hex)
+	return 0.2126*channelLuminance(r) + 0.7152*channelLuminance(g) + 0.0722*channelLuminance(b)
+}
+
+// ContrastRatio is the WCAG contrast between two colours, 1:1 to 21:1.
+func ContrastRatio(a, b string) float64 {
+	hi, lo := relLuminance(a), relLuminance(b)
+	if lo > hi {
+		hi, lo = lo, hi
+	}
+	return (hi + 0.05) / (lo + 0.05)
+}
+
+// AtLeastContrast returns color, guaranteed to reach target contrast against
+// bg — lifted toward `toward` only as far as it takes, and left alone when it
+// already clears it.
+//
+// This is how a palette keeps its RELATIONSHIPS on a canvas it does not own.
+// Noir's dim grey is not #5f5f5f because that hex is special: it is 2.9:1
+// against noir's own background, faint on purpose but still readable. Move the
+// same hex onto a lighter terminal and the intent is gone (2.4:1). Asking for
+// the ratio reproduces the design on the canvas that is actually there.
+//
+// One-sided on purpose. A slot that already clears its target here is not
+// touched: a terminal darker than the palette's own canvas makes everything
+// MORE readable, and trading that back for exactness would be dimming a screen
+// that was already right. Only what fell below is raised.
+//
+// Mixing the colour toward white (or black) tints rather than rotates, so a
+// hue stays the hue it was — a lifted red is still red, just no longer sunk
+// into the background. Mixing up from bg instead would return a grey and throw
+// the hue away.
+func AtLeastContrast(bg, color, toward string, target float64) string {
+	if ContrastRatio(color, bg) >= target {
+		return color
+	}
+	// Even the pole cannot reach it (a mid-grey canvas): the pole is the best
+	// available, and returning it beats returning something dimmer.
+	if ContrastRatio(toward, bg) <= target {
+		return toward
+	}
+	lo, hi := 0.0, 1.0
+	// Monotonic in t, so a fixed bisection is exact enough for 8-bit channels.
+	for i := 0; i < 12; i++ {
+		mid := (lo + hi) / 2
+		if ContrastRatio(Mix(color, toward, mid), bg) < target {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	return Mix(color, toward, hi)
 }

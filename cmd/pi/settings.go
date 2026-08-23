@@ -76,12 +76,16 @@ var settingKeys = []settingKey{
 		name: "theme", choices: paletteNames(), help: "colour palette",
 		get: func(s config.Settings) string { return orDefault(s.Theme, "night") },
 		set: func(s *config.Settings, v string) error {
-			switch v {
-			case "night", "day":
-				s.Theme = v
-				return nil
+			// Validated against the registry, not a hardcoded pair: it is what
+			// offers the choices just above, and it already knows about
+			// `system` and every user theme. Spelling the names twice is how
+			// the picker came to offer themes this rejected.
+			palette, ok := tui.FindPalette(v)
+			if !ok {
+				return fmt.Errorf("unknown theme %q — one of: %s", v, strings.Join(paletteNames(), ", "))
 			}
-			return fmt.Errorf("theme must be night or day")
+			s.Theme = palette.Name
+			return nil
 		},
 	},
 	{

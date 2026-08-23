@@ -85,7 +85,7 @@ func commands() []command {
 		{"settings", "Open settings menu", arg((*repl).settings)},
 		{"config", "Alias for /settings", arg((*repl).settings)},
 		{"ui", "Show or switch the UI mode (experience): /ui · /ui <mode>", arg((*repl).setUIMode)},
-		{"theme", "Switch the colour theme: /theme · /theme night|day", arg((*repl).setTheme)},
+		{"theme", "Switch the colour theme: /theme · /theme night|day|system", arg((*repl).setTheme)},
 		{"hotkeys", "Show all keyboard shortcuts", bare((*repl).hotkeys)},
 		{"reload", "Reload prompts, keybindings, settings", bare((*repl).reload)},
 		{"changelog", "Show changelog entries", bare((*repl).changelog)},

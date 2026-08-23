@@ -100,13 +100,19 @@ func replTUI(parent context.Context, cfg config.Config) error {
 	defer app.Close()
 	// A stored theme wins; with none, ask the terminal what it is sitting on
 	// rather than assuming dark and painting over a light background.
+	//
+	// Always applied, even when it resolves to the default: NewApp leaves the
+	// canvas alone precisely so this is the single place that washes it, which
+	// is what keeps `system` from flashing night's grey on the way past.
+	palette := tui.NightPalette
 	if stored := config.LoadSettings().Theme; stored != "" {
-		if palette, ok := tui.FindPalette(stored); ok {
-			app.SetTheme(palette)
+		if p, ok := tui.FindPalette(stored); ok {
+			palette = p
 		}
 	} else if app.Background() == tui.BackgroundLight {
-		app.SetTheme(tui.DayPalette)
+		palette = tui.DayPalette
 	}
+	app.SetTheme(palette)
 
 	sess := session.New(cfg.FullID(), cfg.CWD)
 	t := &repl{app: app, cfg: cfg, status: status.New(status.DefaultSettle), run: &agent.Run{
@@ -1023,6 +1029,11 @@ func (t *repl) pickTheme() {
 		kind := "dark"
 		if p.Light {
 			kind = "light"
+		}
+		// `system` is not a third colour scheme — it is noir with no canvas of
+		// its own, so say what it does rather than which half it landed on.
+		if p.Name == tui.SystemThemeName {
+			kind = "your terminal's own background"
 		}
 		if p.Name == current {
 			initial = i

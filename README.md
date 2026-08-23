@@ -38,7 +38,7 @@ and runs it once before telling you it worked.
 
 ```bash
 # pin a version
-curl -fsSL .../install.sh | bash -s -- --version v0.1.3
+curl -fsSL .../install.sh | bash -s -- --version v0.1.4
 
 # build here instead of downloading (needs Go and a C toolchain)
 curl -fsSL .../install.sh | bash -s -- --from-source

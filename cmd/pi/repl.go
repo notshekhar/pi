@@ -17,6 +17,7 @@ import (
 	"github.com/notshekhar/pi/internal/modules/ai"
 	"github.com/notshekhar/pi/internal/modules/ai/provider"
 	"github.com/notshekhar/pi/internal/modules/core/agent"
+	"github.com/notshekhar/pi/internal/modules/core/build"
 	"github.com/notshekhar/pi/internal/modules/core/catalog"
 	"github.com/notshekhar/pi/internal/modules/core/config"
 	"github.com/notshekhar/pi/internal/modules/core/extension"
@@ -1060,8 +1061,9 @@ func (t *repl) applyTheme(palette tui.Palette) {
 	t.dim("theme %s", palette.Name)
 }
 
-// version is what the masthead reports.
-const version = "0.1.3"
+// version is what the masthead reports; see build.Version for why it lives
+// in a package rather than here.
+const version = build.Version
 
 // startupNotices prints the status block under the masthead: the things that
 // silently change how a session behaves, stated once where they are read.

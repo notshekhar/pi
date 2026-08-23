@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+
+	"github.com/notshekhar/pi/internal/modules/core/build"
 )
 
 // Client is a connection to one MCP server.
@@ -60,7 +62,7 @@ func Connect(ctx context.Context, cfg ServerConfig, cwd string) (*Client, error)
 	if err := c.call(ctx, "initialize", initializeParams{
 		ProtocolVersion: ProtocolVersion,
 		Capabilities:    map[string]any{},
-		ClientInfo:      clientInfo{Name: "pi-agent", Version: "0.1.3"},
+		ClientInfo:      clientInfo{Name: "pi-agent", Version: build.Version},
 	}, &result); err != nil {
 		transport.Close()
 		return nil, fmt.Errorf("mcp %s: handshake: %w", cfg.Name, err)

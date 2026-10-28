@@ -82,6 +82,27 @@ def capture(script, cmd, history=False):
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
 
     out = bytearray()
+    answered = [0]
+
+    # Answer the queries a real terminal answers, opt-in: TERM_BG=#rrggbb
+    # replies to OSC 11 (background colour), TERM_SCHEME=dark|light to
+    # CSI ? 996 n, and DA1 is always answered (every terminal does).
+    def answer():
+        data = bytes(out[answered[0]:])
+        answered[0] = len(out)
+        bg = os.environ.get("TERM_BG")
+        replies = b""
+        for m in re.finditer(rb"\x1b\]11;\?(\x07|\x1b\\)|\x1b\[\?996n|\x1b\[0?c", data):
+            q = m.group(0)
+            if q.startswith(b"\x1b]11") and bg:
+                h = bg.lstrip("#")
+                replies += ("\x1b]11;rgb:%s%s/%s%s/%s%s\x1b\\" % (h[0:2], h[0:2], h[2:4], h[2:4], h[4:6], h[4:6])).encode()
+            elif q == b"\x1b[?996n" and os.environ.get("TERM_SCHEME"):
+                replies += b"\x1b[?997;%dn" % (2 if os.environ["TERM_SCHEME"] == "light" else 1)
+            elif q.endswith(b"c"):
+                replies += b"\x1b[?62;22c"
+        if replies:
+            os.write(fd, replies)
 
     def drain(seconds):
         end = time.time() + seconds
@@ -96,6 +117,7 @@ def capture(script, cmd, history=False):
             if not chunk:
                 return False
             out.extend(chunk)
+            answer()
         return True
 
     drain(float(os.environ.get("SETTLE", "6")))  # masthead, probes, first paint

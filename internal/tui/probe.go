@@ -7,32 +7,22 @@ import (
 
 // Reading a terminal's answer to a query, without stealing the user's typing.
 //
-// The obvious implementation — a goroutine blocked on Read, abandoned on
-// timeout — is wrong, and wrong in a way that only shows up under a real
-// person's hands: a terminal that never answers leaves that goroutine parked
-// on stdin, and it consumes the FIRST KEYSTROKES the user types instead. The
-// prompt swallowed `he` from `hello` before this was fixed.
-//
-// A read deadline has no such tail. When it expires the read returns, the
-// goroutine is gone, and nothing is left holding the file.
+// A goroutine blocked on Read and abandoned on timeout is wrong: a terminal
+// that never answers leaves it parked on stdin, consuming the first keystrokes
+// the user types. And a Go read deadline is not available — a terminal stdin
+// "does not support deadline", which silently failed every probe. So the wait
+// is select(2) on the descriptor (waitReadable), and a read only happens when
+// input is already there.
 
 // askTerminal writes a query and reads the reply, or gives up.
-//
-// Returns ok=false when the terminal does not answer, does not support
-// deadlines, or errors — every one of which means "assume nothing".
 func askTerminal(query string, timeout time.Duration) (string, bool) {
-	if err := os.Stdin.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		// A file that cannot carry a deadline cannot be safely probed: there
-		// would be no way to stop reading without abandoning a reader.
-		return "", false
-	}
-	defer os.Stdin.SetReadDeadline(time.Time{})
-
 	if _, err := os.Stdout.WriteString(query); err != nil {
 		return "", false
 	}
-
-	buf := make([]byte, 64)
+	if !waitReadable(int(os.Stdin.Fd()), timeout) {
+		return "", false
+	}
+	buf := make([]byte, 256)
 	n, err := os.Stdin.Read(buf)
 	if err != nil || n == 0 {
 		return "", false

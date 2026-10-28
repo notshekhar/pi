@@ -2,8 +2,10 @@ package tui
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newComposer wires an editor to a fixed command list.
@@ -253,19 +255,46 @@ func TestComposerCursorFollowsAWrap(t *testing.T) {
 // parked there after giving up, it eats the user's first keystrokes — the
 // prompt swallowed `he` from `hello` before this was fixed. There is nothing
 // to assert about a goroutine that should not exist, so this pins the
-// contract that makes it impossible: the probe path must be deadline-based,
-// never a goroutine we abandon.
-func TestProbeUsesADeadlineNotAnOrphanReader(t *testing.T) {
-	src, err := os.ReadFile("probe.go")
+// contract that makes it impossible: the probe waits with select(2) and only
+// reads input already there, never on a goroutine we abandon. (A Go read
+// deadline is not it: a terminal stdin "does not support deadline", which
+// silently failed every probe.)
+func TestProbeWaitsWithSelectNotAnOrphanReader(t *testing.T) {
+	for _, file := range []string{"probe.go", "detect.go"} {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := string(src)
+		if !strings.Contains(body, "waitReadable(") {
+			t.Errorf("%s must wait for the reply with waitReadable", file)
+		}
+		if strings.Contains(body, "go func()") {
+			t.Errorf("%s must not read on a goroutine it cannot stop", file)
+		}
+	}
+}
+
+func TestWaitReadable(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("no select(2) wait on this platform")
+	}
+	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := string(src)
-	if !strings.Contains(body, "SetReadDeadline") {
-		t.Error("askTerminal must bound its read with a deadline")
+	defer r.Close()
+	defer w.Close()
+	start := time.Now()
+	if waitReadable(int(r.Fd()), 50*time.Millisecond) {
+		t.Fatal("an empty pipe reported readable")
 	}
-	if strings.Contains(body, "go func()") {
-		t.Error("askTerminal must not read on a goroutine it cannot stop")
+	if time.Since(start) < 40*time.Millisecond {
+		t.Error("the wait returned before its timeout")
+	}
+	_, _ = w.WriteString("x")
+	if !waitReadable(int(r.Fd()), time.Second) {
+		t.Error("a pipe with input reported nothing")
 	}
 }
 

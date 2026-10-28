@@ -101,19 +101,19 @@ func askUntilDA1(query string, timeout time.Duration) string {
 		return ""
 	}
 	deadline := time.Now().Add(timeout)
-	if os.Stdin.SetReadDeadline(deadline) != nil {
-		return ""
-	}
-	defer os.Stdin.SetReadDeadline(time.Time{})
 	if _, err := os.Stdout.WriteString(query + "\x1b[c"); err != nil {
 		return ""
 	}
 	var got []byte
 	buf := make([]byte, 256)
-	for time.Now().Before(deadline) {
+	for {
+		left := time.Until(deadline)
+		if left <= 0 || !waitReadable(int(os.Stdin.Fd()), left) {
+			break
+		}
 		n, err := os.Stdin.Read(buf)
 		got = append(got, buf[:n]...)
-		if da1Reply.Match(got) || err != nil {
+		if da1Reply.Match(got) || err != nil || n == 0 {
 			break
 		}
 	}

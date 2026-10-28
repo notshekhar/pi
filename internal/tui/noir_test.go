@@ -8,7 +8,9 @@ import (
 
 func testTheme() *Theme {
 	t := NewTheme(NightPalette)
-	t.TrueColor = true
+	// SetTrueColor, not the field: escapes are resolved when the theme is
+	// built, so the mode must be switched through the rebuild.
+	t.SetTrueColor(true)
 	return t
 }
 

@@ -50,11 +50,13 @@ func (m *languageModel) DoStream(ctx context.Context, opts provider.CallOptions)
 	go func() {
 		defer close(out)
 		s := &streamState{
-			ctx:       ctx,
-			out:       out,
-			raw:       opts.IncludeRawChunks,
-			toolCalls: map[int]*pendingToolCall{},
-			finish:    provider.FinishReason{Unified: provider.FinishOther},
+			ctx:         ctx,
+			out:         out,
+			raw:         opts.IncludeRawChunks,
+			toolCalls:   map[int]*pendingToolCall{},
+			finish:      provider.FinishReason{Unified: provider.FinishOther},
+			keepDetails: m.provider.reasoningDetails,
+			key:         m.provider.optionsKey,
 		}
 		s.emit(provider.StreamStart{Warnings: warnings})
 		s.run(resp)
@@ -98,7 +100,12 @@ type streamState struct {
 	sentFinish bool
 	// finished is a finish_reason seen: the provider's completion signal.
 	finished bool
-	end      providerutil.StreamEnd
+	// details accumulates OpenRouter's reasoning_details for the step, when
+	// the provider keeps them; key names the metadata they ride under.
+	keepDetails bool
+	details     []any
+	key         string
+	end         providerutil.StreamEnd
 }
 
 // emit sends a part, giving up if the consumer has gone away.
@@ -188,6 +195,17 @@ func (s *streamState) handle(chunk streamChunk) {
 
 // handleDelta processes the incremental content of one choice.
 func (s *streamState) handleDelta(delta *apiMessageOut) {
+	if s.keepDetails && len(delta.ReasoningDetails) > 0 {
+		for _, d := range delta.ReasoningDetails {
+			s.addDetail(d)
+		}
+		// Encrypted reasoning has no text, but its block must exist to carry
+		// the details back.
+		if !s.reasoningOpen && !s.textOpen {
+			s.reasoningOpen = true
+			s.emit(provider.ReasoningStart{ID: reasoningBlockID})
+		}
+	}
 	if reasoning := delta.reasoningText(); reasoning != "" {
 		if !s.reasoningOpen {
 			s.reasoningOpen = true
@@ -201,7 +219,7 @@ func (s *streamState) handleDelta(delta *apiMessageOut) {
 		// closes the reasoning block.
 		if s.reasoningOpen {
 			s.reasoningOpen = false
-			s.emit(provider.ReasoningEnd{ID: reasoningBlockID})
+			s.emit(provider.ReasoningEnd{ID: reasoningBlockID, ProviderMetadata: s.detailsMeta()})
 		}
 		if !s.textOpen {
 			s.textOpen = true
@@ -270,7 +288,7 @@ func (s *streamState) toolCallID(index int, pending *pendingToolCall) string {
 func (s *streamState) closeBlocks() {
 	if s.reasoningOpen {
 		s.reasoningOpen = false
-		s.emit(provider.ReasoningEnd{ID: reasoningBlockID})
+		s.emit(provider.ReasoningEnd{ID: reasoningBlockID, ProviderMetadata: s.detailsMeta()})
 	}
 	if s.textOpen {
 		s.textOpen = false
@@ -311,4 +329,38 @@ func (s *streamState) emitFinish() {
 	}
 	s.sentFinish = true
 	s.emit(provider.Finish{Usage: s.usage, FinishReason: s.finish})
+}
+
+// addDetail folds one reasoning_details chunk in, as the OpenRouter SDK
+// does: consecutive text chunks concatenate, keeping the signature and
+// format whichever chunk carried them.
+func (s *streamState) addDetail(d map[string]any) {
+	if d["type"] == "reasoning.text" && len(s.details) > 0 {
+		if last, _ := s.details[len(s.details)-1].(map[string]any); last != nil && last["type"] == "reasoning.text" {
+			text, _ := last["text"].(string)
+			more, _ := d["text"].(string)
+			last["text"] = text + more
+			for _, k := range []string{"signature", "format"} {
+				if v, ok := last[k].(string); !ok || v == "" {
+					if dv, ok := d[k]; ok && dv != nil {
+						last[k] = dv
+					}
+				}
+			}
+			return
+		}
+	}
+	copied := make(map[string]any, len(d))
+	for k, v := range d {
+		copied[k] = v
+	}
+	s.details = append(s.details, copied)
+}
+
+// detailsMeta carries the step's reasoning_details on its reasoning part.
+func (s *streamState) detailsMeta() provider.ProviderMetadata {
+	if !s.keepDetails || len(s.details) == 0 {
+		return nil
+	}
+	return provider.ProviderMetadata{s.key: {"reasoning_details": s.details}}
 }

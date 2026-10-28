@@ -87,6 +87,7 @@ func New(opts Options) *Provider {
 		// turn.
 		ReplayReasoning:        true,
 		RequireReasoningReplay: IsV4Model,
+		DeepSeek:               true,
 	})}
 }
 

@@ -23,7 +23,8 @@ import (
 // cacheControl there marks a prompt-cache breakpoint (see markCache).
 //
 // replay is how reasoning is sent back (see reasoningReplay).
-func convertPrompt(prompt provider.Prompt, optionsKey string, replay reasoningReplay) ([]apiMessage, []provider.Warning, error) {
+func convertPrompt(prompt provider.Prompt, optionsKey string, replay reasoningReplay, details ...bool) ([]apiMessage, []provider.Warning, error) {
+	withDetails := len(details) > 0 && details[0]
 	var (
 		messages []apiMessage
 		warnings []provider.Warning
@@ -48,6 +49,9 @@ func convertPrompt(prompt provider.Prompt, optionsKey string, replay reasoningRe
 			if err != nil {
 				return nil, nil, err
 			}
+			if withDetails {
+				replayReasoningDetails(&converted, m, optionsKey)
+			}
 			warnings = append(warnings, w...)
 			messages = append(messages, converted)
 
@@ -70,6 +74,45 @@ func convertPrompt(prompt provider.Prompt, optionsKey string, replay reasoningRe
 	}
 
 	return messages, warnings, nil
+}
+
+// replayReasoningDetails is @openrouter/ai-sdk-provider's assistant replay:
+// the turn's reasoning_details go back with it, minus Claude and Gemini text
+// entries that lost their signature (the upstream rejects those), and the
+// reasoning text only alongside details.
+func replayReasoningDetails(out *apiMessage, m provider.AssistantMessage, key string) {
+	var (
+		reasoning strings.Builder
+		details   []any
+	)
+	for _, part := range m.Content {
+		p, ok := part.(provider.ReasoningPart)
+		if !ok {
+			continue
+		}
+		reasoning.WriteString(p.Text)
+		list, _ := p.ProviderOptions.Get(key)["reasoning_details"].([]any)
+		for _, d := range list {
+			detail, _ := d.(map[string]any)
+			if detail == nil {
+				continue
+			}
+			if detail["type"] == "reasoning.text" {
+				format, _ := detail["format"].(string)
+				if format == "" {
+					format = "anthropic-claude-v1"
+				}
+				if sig, _ := detail["signature"].(string); sig == "" && (format == "anthropic-claude-v1" || format == "google-gemini-v1") {
+					continue
+				}
+			}
+			details = append(details, detail)
+		}
+	}
+	if len(details) > 0 {
+		out.ReasoningDetails = details
+		out.Reasoning = reasoning.String()
+	}
 }
 
 // cacheMark reads a breakpoint from a provider-options block: cacheControl

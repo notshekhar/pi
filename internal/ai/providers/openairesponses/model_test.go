@@ -203,3 +203,65 @@ func TestReasoningCapabilities(t *testing.T) {
 		t.Errorf("gpt-6.1-sol was sent an unsupported effort: %v", (*sent)[0]["reasoning"])
 	}
 }
+
+// xAI's dialect (@ai-sdk/xai's convertToXaiResponsesInput and getArgs): a
+// system message, reasoning and text replayed whole with their ids, calls
+// with id and status, efforts mapped onto low/medium/high, and none for a
+// model that rejects one.
+func TestXAIRequestShape(t *testing.T) {
+	var sent []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var req map[string]any
+		_ = json.Unmarshal(raw, &req)
+		sent = append(sent, req)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, fixtureSSE(t, "openai-error.1.chunks.txt"))
+	}))
+	t.Cleanup(srv.Close)
+	p := New(Options{Name: "xai", XAI: true, APIKey: "k", BaseURL: srv.URL})
+	x := provider.ProviderOptions{"xai": {"itemId": "rs_1", "reasoningEncryptedContent": "enc"}}
+	prompt := provider.Prompt{
+		provider.SystemMessage{Content: "sys"},
+		provider.UserMessage{Content: []provider.UserPart{provider.TextPart{Text: "q"}}},
+		provider.AssistantMessage{Content: []provider.AssistantPart{
+			provider.ReasoningPart{Text: "think", ProviderOptions: x},
+			provider.ToolCallPart{ToolCallID: "call_1", ToolName: "ls", Input: map[string]any{},
+				ProviderOptions: provider.ProviderOptions{"xai": {"itemId": "fc_1"}}},
+		}},
+		provider.ToolMessage{Content: []provider.ToolPart{
+			provider.ToolResultPart{ToolCallID: "call_1", Output: provider.ToolOutputErrorText{Value: "boom"}},
+		}},
+		provider.AssistantMessage{Content: []provider.AssistantPart{
+			provider.TextPart{Text: "done", ProviderOptions: provider.ProviderOptions{"xai": {"itemId": "msg_1"}}},
+		}},
+	}
+	for _, c := range []struct {
+		model  string
+		effort provider.ReasoningEffort
+		want   string
+	}{
+		{"grok-4.7", provider.ReasoningXHigh, "high"},
+		{"grok-3-mini", provider.ReasoningMinimal, "low"},
+		{"grok-4.20-0309-reasoning", provider.ReasoningHigh, ""},
+	} {
+		sent = nil
+		res, err := p.LanguageModel(c.model).DoStream(context.Background(), provider.CallOptions{Prompt: prompt, Reasoning: c.effort})
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts(t, res)
+		r, _ := sent[0]["reasoning"].(map[string]any)
+		if got, _ := r["effort"].(string); got != c.want {
+			t.Errorf("%s: effort %q, want %q", c.model, got, c.want)
+		}
+	}
+	got, _ := json.Marshal(sent[0]["input"])
+	want := `[{"content":"sys","role":"system"},{"content":[{"text":"q","type":"input_text"}],"role":"user"},` +
+		`{"encrypted_content":"enc","id":"rs_1","status":"completed","summary":[{"text":"think","type":"summary_text"}],"type":"reasoning"},` +
+		`{"arguments":"{}","call_id":"call_1","id":"fc_1","name":"ls","status":"completed","type":"function_call"},` +
+		`{"call_id":"call_1","output":"boom","type":"function_call_output"},{"content":"done","id":"msg_1","role":"assistant"}]`
+	if string(got) != want {
+		t.Errorf("input =\n%s\nwant\n%s", got, want)
+	}
+}

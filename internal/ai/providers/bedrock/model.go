@@ -196,7 +196,9 @@ func (m *languageModel) applySampling(req *converseRequest, opts provider.CallOp
 	}
 
 	temperature := opts.Temperature
-	if temperature != nil {
+	// The AI SDK leaves OpenAI's own models (other than gpt-oss) unclamped.
+	gptOSS := strings.Contains(m.modelID, "openai.gpt-oss-")
+	if temperature != nil && (!m.caps.IsOpenAI || gptOSS) {
 		switch {
 		case *temperature > 1:
 			warnings = append(warnings, provider.Unsupported(
@@ -269,6 +271,10 @@ func (m *languageModel) applyThinking(req *converseRequest, opts provider.CallOp
 		effort = provider.ReasoningDefault
 	}
 
+	// The AI SDK's resolveAmazonBedrockReasoningConfig and the fields it
+	// writes: Claude's thinking (adaptive effort, or a budget off the model's
+	// ceiling), OpenAI's effort (flat on gpt-oss, nested on GPT-5), Nova 2
+	// Lite's reasoningConfig; any other model ignores portable reasoning.
 	if effort != provider.ReasoningDefault {
 		switch {
 		case m.caps.IsAnthropic:
@@ -276,15 +282,28 @@ func (m *languageModel) applyThinking(req *converseRequest, opts provider.CallOp
 
 		case m.caps.IsOpenAI:
 			if effort != provider.ReasoningNone {
-				extra["reasoning_effort"] = m.adaptiveEffort(effort)
+				if e := bedrockEffort[effort]; strings.Contains(m.modelID, "openai.gpt-oss-") {
+					extra["reasoning_effort"] = e
+				} else {
+					extra["reasoning"] = map[string]any{"effort": e}
+				}
+			}
+
+		case strings.Contains(m.modelID, "amazon.nova-2-lite-v1:0"):
+			if effort != provider.ReasoningNone {
+				e := novaEffort[effort]
+				extra["reasoningConfig"] = map[string]any{"type": "enabled", "maxReasoningEffort": e}
+				if e == "high" && req.InferenceConfig != nil && req.InferenceConfig.MaxTokens != nil {
+					req.InferenceConfig.MaxTokens = nil
+					warnings = append(warnings, provider.Unsupported("maxOutputTokens",
+						"not supported by "+m.modelID+" with high reasoning; ignored"))
+				}
 			}
 
 		default:
 			if effort != provider.ReasoningNone {
-				extra["reasoningConfig"] = map[string]any{
-					"type":               "enabled",
-					"maxReasoningEffort": m.adaptiveEffort(effort),
-				}
+				warnings = append(warnings, provider.Unsupported("reasoning",
+					"portable reasoning is not supported for this model and was ignored"))
 			}
 		}
 	}
@@ -321,8 +340,8 @@ func (m *languageModel) applyAnthropicThinking(req *converseRequest, extra map[s
 	}
 
 	if m.caps.SupportsAdaptiveThinking {
-		extra["thinking"] = map[string]any{"type": "adaptive", "display": "summarized"}
-		mergeOutputConfig(extra, map[string]any{"effort": m.adaptiveEffort(effort)})
+		extra["thinking"] = map[string]any{"type": "adaptive"}
+		mergeOutputConfig(extra, map[string]any{"effort": bedrockEffort[effort]})
 		return nil
 	}
 
@@ -333,27 +352,33 @@ func (m *languageModel) applyAnthropicThinking(req *converseRequest, extra map[s
 			fmt.Sprintf("reasoning level %q is not supported by %s", effort, m.modelID),
 		)}
 	}
-
-	maxTokens := m.caps.MaxOutputTokens
-	if req.InferenceConfig != nil && req.InferenceConfig.MaxTokens != nil {
-		maxTokens = *req.InferenceConfig.MaxTokens
-	}
-	budget := int64(math.Round(float64(maxTokens) * fraction))
-	budget = min(max(budget, minReasoningBudget), maxTokens)
-
+	ceiling := m.caps.MaxOutputTokens
+	budget := min(max(int64(math.Round(float64(ceiling)*fraction)), minReasoningBudget), ceiling)
 	extra["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
 
-	// Anthropic requires the thinking budget to leave room for an answer.
-	raised := budget + minReasoningBudget
+	// max_tokens grows by the budget, or is the budget plus 4096.
 	if req.InferenceConfig == nil {
-		req.InferenceConfig = &inferenceConfig{MaxTokens: ptr(max(raised, defaultAnswerTokens))}
-	} else if req.InferenceConfig.MaxTokens == nil {
-		req.InferenceConfig.MaxTokens = ptr(max(raised, defaultAnswerTokens))
-	} else if *req.InferenceConfig.MaxTokens <= budget {
-		req.InferenceConfig.MaxTokens = ptr(raised)
+		req.InferenceConfig = &inferenceConfig{}
+	}
+	if req.InferenceConfig.MaxTokens != nil {
+		req.InferenceConfig.MaxTokens = ptr(*req.InferenceConfig.MaxTokens + budget)
+	} else {
+		req.InferenceConfig.MaxTokens = ptr(budget + defaultAnswerTokens)
 	}
 	return nil
 }
+
+// bedrockEffort and novaEffort are the AI SDK's effort maps for Bedrock.
+var (
+	bedrockEffort = map[provider.ReasoningEffort]string{
+		provider.ReasoningMinimal: "low", provider.ReasoningLow: "low", provider.ReasoningMedium: "medium",
+		provider.ReasoningHigh: "high", provider.ReasoningXHigh: "max",
+	}
+	novaEffort = map[provider.ReasoningEffort]string{
+		provider.ReasoningMinimal: "low", provider.ReasoningLow: "low", provider.ReasoningMedium: "medium",
+		provider.ReasoningHigh: "high", provider.ReasoningXHigh: "high",
+	}
+)
 
 // thinkingEnabled reports whether additional fields asked the model to think.
 func thinkingEnabled(extra map[string]any) bool {

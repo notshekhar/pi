@@ -45,10 +45,13 @@ func (m *languageModel) buildRequest(opts provider.CallOptions, stream bool) (*c
 	switch {
 	case m.provider.requireReasoning != nil && m.provider.requireReasoning(m.modelID):
 		replay = replayAlways
+	case m.provider.deepseek && m.provider.requireReasoning == nil && deepseekV4(m.modelID):
+		// @ai-sdk/deepseek: V4 demands the field on every assistant turn.
+		replay = replayAlways
 	case m.provider.replayReasoning:
 		replay = replayPresent
 	}
-	messages, warnings, err := convertPrompt(opts.Prompt, m.provider.optionsKey, replay)
+	messages, warnings, err := convertPrompt(opts.Prompt, m.provider.optionsKey, replay, m.provider.reasoningDetails)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -85,7 +88,13 @@ func (m *languageModel) buildRequest(opts provider.CallOptions, stream bool) (*c
 	}
 
 	if effort := opts.Reasoning; effort != "" && effort != provider.ReasoningDefault {
-		req.ReasoningEffort = mapReasoningEffort(effort)
+		if m.provider.effort != nil {
+			if e, ok := m.provider.effort(m.modelID, effort); ok {
+				req.ReasoningEffort = e
+			}
+		} else {
+			req.ReasoningEffort = string(effort)
+		}
 	}
 
 	toolWarnings, err := m.applyTools(req, opts)
@@ -101,27 +110,24 @@ func (m *languageModel) buildRequest(opts provider.CallOptions, stream bool) (*c
 	if extra := opts.ProviderOptions.Get(m.provider.optionsKey); extra != nil {
 		req.Extra = extra
 	}
+	if m.provider.mistral {
+		warnings = append(warnings, m.mistralShape(req, opts)...)
+	}
+	if m.provider.deepseek {
+		warnings = append(warnings, m.deepseekShape(req, opts)...)
+	}
+	if m.provider.reasoningField == "reasoning" {
+		for i := range req.Messages {
+			if r := req.Messages[i].ReasoningContent; r != nil {
+				if *r != "" && req.Messages[i].Reasoning == "" {
+					req.Messages[i].Reasoning = *r
+				}
+				req.Messages[i].ReasoningContent = nil
+			}
+		}
+	}
 
 	return req, warnings, nil
-}
-
-// mapReasoningEffort maps the unified effort onto the strings the chat API
-// accepts. "xhigh" has no equivalent, so it saturates at "high".
-func mapReasoningEffort(effort provider.ReasoningEffort) string {
-	switch effort {
-	case provider.ReasoningNone:
-		return "none"
-	case provider.ReasoningMinimal:
-		return "minimal"
-	case provider.ReasoningLow:
-		return "low"
-	case provider.ReasoningMedium:
-		return "medium"
-	case provider.ReasoningHigh, provider.ReasoningXHigh:
-		return "high"
-	default:
-		return ""
-	}
 }
 
 // applyTools renders the tool list and tool choice.

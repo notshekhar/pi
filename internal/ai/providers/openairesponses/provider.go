@@ -64,6 +64,12 @@ type Options struct {
 	// AllowMissingAPIKey is for an endpoint reached through headers or mTLS,
 	// with no bearer token at all.
 	AllowMissingAPIKey bool
+
+	// XAI speaks xAI's dialect of the Responses API (@ai-sdk/xai's
+	// responses model): system prompts as system messages, earlier output
+	// replayed in full with its ids rather than by item reference, efforts
+	// mapped onto low/medium/high, and options and metadata under "xai".
+	XAI bool
 }
 
 // Provider creates Responses API language models.
@@ -72,6 +78,9 @@ type Provider struct {
 	client         *providerutil.Client
 	retry          providerutil.RetryConfig
 	forceReasoning func(string) bool
+	xai            bool
+	// key names this dialect's provider options and metadata.
+	key string
 }
 
 // New returns a Provider.
@@ -90,7 +99,10 @@ func New(opts Options) *Provider {
 	}
 	baseURL := providerutil.TrimTrailingSlash(providerutil.LoadSetting(opts.BaseURL, "", defaultBaseURL))
 
-	p := &Provider{name: name, retry: retry, forceReasoning: opts.ForceReasoning}
+	p := &Provider{name: name, retry: retry, forceReasoning: opts.ForceReasoning, xai: opts.XAI, key: providerID}
+	if opts.XAI {
+		p.key = "xai"
+	}
 	p.client = &providerutil.Client{
 		BaseURL:    baseURL,
 		HTTPClient: opts.HTTPClient,

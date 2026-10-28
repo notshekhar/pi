@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai/provider"
@@ -144,61 +145,84 @@ var thinkingBudgetFraction = map[provider.ReasoningEffort]float64{
 // used only to size a thinking budget.
 const defaultMaxOutputTokens = 65536
 
-// applyThinking translates the unified reasoning effort into whichever
-// thinking shape the model accepts.
+// applyThinking is the AI SDK's resolveThinkingConfig: Gemini 3 takes a
+// level (it cannot think less than its minimum), Gemini 2.5 a budget sized
+// off a 65536-token ceiling and capped at the model's thinking maximum. The
+// SDK asks for no thought summaries unless the caller does.
 func (m *languageModel) applyThinking(req *generateRequest, opts provider.CallOptions) {
 	effort := opts.Reasoning
 	if effort == "" || effort == provider.ReasoningDefault {
 		return
 	}
-
-	cfg := &thinkingConfig{IncludeThoughts: true}
-
-	switch {
-	case m.caps.UsesGemini3Features:
-		// Gemini 3 takes a level and rejects a token budget. Thinking cannot
-		// be switched off entirely, so "none" becomes the lowest level.
-		cfg.ThinkingLevel = gemini3ThinkingLevel(effort)
-		if effort == provider.ReasoningNone {
-			cfg.IncludeThoughts = false
+	cfg := &thinkingConfig{}
+	if m.caps.UsesGemini3Features && !strings.Contains(m.modelID, "gemini-3-pro-image") {
+		floor := gemini3MinimumLevel(m.modelID)
+		switch effort {
+		case provider.ReasoningNone, provider.ReasoningMinimal:
+			cfg.ThinkingLevel = floor
+		case provider.ReasoningLow:
+			cfg.ThinkingLevel = "low"
+		case provider.ReasoningMedium:
+			cfg.ThinkingLevel = "medium"
+		default:
+			cfg.ThinkingLevel = "high"
 		}
-
-	case effort == provider.ReasoningNone:
-		budget := int64(0)
-		cfg.ThinkingBudget = &budget
-		cfg.IncludeThoughts = false
-
-	default:
-		maxTokens := int64(defaultMaxOutputTokens)
-		if opts.MaxOutputTokens != nil {
-			maxTokens = *opts.MaxOutputTokens
-		}
-		fraction, ok := thinkingBudgetFraction[effort]
+	} else if effort == provider.ReasoningNone {
+		zero := int64(0)
+		cfg.ThinkingBudget = &zero
+	} else {
+		pct, ok := thinkingBudgetFraction[effort]
 		if !ok {
 			return
 		}
-		budget := int64(math.Round(float64(maxTokens) * fraction))
+		ceiling := int64(24576)
+		if id := strings.ToLower(m.modelID); strings.Contains(id, "2.5-pro") || strings.Contains(id, "gemini-3-pro-image") {
+			ceiling = 32768
+		}
+		budget := min(ceiling, max(0, int64(math.Round(65536*pct))))
 		cfg.ThinkingBudget = &budget
 	}
-
 	req.GenerationConfig.ThinkingConfig = cfg
 }
 
-// gemini3ThinkingLevel maps a unified effort onto Gemini 3's levels.
-func gemini3ThinkingLevel(effort provider.ReasoningEffort) string {
-	switch effort {
-	case provider.ReasoningNone, provider.ReasoningMinimal:
+var (
+	geminiName     = regexp.MustCompile(`(?i)(?:^|[/.])(gemini-[^/]*)$`)
+	geminiPro      = regexp.MustCompile(`^gemini-(\d+)(?:\.\d+)?-pro(?:$|-)`)
+	geminiFlashVer = regexp.MustCompile(`^gemini-(\d+)\.(\d+)-flash(?:$|-)`)
+)
+
+// gemini3MinimumLevel is the SDK's getMinimumThinkingLevelForGemini3Model:
+// Pro 3+, flash-latest and Flash 3.7+ start at "low"; others at "minimal".
+func gemini3MinimumLevel(modelID string) string {
+	m := geminiName.FindStringSubmatch(modelID)
+	if m == nil {
 		return "minimal"
-	case provider.ReasoningLow:
-		return "low"
-	case provider.ReasoningMedium:
-		return "medium"
-	case provider.ReasoningHigh, provider.ReasoningXHigh:
-		// Gemini 3 has no level above high.
-		return "high"
-	default:
-		return "medium"
 	}
+	name := strings.ToLower(m[1])
+	if name == "gemini-flash-latest" {
+		return "low"
+	}
+	if p := geminiPro.FindStringSubmatch(name); p != nil {
+		if v, _ := strconv.Atoi(p[1]); v >= 3 {
+			return "low"
+		}
+	}
+	f := geminiFlashVer.FindStringSubmatch(name)
+	if f == nil || isFlashLite(name) {
+		return "minimal"
+	}
+	major, _ := strconv.Atoi(f[1])
+	minor, _ := strconv.Atoi(f[2])
+	if major > 3 || major == 3 && minor >= 7 {
+		return "low"
+	}
+	return "minimal"
+}
+
+// isFlashLite: the SDK's flash pattern excludes "-flash-lite".
+func isFlashLite(name string) bool {
+	_, rest, ok := strings.Cut(name, "-flash")
+	return ok && (rest == "-lite" || strings.HasPrefix(rest, "-lite-"))
 }
 
 // applyTools renders the tool list and tool choice.

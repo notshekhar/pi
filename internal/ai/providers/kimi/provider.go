@@ -131,6 +131,8 @@ func New(opts Options) *Provider {
 		// The AI SDK's Moonshot chat: a turn's reasoning goes back as
 		// reasoning_content (K2 thinking needs it on tool-calling turns).
 		ReplayReasoning: true,
+		// loop drives Kimi through @ai-sdk/deepseek.
+		DeepSeek: true,
 	})}
 }
 

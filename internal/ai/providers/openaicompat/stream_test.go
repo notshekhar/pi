@@ -634,3 +634,62 @@ func TestStreamCutShort(t *testing.T) {
 		t.Errorf("whole stream: finish %q, errors %v", finish.FinishReason.Unified, errs)
 	}
 }
+
+// OpenRouter's reasoning_details accumulate onto the reasoning part (text
+// chunks merged, the signature kept) and go back with the assistant turn;
+// a Claude text entry without a signature is dropped on the way back.
+func TestReasoningDetailsRoundTrip(t *testing.T) {
+	body := `data: {"id":"r","model":"m","choices":[{"index":0,"delta":{"reasoning":"Let","reasoning_details":[{"type":"reasoning.text","text":"Let","format":"anthropic-claude-v1","index":0}]}}]}
+
+data: {"id":"r","model":"m","choices":[{"index":0,"delta":{"reasoning":" me","reasoning_details":[{"type":"reasoning.text","text":" me","signature":"sig","index":0}]}}]}
+
+data: {"id":"r","model":"m","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	p := New(Options{Name: "openrouter", APIKey: "k", BaseURL: srv.URL, ReasoningDetails: true})
+	res, err := p.LanguageModel("anthropic/claude-sonnet-4.5").DoStream(context.Background(), provider.CallOptions{Prompt: userPrompt("hi")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var md provider.ProviderMetadata
+	for _, part := range collect(res) {
+		if v, ok := part.(provider.ReasoningEnd); ok {
+			md = v.ProviderMetadata
+		}
+	}
+	details, _ := md["openrouter"]["reasoning_details"].([]any)
+	if len(details) != 1 {
+		t.Fatalf("details = %v", md)
+	}
+	d := details[0].(map[string]any)
+	if d["text"] != "Let me" || d["signature"] != "sig" || d["format"] != "anthropic-claude-v1" {
+		t.Errorf("merged detail = %v", d)
+	}
+
+	turn := provider.AssistantMessage{Content: []provider.AssistantPart{
+		provider.ReasoningPart{Text: "Let me", ProviderOptions: provider.ProviderOptions(md)},
+		provider.TextPart{Text: "hi"},
+	}}
+	unsigned := provider.AssistantMessage{Content: []provider.AssistantPart{
+		provider.ReasoningPart{Text: "x", ProviderOptions: provider.ProviderOptions{"openrouter": {"reasoning_details": []any{
+			map[string]any{"type": "reasoning.text", "text": "x"}}}}},
+		provider.TextPart{Text: "y"},
+	}}
+	msgs, _, err := convertPrompt(provider.Prompt{turn, unsigned}, "openrouter", replayNever, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs[0].ReasoningDetails) != 1 || msgs[0].Reasoning != "Let me" {
+		t.Errorf("signed turn = %+v", msgs[0])
+	}
+	if msgs[1].ReasoningDetails != nil || msgs[1].Reasoning != "" {
+		t.Errorf("unsigned Claude reasoning was replayed: %+v", msgs[1])
+	}
+}

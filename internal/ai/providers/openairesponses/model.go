@@ -59,12 +59,22 @@ func effortString(e provider.ReasoningEffort) string {
 // buildRequest renders call options as a Responses body (the AI SDK's
 // getArgs, with loop's reasoningSummary "auto").
 func (m *languageModel) buildRequest(opts provider.CallOptions) (map[string]any, []provider.Warning, error) {
+	if m.provider.xai {
+		return m.buildXAIRequest(opts)
+	}
 	caps, reasoning := m.reasoningModel()
-	input, warnings, err := convertPrompt(opts.Prompt, providerID, reasoning)
+	// loop's forceReasoning, per call.
+	if force, _ := opts.ProviderOptions.Get(providerID)["forceReasoning"].(bool); force {
+		reasoning, caps.developerRole = true, true
+	}
+	input, warnings, err := convertPrompt(opts.Prompt, providerID, reasoning, false)
 	if err != nil {
 		return nil, nil, err
 	}
 	req := map[string]any{"model": m.modelID, "input": input, "stream": true}
+	if len(opts.StopSequences) > 0 {
+		warnings = append(warnings, provider.Unsupported("stopSequences", "the Responses API has no stop sequences"))
+	}
 	if opts.MaxOutputTokens != nil {
 		req["max_output_tokens"] = *opts.MaxOutputTokens
 	}
@@ -102,36 +112,10 @@ func (m *languageModel) buildRequest(opts provider.CallOptions) (map[string]any,
 		}
 	}
 
-	tools, err := convertTools(opts.Tools)
-	if err != nil {
+	if err := applyTools(req, opts); err != nil {
 		return nil, nil, err
 	}
-	if len(tools) > 0 {
-		req["tools"] = tools
-	}
-	if tc := opts.ToolChoice; tc != nil && len(tools) > 0 {
-		switch tc.Type {
-		case provider.ToolChoiceAuto, provider.ToolChoiceNone, provider.ToolChoiceRequired:
-			req["tool_choice"] = string(tc.Type)
-		case provider.ToolChoiceTool:
-			req["tool_choice"] = map[string]any{"type": "function", "name": tc.ToolName}
-		}
-	}
-
-	if rf := opts.ResponseFormat; rf != nil && rf.Type == "json" {
-		format := map[string]any{"type": "json_object"}
-		if rf.Schema != nil {
-			name := rf.Name
-			if name == "" {
-				name = "response"
-			}
-			format = map[string]any{"type": "json_schema", "name": name, "schema": rf.Schema, "strict": false}
-			if rf.Description != "" {
-				format["description"] = rf.Description
-			}
-		}
-		req["text"] = map[string]any{"format": format}
-	}
+	applyResponseFormat(req, opts, false)
 
 	// Provider options, in the SDK's camelCase, then anything raw.
 	for k, v := range opts.ProviderOptions.Get(providerID) {
@@ -151,6 +135,97 @@ func (m *languageModel) buildRequest(opts provider.CallOptions) (map[string]any,
 		}
 	}
 	return req, warnings, nil
+}
+
+// xaiEffort is @ai-sdk/xai's effort map: xAI takes low, medium and high.
+var xaiEffort = map[string]string{"none": "none", "minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "high"}
+
+// xaiNoEffort is @ai-sdk/xai's modelsWithoutReasoningEffort.
+var xaiNoEffort = regexp.MustCompile(`^grok-4\.20(-\d{4})?-(non-)?reasoning$`)
+
+// buildXAIRequest is @ai-sdk/xai's responses getArgs.
+func (m *languageModel) buildXAIRequest(opts provider.CallOptions) (map[string]any, []provider.Warning, error) {
+	input, warnings, err := convertPrompt(opts.Prompt, "xai", false, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	req := map[string]any{"model": m.modelID, "input": input, "stream": true}
+	if len(opts.StopSequences) > 0 {
+		warnings = append(warnings, provider.Unsupported("stopSequences", "xAI's Responses API has no stop sequences"))
+	}
+	if opts.MaxOutputTokens != nil {
+		req["max_output_tokens"] = *opts.MaxOutputTokens
+	}
+	if opts.Temperature != nil {
+		req["temperature"] = *opts.Temperature
+	}
+	if opts.TopP != nil {
+		req["top_p"] = *opts.TopP
+	}
+	if opts.Seed != nil {
+		req["seed"] = *opts.Seed
+	}
+	reasoning := map[string]any{}
+	if effort := effortString(opts.Reasoning); effort != "" {
+		if xaiNoEffort.MatchString(m.modelID) {
+			warnings = append(warnings, provider.Unsupported("reasoning", fmt.Sprintf("reasoning %q is not supported by this model", effort)))
+		} else {
+			reasoning["effort"] = xaiEffort[effort]
+		}
+	}
+	xo := opts.ProviderOptions.Get("xai")
+	if v, ok := xo["reasoningSummary"]; ok {
+		reasoning["summary"] = v
+	}
+	if len(reasoning) > 0 {
+		req["reasoning"] = reasoning
+	}
+	if store, ok := xo["store"].(bool); ok && !store {
+		req["store"] = false
+		req["include"] = []string{"reasoning.encrypted_content"}
+	}
+	if err := applyTools(req, opts); err != nil {
+		return nil, nil, err
+	}
+	applyResponseFormat(req, opts, true)
+	return req, warnings, nil
+}
+
+func applyTools(req map[string]any, opts provider.CallOptions) error {
+	tools, err := convertTools(opts.Tools)
+	if err != nil {
+		return err
+	}
+	if len(tools) > 0 {
+		req["tools"] = tools
+	}
+	if tc := opts.ToolChoice; tc != nil && len(tools) > 0 {
+		switch tc.Type {
+		case provider.ToolChoiceAuto, provider.ToolChoiceNone, provider.ToolChoiceRequired:
+			req["tool_choice"] = string(tc.Type)
+		case provider.ToolChoiceTool:
+			req["tool_choice"] = map[string]any{"type": "function", "name": tc.ToolName}
+		}
+	}
+	return nil
+}
+
+// applyResponseFormat asks for JSON; xAI's SDK makes the schema strict.
+func applyResponseFormat(req map[string]any, opts provider.CallOptions, strict bool) {
+	if rf := opts.ResponseFormat; rf != nil && rf.Type == "json" {
+		format := map[string]any{"type": "json_object"}
+		if rf.Schema != nil {
+			name := rf.Name
+			if name == "" {
+				name = "response"
+			}
+			format = map[string]any{"type": "json_schema", "name": name, "schema": rf.Schema, "strict": strict}
+			if rf.Description != "" {
+				format["description"] = rf.Description
+			}
+		}
+		req["text"] = map[string]any{"format": format}
+	}
 }
 
 func convertTools(tools []provider.Tool) ([]any, error) {
@@ -204,7 +279,7 @@ func (m *languageModel) DoStream(ctx context.Context, opts provider.CallOptions)
 	out := make(chan provider.StreamPart, 64)
 	go func() {
 		defer close(out)
-		s := newStreamState(ctx, out, opts.IncludeRawChunks, m.provider.client.BaseURL+responsesPath)
+		s := newStreamState(ctx, out, opts.IncludeRawChunks, m.provider.client.BaseURL+responsesPath, m.provider.key)
 		s.emit(provider.StreamStart{Warnings: warnings})
 		s.run(resp)
 	}()

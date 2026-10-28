@@ -1,6 +1,10 @@
 package openaicompat
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+)
 
 // chatRequest is the body of POST /chat/completions.
 type chatRequest struct {
@@ -51,6 +55,11 @@ type apiMessage struct {
 	// a model that requires the field gets it even when empty.
 	ReasoningContent *string `json:"reasoning_content,omitempty"`
 
+	// Reasoning and ReasoningDetails are OpenRouter's replay of a turn's
+	// reasoning and its signed details.
+	Reasoning        string `json:"reasoning,omitempty"`
+	ReasoningDetails []any  `json:"reasoning_details,omitempty"`
+
 	// ToolCalls is set on assistant messages.
 	ToolCalls []apiToolCall `json:"tool_calls,omitempty"`
 
@@ -59,6 +68,9 @@ type apiMessage struct {
 
 	// Name optionally labels a participant.
 	Name string `json:"name,omitempty"`
+
+	// Prefix marks a trailing assistant turn the model continues (Mistral).
+	Prefix bool `json:"prefix,omitempty"`
 }
 
 // contentPart is one part of a multi-modal message.
@@ -150,9 +162,65 @@ type apiMessageOut struct {
 	// Reasoning is spelled differently across gateways: DeepSeek and several
 	// others use reasoning_content, while some use reasoning. Both are read.
 	ReasoningContent string `json:"reasoning_content"`
-	Reasoning        string `json:"reasoning"`
+
+	// ReasoningDetails is OpenRouter's structured reasoning: text with its
+	// signature, summaries, and encrypted blocks.
+	ReasoningDetails []map[string]any `json:"reasoning_details"`
+	Reasoning        string           `json:"reasoning"`
 
 	ToolCalls []apiToolCall `json:"tool_calls"`
+
+	// thinking is reasoning that arrived as content parts (Mistral's
+	// [{"type":"thinking","thinking":[{"type":"text",...}]}]).
+	thinking string
+}
+
+// UnmarshalJSON accepts content as a string or as a list of parts, which is
+// how Mistral's reasoning models stream it. Decoding the list as a string
+// failed the whole chunk.
+func (m *apiMessageOut) UnmarshalJSON(data []byte) error {
+	type plain apiMessageOut
+	var wire struct {
+		plain
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*m = apiMessageOut(wire.plain)
+	raw := bytes.TrimSpace(wire.Content)
+	switch {
+	case len(raw) == 0 || string(raw) == "null":
+	case raw[0] == '"':
+		return json.Unmarshal(raw, &m.Content)
+	case raw[0] == '[':
+		var parts []struct {
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Thinking []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"thinking"`
+		}
+		if err := json.Unmarshal(raw, &parts); err != nil {
+			return err
+		}
+		var text, thinking strings.Builder
+		for _, p := range parts {
+			switch p.Type {
+			case "text":
+				text.WriteString(p.Text)
+			case "thinking":
+				for _, t := range p.Thinking {
+					if t.Type == "text" {
+						thinking.WriteString(t.Text)
+					}
+				}
+			}
+		}
+		m.Content, m.thinking = text.String(), thinking.String()
+	}
+	return nil
 }
 
 // reasoningText returns whichever reasoning field the gateway populated.
@@ -160,7 +228,10 @@ func (m *apiMessageOut) reasoningText() string {
 	if m.ReasoningContent != "" {
 		return m.ReasoningContent
 	}
-	return m.Reasoning
+	if m.Reasoning != "" {
+		return m.Reasoning
+	}
+	return m.thinking
 }
 
 // apiUsage is the OpenAI token accounting.
@@ -186,6 +257,9 @@ type apiUsage struct {
 	// CachedTokens is Moonshot/Kimi's top-level spelling of the same
 	// figure. OpenAI nests it under prompt_tokens_details instead.
 	CachedTokens *int64 `json:"cached_tokens"`
+
+	// NumCachedTokens is Mistral's spelling.
+	NumCachedTokens *int64 `json:"num_cached_tokens"`
 }
 
 // promptTokensDetails breaks prompt_tokens down.
@@ -207,6 +281,9 @@ func (u *apiUsage) cachedInputTokens() int64 {
 	}
 	if u.CachedTokens != nil {
 		return *u.CachedTokens
+	}
+	if u.NumCachedTokens != nil {
+		return *u.NumCachedTokens
 	}
 	return 0
 }

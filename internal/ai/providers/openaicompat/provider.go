@@ -113,6 +113,31 @@ type Options struct {
 	// gateways (Mistral) reject the unknown field.
 	ReplayReasoning bool
 
+	// ReasoningDetails keeps OpenRouter's reasoning_details (signed
+	// reasoning, as @openrouter/ai-sdk-provider does): accumulated from the
+	// stream onto the reasoning part, and sent back with the assistant turn
+	// that produced them.
+	ReasoningDetails bool
+
+	// ReasoningField names the field replayed reasoning goes in:
+	// "reasoning_content" (the default) or "reasoning" (Groq, Cerebras).
+	ReasoningField string
+
+	// Effort maps the unified effort onto what the provider takes, per
+	// model; ok false sends none. Nil passes the effort through as the AI
+	// SDK's openai-compatible model does.
+	Effort func(modelID string, effort provider.ReasoningEffort) (string, bool)
+
+	// DeepSeek speaks @ai-sdk/deepseek's dialect (DeepSeek, and Kimi, which
+	// loop drives through the same SDK): a thinking toggle, efforts of
+	// low/high/max only while thinking, and no sampling knobs then.
+	DeepSeek bool
+
+	// Mistral speaks @ai-sdk/mistral's dialect: random_seed, tool_choice
+	// "any", its reasoning-effort table, reasoning replayed as thinking
+	// content parts, and a trailing assistant turn sent as a prefix.
+	Mistral bool
+
 	// RequireReasoningReplay reports models that need reasoning_content on
 	// EVERY replayed assistant turn, empty when it had none — DeepSeek V4.
 	RequireReasoningReplay func(modelID string) bool
@@ -131,6 +156,11 @@ type Provider struct {
 	// Options.RequireReasoningReplay.
 	replayReasoning  bool
 	requireReasoning func(modelID string) bool
+	reasoningDetails bool
+	mistral          bool
+	deepseek         bool
+	reasoningField   string
+	effort           func(string, provider.ReasoningEffort) (string, bool)
 	// imageResponseFormat is sent on image calls when non-empty.
 	imageResponseFormat string
 
@@ -176,6 +206,11 @@ func New(opts Options) *Provider {
 		imageResponseFormat:    opts.ImageResponseFormat,
 		useMaxCompletionTokens: opts.UseMaxCompletionTokens,
 		replayReasoning:        opts.ReplayReasoning,
+		reasoningDetails:       opts.ReasoningDetails,
+		mistral:                opts.Mistral,
+		deepseek:               opts.DeepSeek,
+		reasoningField:         opts.ReasoningField,
+		effort:                 opts.Effort,
 		requireReasoning:       opts.RequireReasoningReplay,
 	}
 

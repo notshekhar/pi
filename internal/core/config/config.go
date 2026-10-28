@@ -14,6 +14,7 @@ import (
 	"github.com/notshekhar/pi/internal/ai/providers/deepseek"
 	"github.com/notshekhar/pi/internal/ai/providers/google"
 	"github.com/notshekhar/pi/internal/ai/providers/kimi"
+	"github.com/notshekhar/pi/internal/ai/providers/ollama"
 	"github.com/notshekhar/pi/internal/ai/providers/openaicompat"
 	"github.com/notshekhar/pi/internal/ai/providers/openairesponses"
 	"github.com/notshekhar/pi/internal/core/catalog"
@@ -144,43 +145,67 @@ func LanguageModel(c Config) (provider.LanguageModel, error) {
 		// newer models require for tools with a reasoning effort.
 		return responses("openai", "", key, "OPENAI_API_KEY", false).LanguageModel(c.ModelID), nil
 	case "openrouter":
-		return compat("openrouter", "https://openrouter.ai/api/v1", key, "OPENROUTER_API_KEY", false, false).LanguageModel(c.ModelID), nil
+		// loop's @openrouter/ai-sdk-provider: chat completions, with the
+		// signed reasoning_details round-tripped.
+		return openaicompat.New(openaicompat.Options{
+			Name: "openrouter", BaseURL: "https://openrouter.ai/api/v1", APIKey: key, APIKeyEnv: "OPENROUTER_API_KEY",
+			ReasoningDetails: true,
+		}).LanguageModel(c.ModelID), nil
 	case "xai":
 		// A SuperGrok sign-in beats an API key: the user chose to bill their
 		// subscription, and silently charging their pay-as-you-go account
 		// instead because a key happened to be in the environment is the
 		// wrong way round.
+		//
+		// loop's xai(model) is @ai-sdk/xai's Responses model, so this is too.
+		x := openairesponses.Options{Name: "xai", XAI: true, BaseURL: "https://api.x.ai/v1", APIKey: key, APIKeyEnv: "XAI_API_KEY"}
 		if XaiSignedIn() {
-			return openaicompat.New(openaicompat.Options{
-				Name:      "xai",
-				BaseURL:   "https://api.x.ai/v1",
-				AuthToken: XaiAccessToken,
-			}).LanguageModel(c.ModelID), nil
+			x.AuthToken = XaiAccessToken
 		}
-		return compat("xai", "https://api.x.ai/v1", key, "XAI_API_KEY", false, false).LanguageModel(c.ModelID), nil
+		return openairesponses.New(x).LanguageModel(c.ModelID), nil
 	case "mistral":
-		return compat("mistral", "https://api.mistral.ai/v1", key, "MISTRAL_API_KEY", false, false).LanguageModel(c.ModelID), nil
+		// loop's @ai-sdk/mistral.
+		return openaicompat.New(openaicompat.Options{
+			Name: "mistral", BaseURL: "https://api.mistral.ai/v1", APIKey: key, APIKeyEnv: "MISTRAL_API_KEY", Mistral: true,
+		}).LanguageModel(c.ModelID), nil
 	case "glm":
 		return compat("glm", "https://open.bigmodel.cn/api/paas/v4", key, "GLM_API_KEY", false, false).LanguageModel(c.ModelID), nil
 	case "zai":
 		return compat("zai", "https://api.z.ai/api/paas/v4", key, "ZAI_API_KEY", false, false).LanguageModel(c.ModelID), nil
 	case "groq":
-		return compat("groq", "https://api.groq.com/openai/v1", key, "GROQ_API_KEY", false, false).LanguageModel(c.ModelID), nil
+		// loop's @ai-sdk/groq: its effort map, reasoning replayed as "reasoning".
+		return openaicompat.New(openaicompat.Options{
+			Name: "groq", BaseURL: "https://api.groq.com/openai/v1", APIKey: key, APIKeyEnv: "GROQ_API_KEY",
+			Effort: openaicompat.GroqEffort, ReplayReasoning: true, ReasoningField: "reasoning",
+		}).LanguageModel(c.ModelID), nil
 	case "cerebras":
-		return compat("cerebras", "https://api.cerebras.ai/v1", key, "CEREBRAS_API_KEY", false, false).LanguageModel(c.ModelID), nil
+		// loop's @ai-sdk/cerebras: max_completion_tokens, reasoning replayed
+		// as "reasoning".
+		return openaicompat.New(openaicompat.Options{
+			Name: "cerebras", BaseURL: "https://api.cerebras.ai/v1", APIKey: key, APIKeyEnv: "CEREBRAS_API_KEY",
+			UseMaxCompletionTokens: true, ReplayReasoning: true, ReasoningField: "reasoning",
+		}).LanguageModel(c.ModelID), nil
 	case "zenmux":
 		// loop: createOpenAI with ZenMux's base URL — the Responses API.
 		return responses("zenmux", "https://zenmux.ai/api/v1", key, "ZENMUX_API_KEY", false).LanguageModel(c.ModelID), nil
 	case "vercel":
 		return compat("vercel", "https://ai-gateway.vercel.sh/v1", key, "AI_GATEWAY_API_KEY", false, false).LanguageModel(c.ModelID), nil
 	case "ollama":
-		base := os.Getenv("OLLAMA_HOST")
+		// loop's ollama-ai-provider-v2: the native /api, which alone takes
+		// num_ctx (the agent sets it to the model's window).
+		base := strings.TrimRight(os.Getenv("OLLAMA_HOST"), "/")
 		if base == "" {
-			base = "http://127.0.0.1:11434/v1"
-		} else if !strings.HasSuffix(base, "/v1") {
-			base = strings.TrimRight(base, "/") + "/v1"
+			base = "http://127.0.0.1:11434"
 		}
-		return compat("ollama", base, key, "", false, true).LanguageModel(c.ModelID), nil
+		if !strings.Contains(base, "://") {
+			base = "http://" + base
+		}
+		base = strings.TrimSuffix(strings.TrimSuffix(base, "/v1"), "/api") + "/api"
+		var headers provider.Headers
+		if key != "" {
+			headers = provider.Headers{"Authorization": "Bearer " + key}
+		}
+		return ollama.New(ollama.Options{BaseURL: base, Headers: headers}).LanguageModel(c.ModelID), nil
 	default:
 		// A user-defined endpoint. This branch used to return "unknown
 		// provider", which made every custom provider configurable and

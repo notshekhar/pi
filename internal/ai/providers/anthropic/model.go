@@ -200,8 +200,10 @@ func (m *languageModel) applyThinking(req *messagesRequest, opts provider.CallOp
 				))
 				break
 			}
-			budget := int64(math.Round(float64(req.MaxTokens) * fraction))
-			budget = min(max(budget, minReasoningBudget), req.MaxTokens)
+			// The AI SDK sizes the budget off the model's own output ceiling,
+			// not the call's max_tokens.
+			ceiling := m.caps.MaxOutputTokens
+			budget := min(max(int64(math.Round(float64(ceiling)*fraction)), minReasoningBudget), ceiling)
 			req.Thinking = &thinkingConfig{Type: "enabled", BudgetTokens: &budget}
 		}
 	}
@@ -226,9 +228,29 @@ func (m *languageModel) applyThinking(req *messagesRequest, opts provider.CallOp
 		req.OutputConfig.Effort = "high"
 	}
 
-	// Anthropic requires the thinking budget to leave room for an answer.
-	if req.Thinking != nil && req.Thinking.BudgetTokens != nil && *req.Thinking.BudgetTokens >= req.MaxTokens {
-		req.MaxTokens = *req.Thinking.BudgetTokens + minReasoningBudget
+	// The AI SDK's thinking adjustments: an enabled thinking with no budget
+	// gets 1024; while thinking, sampling knobs are dropped and max_tokens
+	// grows by the budget; without it, top_p yields to temperature. A known
+	// model's max_tokens is then capped at its ceiling.
+	thinking := req.Thinking != nil && (req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive")
+	if thinking {
+		if req.Thinking.Type == "enabled" && req.Thinking.BudgetTokens == nil {
+			b := int64(minReasoningBudget)
+			req.Thinking.BudgetTokens = &b
+		}
+		if req.Temperature != nil || req.TopP != nil || req.TopK != nil {
+			warnings = append(warnings, provider.Unsupported("temperature/topP/topK", "not supported while thinking"))
+			req.Temperature, req.TopP, req.TopK = nil, nil, nil
+		}
+		if req.Thinking.BudgetTokens != nil {
+			req.MaxTokens += *req.Thinking.BudgetTokens
+		}
+	} else if req.Temperature != nil && req.TopP != nil && strings.HasPrefix(m.modelID, "claude-") {
+		warnings = append(warnings, provider.Unsupported("topP", "Anthropic takes temperature or topP, not both; topP was dropped"))
+		req.TopP = nil
+	}
+	if m.caps.Known && req.MaxTokens > m.caps.MaxOutputTokens {
+		req.MaxTokens = m.caps.MaxOutputTokens
 	}
 
 	return warnings, nil

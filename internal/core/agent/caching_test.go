@@ -345,3 +345,14 @@ func TestOpenAIRequestsCarryAPromptCacheKey(t *testing.T) {
 		t.Error("the caller's options were mutated")
 	}
 }
+
+// loop's withOllamaContext: num_ctx is the model's window (8192 unknown),
+// kept beside any options the caller set.
+func TestOllamaGetsItsContextWindow(t *testing.T) {
+	opts := cachedOptions(ai.Options{ProviderOptions: provider.ProviderOptions{"ollama": {"options": map[string]any{"temperature": 0.1}}}},
+		config.Config{Provider: "ollama", ModelID: "never-heard-of-it"}, "")
+	o := opts.ProviderOptions.Get("ollama")["options"].(map[string]any)
+	if o["num_ctx"] != 8192 || o["temperature"] != 0.1 {
+		t.Errorf("options = %v", o)
+	}
+}

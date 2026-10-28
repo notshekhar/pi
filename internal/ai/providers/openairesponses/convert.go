@@ -50,9 +50,10 @@ func capabilitiesOf(modelID string) capabilities {
 	return c
 }
 
-// convertPrompt renders a spec prompt as Responses input items (the AI
-// SDK's convertToOpenAIResponsesInput with store on, the API default).
-func convertPrompt(prompt provider.Prompt, key string, reasoningModel bool) ([]any, []provider.Warning, error) {
+// convertPrompt renders a spec prompt as Responses input items: the AI SDK's
+// convertToOpenAIResponsesInput with store on (the API default), or with
+// xai set its convertToXaiResponsesInput.
+func convertPrompt(prompt provider.Prompt, key string, reasoningModel, xai bool) ([]any, []provider.Warning, error) {
 	var (
 		input    []any
 		warnings []provider.Warning
@@ -61,7 +62,7 @@ func convertPrompt(prompt provider.Prompt, key string, reasoningModel bool) ([]a
 		switch m := msg.(type) {
 		case provider.SystemMessage:
 			role := "system"
-			if reasoningModel {
+			if reasoningModel && !xai {
 				role = "developer"
 			}
 			input = append(input, map[string]any{"role": role, "content": m.Content})
@@ -93,6 +94,14 @@ func convertPrompt(prompt provider.Prompt, key string, reasoningModel bool) ([]a
 				switch p := part.(type) {
 				case provider.TextPart:
 					id, _ := p.ProviderOptions.Get(key)["itemId"].(string)
+					if xai {
+						item := map[string]any{"role": "assistant", "content": p.Text}
+						if id != "" {
+							item["id"] = id
+						}
+						input = append(input, item)
+						continue
+					}
 					if id != "" && (!reasoningModel || precedingReasoning) {
 						if !referenced[id] {
 							referenced[id] = true
@@ -106,6 +115,26 @@ func convertPrompt(prompt provider.Prompt, key string, reasoningModel bool) ([]a
 					precedingReasoning = true
 					opts := p.ProviderOptions.Get(key)
 					id, _ := opts["itemId"].(string)
+					if xai {
+						// xAI takes the reasoning back whole, by id and with
+						// its encrypted content.
+						enc, _ := opts["reasoningEncryptedContent"].(string)
+						if id == "" && enc == "" {
+							warnings = append(warnings, provider.Unsupported("reasoning part",
+								"reasoning without an itemId or encrypted content cannot be sent back to xAI"))
+							continue
+						}
+						summary := []any{}
+						if p.Text != "" {
+							summary = append(summary, map[string]any{"type": "summary_text", "text": p.Text})
+						}
+						item := map[string]any{"type": "reasoning", "id": id, "summary": summary, "status": "completed"}
+						if enc != "" {
+							item["encrypted_content"] = enc
+						}
+						input = append(input, item)
+						continue
+					}
 					switch {
 					case id != "":
 						if !referenced[id] {
@@ -132,9 +161,17 @@ func convertPrompt(prompt provider.Prompt, key string, reasoningModel bool) ([]a
 					}
 					// Client-run calls replay in full, never by reference: the
 					// output pairs with the call by call_id alone.
-					input = append(input, map[string]any{
+					call := map[string]any{
 						"type": "function_call", "call_id": p.ToolCallID, "name": p.ToolName, "arguments": string(args),
-					})
+					}
+					if xai {
+						id, _ := p.ProviderOptions.Get(key)["itemId"].(string)
+						if id == "" {
+							id = p.ToolCallID
+						}
+						call["id"], call["status"] = id, "completed"
+					}
+					input = append(input, call)
 
 				case provider.ToolResultPart:
 					// Results of provider-run tools need no replay.
@@ -149,7 +186,11 @@ func convertPrompt(prompt provider.Prompt, key string, reasoningModel bool) ([]a
 				if !ok {
 					continue
 				}
-				input = append(input, map[string]any{"type": "function_call_output", "call_id": p.ToolCallID, "output": toolOutput(p.Output)})
+				output := toolOutput(p.Output)
+				if xai {
+					output = xaiToolOutput(p.Output)
+				}
+				input = append(input, map[string]any{"type": "function_call_output", "call_id": p.ToolCallID, "output": output})
 			}
 
 		default:
@@ -198,6 +239,23 @@ func toolOutput(output provider.ToolResultOutput) any {
 		return items
 	}
 	return ""
+}
+
+// xaiToolOutput is @ai-sdk/xai's: errors go back as their bare text.
+func xaiToolOutput(output provider.ToolResultOutput) any {
+	switch o := output.(type) {
+	case provider.ToolOutputErrorText:
+		return o.Value
+	case provider.ToolOutputErrorJSON:
+		raw, _ := json.Marshal(o.Value)
+		return string(raw)
+	case provider.ToolOutputExecutionDenied:
+		if o.Reason != "" {
+			return o.Reason
+		}
+		return "tool execution denied"
+	}
+	return toolOutput(output)
 }
 
 // fileItem is an attachment as an input_image, input_file or input_text.

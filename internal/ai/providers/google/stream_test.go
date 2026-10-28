@@ -241,8 +241,10 @@ func TestGemini25UsesThinkingBudget(t *testing.T) {
 	if cfg == nil || cfg.ThinkingBudget == nil {
 		t.Fatalf("thinkingConfig = %+v, want a budget", cfg)
 	}
-	if *cfg.ThinkingBudget != 3000 {
-		t.Errorf("budget = %d, want 3000 (30%% of 10000)", *cfg.ThinkingBudget)
+	// The AI SDK sizes it off a fixed 65536 ceiling, not the call's limit:
+	// round(0.3 * 65536), under 2.5 Pro's 32768 maximum.
+	if *cfg.ThinkingBudget != 19661 {
+		t.Errorf("budget = %d, want 19661", *cfg.ThinkingBudget)
 	}
 	if cfg.ThinkingLevel != "" {
 		t.Errorf("gemini 2.5 must not receive thinkingLevel, got %q", cfg.ThinkingLevel)
@@ -687,5 +689,18 @@ func TestEmbeddingRequestCarriesTaskTypePerValue(t *testing.T) {
 	}
 	if req.Requests[0].Content.Parts[0].Text != "a" {
 		t.Errorf("first value = %q", req.Requests[0].Content.Parts[0].Text)
+	}
+}
+
+// The AI SDK's getMinimumThinkingLevelForGemini3Model.
+func TestGemini3MinimumLevel(t *testing.T) {
+	for id, want := range map[string]string{
+		"gemini-3-pro-preview": "low", "gemini-3.1-pro": "low", "gemini-flash-latest": "low",
+		"gemini-3.7-flash": "low", "gemini-3-flash-preview": "minimal", "gemini-3.7-flash-lite": "minimal",
+		"models/gemini-3-flash": "minimal",
+	} {
+		if got := gemini3MinimumLevel(id); got != want {
+			t.Errorf("%s: %q, want %q", id, got, want)
+		}
 	}
 }

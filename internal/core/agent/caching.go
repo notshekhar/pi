@@ -133,6 +133,7 @@ func AnthropicPrepareStep(_ context.Context, step ai.StepContext) (ai.StepOverri
 // x-grok-conv-id to the same server; without it a step lands anywhere and
 // re-reads the whole prompt at full price.
 func cachedOptions(opts ai.Options, cfg config.Config, conv string) ai.Options {
+	applyReasoning(&opts, cfg)
 	if config.EffectiveSDKProvider(cfg.Provider) == "xai" && conv != "" {
 		headers := maps.Clone(opts.Headers)
 		if headers == nil {
@@ -156,6 +157,30 @@ func cachedOptions(opts ai.Options, cfg config.Config, conv string) ai.Options {
 			block["promptCacheKey"] = conv
 		}
 		po["openai"] = block
+		opts.ProviderOptions = po
+	}
+	// loop's withOllamaContext: Ollama defaults num_ctx to a few thousand
+	// tokens whatever the model takes, truncating long sessions.
+	if cfg.Provider == "ollama" {
+		window := 8192
+		if m, ok := config.ModelInfo(cfg.Provider, cfg.ModelID); ok && m.Context > 0 {
+			window = m.Context
+		}
+		po := maps.Clone(opts.ProviderOptions)
+		if po == nil {
+			po = provider.ProviderOptions{}
+		}
+		block := maps.Clone(po["ollama"])
+		if block == nil {
+			block = provider.JSONObject{}
+		}
+		inner := map[string]any{}
+		if existing, ok := block["options"].(map[string]any); ok {
+			maps.Copy(inner, existing)
+		}
+		inner["num_ctx"] = window
+		block["options"] = inner
+		po["ollama"] = block
 		opts.ProviderOptions = po
 	}
 	shape, ok := explicitCacheShape(cfg)

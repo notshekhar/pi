@@ -435,8 +435,13 @@ func TestBudgetThinkingRequestShape(t *testing.T) {
 	if sent.Thinking == nil || sent.Thinking.Type != "enabled" {
 		t.Fatalf("thinking = %+v, want enabled", sent.Thinking)
 	}
-	if sent.Thinking.BudgetTokens == nil || *sent.Thinking.BudgetTokens != 3000 {
-		t.Errorf("budget = %v, want 3000 (30%% of 10000)", sent.Thinking.BudgetTokens)
+	// The AI SDK: 30% of the model's 64000 ceiling, and max_tokens grows by
+	// the budget so the answer keeps its 10000.
+	if sent.Thinking.BudgetTokens == nil || *sent.Thinking.BudgetTokens != 19200 {
+		t.Errorf("budget = %v, want 19200", sent.Thinking.BudgetTokens)
+	}
+	if sent.MaxTokens != 29200 {
+		t.Errorf("max_tokens = %d, want 29200", sent.MaxTokens)
 	}
 	if sent.OutputConfig != nil {
 		t.Errorf("budget-mode models must not receive output_config, got %+v", sent.OutputConfig)

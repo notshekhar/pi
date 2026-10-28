@@ -82,6 +82,11 @@ func convertUsage(u *apiUsage) provider.Usage {
 	if d := u.OutputTokensDetails; d != nil {
 		reasoning = d.ReasoningTokens
 	}
+	// The AI SDK's xAI guard: a cache count above input_tokens was counted
+	// outside it.
+	if cached > total {
+		total += cached
+	}
 	fresh := total - cached
 	if write != nil {
 		fresh -= *write
@@ -141,11 +146,32 @@ type streamState struct {
 	functionCall bool
 	reasoning    map[string]*reasoningState
 	calls        map[string]outputItem // function calls by item id
+	texts        map[string]bool       // text items started
+	// key names the dialect's metadata ("openai" or "xai").
+	key string
 }
 
-func newStreamState(ctx context.Context, out chan<- provider.StreamPart, raw bool, url string) *streamState {
-	return &streamState{ctx: ctx, out: out, raw: raw, url: url,
-		reasoning: map[string]*reasoningState{}, calls: map[string]outputItem{}}
+func newStreamState(ctx context.Context, out chan<- provider.StreamPart, raw bool, url, key string) *streamState {
+	return &streamState{ctx: ctx, out: out, raw: raw, url: url, key: key,
+		reasoning: map[string]*reasoningState{}, calls: map[string]outputItem{}, texts: map[string]bool{}}
+}
+
+func (s *streamState) meta(fields map[string]any) provider.ProviderMetadata {
+	return provider.ProviderMetadata{s.key: fields}
+}
+
+// startReasoning opens a reasoning item's summary part if it is not open
+// yet: xAI can stream reasoning without announcing the item first.
+func (s *streamState) startReasoning(itemID string, index int) {
+	r := s.reasoning[itemID]
+	if r == nil {
+		r = &reasoningState{open: map[int]bool{}}
+		s.reasoning[itemID] = r
+	}
+	if !r.open[index] {
+		r.open[index] = true
+		s.emit(provider.ReasoningStart{ID: reasoningID(itemID, index), ProviderMetadata: s.meta(map[string]any{"itemId": itemID})})
+	}
 }
 
 func (s *streamState) emit(part provider.StreamPart) bool {
@@ -156,10 +182,6 @@ func (s *streamState) emit(part provider.StreamPart) bool {
 	case <-s.ctx.Done():
 		return false
 	}
-}
-
-func meta(fields map[string]any) provider.ProviderMetadata {
-	return provider.ProviderMetadata{providerID: fields}
 }
 
 func reasoningID(itemID string, index int) string { return itemID + ":" + strconv.Itoa(index) }
@@ -213,30 +235,39 @@ func (s *streamState) handle(e event) {
 		}
 		switch e.Item.Type {
 		case "message":
-			s.emit(provider.TextStart{ID: e.Item.ID, ProviderMetadata: meta(map[string]any{"itemId": e.Item.ID})})
+			if !s.texts[e.Item.ID] {
+				s.texts[e.Item.ID] = true
+				s.emit(provider.TextStart{ID: e.Item.ID, ProviderMetadata: s.meta(map[string]any{"itemId": e.Item.ID})})
+			}
 		case "reasoning":
-			s.reasoning[e.Item.ID] = &reasoningState{encrypted: e.Item.EncryptedContent, open: map[int]bool{0: true}}
-			s.emit(provider.ReasoningStart{ID: reasoningID(e.Item.ID, 0), ProviderMetadata: meta(map[string]any{"itemId": e.Item.ID})})
+			s.startReasoning(e.Item.ID, 0)
+			s.reasoning[e.Item.ID].encrypted = e.Item.EncryptedContent
 		case "function_call":
 			s.calls[e.Item.ID] = *e.Item
 			s.emit(provider.ToolInputStart{ID: e.Item.CallID, ToolName: e.Item.Name})
 		}
 
 	case "response.output_text.delta":
+		if !s.texts[e.ItemID] {
+			s.texts[e.ItemID] = true
+			s.emit(provider.TextStart{ID: e.ItemID, ProviderMetadata: s.meta(map[string]any{"itemId": e.ItemID})})
+		}
 		s.emit(provider.TextDelta{ID: e.ItemID, Delta: e.Delta})
 
 	case "response.reasoning_summary_part.added":
 		if r := s.reasoning[e.ItemID]; r != nil && e.SummaryIndex > 0 {
 			// A new summary part closes the ones before it.
 			for i := range r.open {
-				s.emit(provider.ReasoningEnd{ID: reasoningID(e.ItemID, i), ProviderMetadata: meta(map[string]any{"itemId": e.ItemID})})
+				s.emit(provider.ReasoningEnd{ID: reasoningID(e.ItemID, i), ProviderMetadata: s.meta(map[string]any{"itemId": e.ItemID})})
 				delete(r.open, i)
 			}
 			r.open[e.SummaryIndex] = true
-			s.emit(provider.ReasoningStart{ID: reasoningID(e.ItemID, e.SummaryIndex), ProviderMetadata: meta(map[string]any{"itemId": e.ItemID})})
+			s.emit(provider.ReasoningStart{ID: reasoningID(e.ItemID, e.SummaryIndex), ProviderMetadata: s.meta(map[string]any{"itemId": e.ItemID})})
 		}
 
-	case "response.reasoning_summary_text.delta":
+	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+		// reasoning_text is xAI's raw reasoning, beside the summary.
+		s.startReasoning(e.ItemID, e.SummaryIndex)
 		s.emit(provider.ReasoningDelta{ID: reasoningID(e.ItemID, e.SummaryIndex), Delta: e.Delta})
 
 	case "response.function_call_arguments.delta":
@@ -250,12 +281,14 @@ func (s *streamState) handle(e event) {
 		}
 		switch e.Item.Type {
 		case "message":
-			s.emit(provider.TextEnd{ID: e.Item.ID, ProviderMetadata: meta(map[string]any{"itemId": e.Item.ID})})
-		case "reasoning":
-			r := s.reasoning[e.Item.ID]
-			if r == nil {
-				return
+			if s.texts[e.Item.ID] {
+				s.emit(provider.TextEnd{ID: e.Item.ID, ProviderMetadata: s.meta(map[string]any{"itemId": e.Item.ID})})
 			}
+		case "reasoning":
+			// An item that streamed nothing still needs its part, to carry
+			// the encrypted content back.
+			s.startReasoning(e.Item.ID, 0)
+			r := s.reasoning[e.Item.ID]
 			fields := map[string]any{"itemId": e.Item.ID}
 			if enc := e.Item.EncryptedContent; enc != nil {
 				fields["reasoningEncryptedContent"] = *enc
@@ -263,7 +296,7 @@ func (s *streamState) handle(e event) {
 				fields["reasoningEncryptedContent"] = *r.encrypted
 			}
 			for i := range r.open {
-				s.emit(provider.ReasoningEnd{ID: reasoningID(e.Item.ID, i), ProviderMetadata: meta(fields)})
+				s.emit(provider.ReasoningEnd{ID: reasoningID(e.Item.ID, i), ProviderMetadata: s.meta(fields)})
 			}
 			delete(s.reasoning, e.Item.ID)
 		case "function_call":
@@ -274,7 +307,7 @@ func (s *streamState) handle(e event) {
 			}
 			s.emit(provider.ToolInputEnd{ID: e.Item.CallID})
 			s.emit(provider.ToolCall{ToolCallID: e.Item.CallID, ToolName: e.Item.Name, Input: args,
-				ProviderMetadata: meta(map[string]any{"itemId": e.Item.ID})})
+				ProviderMetadata: s.meta(map[string]any{"itemId": e.Item.ID})})
 			delete(s.calls, e.Item.ID)
 		}
 

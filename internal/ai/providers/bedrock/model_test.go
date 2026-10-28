@@ -221,8 +221,39 @@ func TestThinkingOnClaude45UsesBudget(t *testing.T) {
 		t.Fatalf("thinking = %#v", thinking)
 	}
 	budget, ok := toInt64(thinking["budget_tokens"])
-	if !ok || budget != 3000 {
-		t.Errorf("budget = %v, want 3000 (30%% of 10000)", thinking["budget_tokens"])
+	// The AI SDK: 30% of the model's 64000 ceiling, and maxTokens grows by
+	// the budget so the answer keeps its 10000.
+	if !ok || budget != 19200 {
+		t.Errorf("budget = %v, want 19200", thinking["budget_tokens"])
+	}
+	if req.InferenceConfig == nil || *req.InferenceConfig.MaxTokens != 29200 {
+		t.Errorf("maxTokens = %v, want 29200", req.InferenceConfig)
+	}
+}
+
+// OpenAI models on Bedrock take their effort nested on GPT-5 and flat on
+// gpt-oss; a model with no reasoning support ignores portable reasoning.
+func TestBedrockReasoningByFamily(t *testing.T) {
+	for model, check := range map[string]func(map[string]any) bool{
+		"openai.gpt-5.1-v1:0":     func(x map[string]any) bool { r, _ := x["reasoning"].(map[string]any); return r["effort"] == "max" },
+		"openai.gpt-oss-120b-1:0": func(x map[string]any) bool { return x["reasoning_effort"] == "max" },
+		"amazon.nova-2-lite-v1:0": func(x map[string]any) bool {
+			r, _ := x["reasoningConfig"].(map[string]any)
+			return r["maxReasoningEffort"] == "high"
+		},
+		"meta.llama4-maverick-17b-v1": func(x map[string]any) bool { return x == nil },
+	} {
+		p, sent, _ := testProvider(t, jsonHandler(generateTextBody))
+		if _, err := p.LanguageModel(model).DoGenerate(context.Background(), provider.CallOptions{
+			Prompt: userPrompt("hi"), Reasoning: provider.ReasoningXHigh,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		var req converseRequest
+		_ = json.Unmarshal(*sent, &req)
+		if !check(req.AdditionalModelRequestFields) {
+			t.Errorf("%s: fields = %v", model, req.AdditionalModelRequestFields)
+		}
 	}
 }
 

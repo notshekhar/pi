@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/notshekhar/pi/internal/modules/core/session"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/session"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // sessionInfo prints what this session is and what it has cost.
@@ -23,7 +23,7 @@ func (t *repl) sessionInfo() {
 	s := t.run.Session
 	m := s.Meta
 	in, out, _, cost := t.app.Stats()
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		row := func(label, value string) string {
 			return th.Fg(tui.SlotDim, padRight(label, 13)) + th.Fg(tui.SlotText, value)
@@ -56,7 +56,7 @@ func (t *repl) sessionInfo() {
 // touched rather than being spread across the days it ran, which for a
 // coding session is the same day nearly always.
 func (t *repl) steak(rest string) {
-	t.app.Do(func() { t.app.Print(t.steakLines(rest)...) })
+	t.do(func() { t.app.Print(t.steakLines(rest)...) })
 }
 
 // steakLines is the heatmap and its stats, so /cost can lead with it.
@@ -304,7 +304,7 @@ func (t *repl) attach(rest string) {
 		t.fail("attach: %s is not an image this can send", filepath.Base(path))
 		return
 	}
-	t.app.Do(func() {
+	t.do(func() {
 		t.app.AddAttachment(att)
 		t.dim("attached %s", att.Label())
 	})
@@ -333,7 +333,7 @@ func (t *repl) paste(rest string) {
 		t.dim("clipboard is empty")
 		return
 	}
-	t.app.Do(func() { t.app.InsertDraft(text) })
+	t.do(func() { t.app.InsertDraft(text) })
 }
 
 // importSession reads a JSONL conversation into a new session.

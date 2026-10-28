@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/permissions"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/permissions"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // loadPolicy builds the run's policy: the shipped defaults plus whatever the
@@ -16,8 +16,12 @@ import (
 // what stops a stored `allow bash` from opening the door to `rm -rf /` — and
 // since the strictest rule wins regardless of order, a user rule cannot
 // weaken one of them even by trying.
-func (t *repl) loadPolicy() permissions.Policy {
-	policy := permissions.Default(t.cfg.CWD)
+func (t *repl) loadPolicy() permissions.Policy { return policyFor(t.cfg.CWD) }
+
+// policyFor is the policy for a working directory, from settings alone — the
+// TUI and the RPC server build theirs the same way.
+func policyFor(cwd string) permissions.Policy {
+	policy := permissions.Default(cwd)
 	settings := config.LoadSettings()
 	// bashApprove asks before EVERY bash command. It is prepended as a rule
 	// rather than special-cased at the call site so that a more specific
@@ -28,18 +32,13 @@ func (t *repl) loadPolicy() permissions.Policy {
 			policy.Rules = append(policy.Rules, rule)
 		}
 	}
-	stored := settings.Permissions
-	if len(stored) == 0 {
-		return policy
+	for _, pattern := range settings.BashDeny {
+		policy.Rules = append(policy.Rules, permissions.Rule{Tool: "bash", Pattern: pattern + "*", Mode: permissions.Deny,
+			Reason: "bashDeny `" + pattern + "`"})
 	}
-	rules, err := permissions.Parse(stored)
-	if err != nil {
-		// Report and carry on with the defaults: a typo in a settings file
-		// must not leave the session with NO policy at all.
-		t.fail("permissions: %s — using defaults", err)
-		return policy
+	if p := settings.Permissions; p != nil {
+		policy.Rules = append(policy.Rules, permissions.FromSetting(p.Allow, p.Ask, p.Deny)...)
 	}
-	policy.Rules = append(policy.Rules, rules...)
 	return policy
 }
 
@@ -61,27 +60,28 @@ func (t *repl) permissions(rest string) {
 		return
 	}
 
-	rule, err := permissions.ParseRule(rest)
-	if err != nil {
-		t.fail("%s", err)
-		t.dim("syntax: /permissions <allow|ask|deny> <tool>[(<glob>)]")
+	mode, rule, _ := strings.Cut(rest, " ")
+	if _, ok := permissions.ParseMode(mode); !ok {
+		t.dim("syntax: /permissions <allow|ask|deny> <Tool>[(<pattern>)]")
 		return
 	}
-	if err := config.Update(func(s *config.Settings) {
-		s.Permissions = append(s.Permissions, rule.String())
-	}); err != nil {
+	if _, ok := permissions.ParseRuleString(permissions.Mode(mode), rule); !ok {
+		t.fail("unrecognized rule: %s", rule)
+		return
+	}
+	if err := config.AddPermission(mode, strings.TrimSpace(rule)); err != nil {
 		t.fail("permissions: %s", err)
 		return
 	}
 	t.run.Permissions = t.loadPolicy()
-	t.dim("added: %s", rule)
+	t.dim("added: %s %s", mode, rule)
 }
 
 func (t *repl) showPermissions() {
 	policy := t.run.Permissions
-	stored := config.LoadSettings().Permissions
+	stored := config.LoadSettings().Permissions.Entries()
 
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		slot := func(m permissions.Mode) tui.Slot {
 			switch m {
@@ -99,7 +99,7 @@ func (t *repl) showPermissions() {
 			"",
 			th.Fg(tui.SlotDim, "always on"),
 		}
-		for _, r := range policy.Rules[:len(policy.Rules)-len(stored)] {
+		for _, r := range policy.Rules[:max(0, len(policy.Rules)-len(permissions.FromSetting(nil, nil, nil))-countStored(stored))] {
 			lines = append(lines, "  "+th.Fg(slot(r.Mode), string(r.Mode))+" "+
 				th.Fg(tui.SlotMuted, r.Tool+"("+r.Pattern+")"))
 		}
@@ -143,7 +143,7 @@ func (t *repl) setPlanMode(rest string) {
 	t.run.Planning = on
 	// A gate set here is not one the agent cycle may clear — see planViaAgent.
 	t.planViaAgent = false
-	t.app.Do(func() { t.app.SetPlanning(on) })
+	t.do(func() { t.app.SetPlanning(on) })
 	if on {
 		t.dim("plan mode — write and edit are refused, bash asks; /plan off to execute")
 		if task != "" {
@@ -152,4 +152,15 @@ func (t *repl) setPlanMode(rest string) {
 		return
 	}
 	t.dim("plan mode off")
+}
+
+// countStored is how many policy rules the stored entries expand to.
+func countStored(entries []string) int {
+	n := 0
+	for _, e := range entries {
+		mode, rule, _ := strings.Cut(e, " ")
+		rules, _ := permissions.ParseRuleString(permissions.Mode(mode), rule)
+		n += len(rules)
+	}
+	return n
 }

@@ -8,10 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/extension"
-	"github.com/notshekhar/pi/internal/modules/core/mcp"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/extension"
+	"github.com/notshekhar/pi/internal/core/home"
+	"github.com/notshekhar/pi/internal/core/mcp"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // /extensions and /install.
@@ -21,7 +22,7 @@ import (
 
 // activeExtensions are the enabled builtins.
 func activeExtensions() []extension.Extension {
-	return extension.Enabled(config.LoadSettings().ExtensionState())
+	return extension.Enabled(config.ExtensionState())
 }
 
 // extensionCommands are the slash commands the enabled extensions add.
@@ -80,7 +81,7 @@ func (t *repl) runExtensionCommand(parent context.Context, cmd extension.Command
 			return
 		}
 		if out != "" {
-			t.app.Do(func() { t.app.Print(strings.Split(out, "\n")...) })
+			t.do(func() { t.app.Print(strings.Split(out, "\n")...) })
 		}
 		// A returned prompt is sent as though the user had typed it, which
 		// is how a command like /wayfinder turns into a real turn.
@@ -108,7 +109,7 @@ func (t *repl) extensionsCmd(rest string) {
 	}
 	const installRow = "\x00install"
 	t.manage(func() (string, []tui.Item) {
-		state := config.LoadSettings().ExtensionState()
+		state := config.ExtensionState()
 		all := extension.All()
 		items := []tui.Item{{
 			Value:       installRow,
@@ -147,7 +148,7 @@ func (t *repl) extensionActions(name string) {
 	if !ok {
 		return
 	}
-	on := extension.IsEnabled(e, config.LoadSettings().ExtensionState())
+	on := extension.IsEnabled(e, config.ExtensionState())
 	toggle, toggleAbout := "enable", "load it now"
 	if on {
 		toggle, toggleAbout = "disable", "stop loading it"
@@ -164,7 +165,7 @@ func (t *repl) extensionActions(name string) {
 		t.setExtension(name, action.Value == "enable")
 	case "info":
 		status := extension.StatusOf(e)
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			lines := []string{
 				th.Fg(tui.SlotAccent, th.Bold(name)) + th.Fg(tui.SlotDim, " (built-in)"),
@@ -193,7 +194,7 @@ func (t *repl) toggleExtension(name string) {
 		t.fail("no extension named %q — /extensions to list them", name)
 		return
 	}
-	t.setExtension(name, !extension.IsEnabled(e, config.LoadSettings().ExtensionState()))
+	t.setExtension(name, !extension.IsEnabled(e, config.ExtensionState()))
 }
 
 // setExtension records an explicit choice and applies it immediately.
@@ -202,15 +203,7 @@ func (t *repl) toggleExtension(name string) {
 // ships enabled cannot be expressed as "absent from off", and an extension
 // that ships disabled cannot be turned on that way at all.
 func (t *repl) setExtension(name string, on bool) {
-	if err := config.Update(func(s *config.Settings) {
-		s.ExtensionsOn = without(s.ExtensionsOn, name)
-		s.ExtensionsOff = without(s.ExtensionsOff, name)
-		if on {
-			s.ExtensionsOn = append(s.ExtensionsOn, name)
-		} else {
-			s.ExtensionsOff = append(s.ExtensionsOff, name)
-		}
-	}); err != nil {
+	if err := config.SetBuiltinEnabled(name, on); err != nil {
 		t.fail("extensions: %s", err)
 		return
 	}
@@ -218,7 +211,7 @@ func (t *repl) setExtension(name string, on bool) {
 	// has to be rebuilt here, or a just-enabled extension's command is
 	// runnable but not offerable.
 	t.applySettings()
-	t.app.Do(func() { t.app.SetSources(t.commandItems(), fileItems(t.cfg.CWD)) })
+	t.do(func() { t.app.SetSources(t.commandItems(), fileItems(t.cfg.CWD)) })
 	if on {
 		t.dim("enabled %s", name)
 		return
@@ -263,7 +256,7 @@ func (t *repl) installExtension(rest string) {
 	}
 
 	name := filepath.Base(src)
-	dir, err := config.Dir()
+	dir, err := home.Ensure()
 	if err != nil {
 		t.fail("install: %s", err)
 		return

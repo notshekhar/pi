@@ -20,7 +20,7 @@ surface are the bulk of what remains.
 |---|---|---|---|
 | Language | TypeScript / Bun | Go | |
 | Model layer | Vercel AI SDK v7 | vendored, `modules/ai` | [x] |
-| Layout | `packages/{tui,core,cli,…}` | `internal/modules/{ai,tui,core}` | [x] |
+| Layout | `packages/{tui,core,cli,…}` | `internal/{ai,tui,core}` | [x] |
 | Dependencies | ~40 npm | **zero** | [x] |
 | Binary | compiled Bun | `go build` | [x] |
 
@@ -358,7 +358,7 @@ behind, and the list filled with conversations nobody had. Files are now
 claimed on the first message; `/new` starts a fresh one rather than resetting
 the current one in place.
 
-**Reminders were intervals; loop's are cron.** `internal/modules/core/schedule`
+**Reminders were intervals; loop's are cron.** `internal/core/schedule`
 is a zero-dep parser — the hard part is not the fields, it is the standard's
 day-of-month-OR-day-of-week rule, which is tested.
 
@@ -637,7 +637,7 @@ key, so jumping to the end of a line entered nav mode.
 
 They separate once the **kitty keyboard protocol** is negotiated: a real
 ctrl+e then arrives as `\x1b[101;5u` and only a terminal macro still sends the
-bare byte. `internal/modules/tui/kitty.go` negotiates it at startup (with the
+bare byte. `internal/tui/kitty.go` negotiates it at startup (with the
 probes, before the decoder exists, because it reads its answer from stdin) and
 `navToggle` requires the unambiguous form when it is active — falling back to
 the byte when it is not, since on a terminal that cannot negotiate the byte is

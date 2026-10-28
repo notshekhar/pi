@@ -1,12 +1,12 @@
 # pi
 
-Go coding agent. One module, three internal modules under `internal/modules`,
+Go coding agent. One module, three internal modules under `internal`,
 mirroring loop's `packages/`:
 
 ```
-internal/modules/ai     model layer (was the pigo repo, package `ai`)
-internal/modules/tui    terminal rendering: markdown, theme, width, editor
-internal/modules/core   agent, tools, session, config, catalog
+internal/ai     model layer (was the pigo repo, package `ai`)
+internal/tui    terminal rendering: markdown, theme, width, editor
+internal/core   agent, tools, session, config, catalog
 cmd/pi                  the app that glues them together
 ```
 
@@ -146,7 +146,7 @@ Two input rules that came out of comparing against loop:
 
 ## The renderer
 
-`internal/modules/tui` is a port of loop's TUI layer, and the rules that
+`internal/tui` is a port of loop's TUI layer, and the rules that
 survived being learned the hard way there are load-bearing here too:
 
 - **Never count runes for width.** `visibleWidth` is the only measure; it
@@ -204,5 +204,5 @@ costs you the preference.
 go test ./...
 go run ./cmd/mddemo some.md      # eyeball the markdown renderer
 go run ./cmd/mddemo transcript   # eyeball the noir row grammar
-go run ./cmd/pi -model kimi/k3 run "what is in ./internal/modules/core/tools?"
+go run ./cmd/pi -model kimi/k3 run "what is in ./internal/core/tools?"
 ```

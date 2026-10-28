@@ -256,9 +256,9 @@ go test ./...
 ```
 
 ```
-internal/modules/ai     model layer — providers, streaming, tool calling
-internal/modules/tui    markdown, theme, width model, editor, renderer
-internal/modules/core   agent loop, tools, sessions, config, catalog
+internal/ai     model layer — providers, streaming, tool calling
+internal/tui    markdown, theme, width model, editor, renderer
+internal/core   agent loop, tools, sessions, config, catalog
 cmd/pi                  the app that glues them together
 ```
 

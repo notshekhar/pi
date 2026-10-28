@@ -23,6 +23,7 @@ Needs pyte:  pip install pyte
 """
 
 import fcntl
+import re
 import os
 import pty
 import select
@@ -33,8 +34,14 @@ import time
 
 try:
     import pyte
+    import pyte.screens
 except ImportError:
     sys.exit("scripts/screenshot.py needs pyte: pip install pyte")
+
+# pyte 0.8.2 cannot parse a Device Status Report (\x1b[?6n), which loop sends;
+# it raises TypeError because report_device_status takes no `private` kwarg.
+# The DSR response is irrelevant to what we render, so drop it.
+pyte.screens.Screen.report_device_status = lambda self, mode, **kw: None
 
 COLS = int(os.environ.get("COLS", "100"))
 ROWS = int(os.environ.get("ROWS", "40"))
@@ -47,9 +54,30 @@ SEQ_FINAL = "ABCDRmZ~"
 
 
 def run(script, cmd, history=False):
+    cap = capture(script, cmd, history)
+    if history:
+        print("=== scrollback (%d lines) ===" % len(cap["history"]))
+        for line in cap["history"]:
+            print("|" + line)
+        print("=== screen ===")
+    for line in cap["text"]:
+        print(line)
+
+
+def capture(script, cmd, history=False):
+    """Run cmd in a pty, play script, and return the rendered screen.
+
+    Returns {"text": [row...], "cells": [[(fg, bg, bold)...]...],
+    "history": [row...]}. The child is killed with its whole process group,
+    so nothing it spawned (MCP servers, LSPs) outlives the capture.
+    """
     pid, fd = pty.fork()
     if pid == 0:
         os.environ["TERM"] = "xterm-256color"
+        # CHILD_HOME isolates the app's config without moving python's own
+        # HOME (which is where pyte is installed).
+        if os.environ.get("CHILD_HOME"):
+            os.environ["HOME"] = os.environ["CHILD_HOME"]
         os.execvp(cmd[0], cmd)
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
 
@@ -72,7 +100,8 @@ def run(script, cmd, history=False):
 
     drain(float(os.environ.get("SETTLE", "6")))  # masthead, probes, first paint
     for step in script:
-        if step.startswith("w"):
+        # Only `w<number>` waits; "write a story" is text to type.
+        if re.fullmatch(r"w[0-9.]+", step):
             drain(float(step[1:]))
             continue
         text = step.encode().decode("unicode_escape")
@@ -95,22 +124,37 @@ def run(script, cmd, history=False):
     screen = pyte.HistoryScreen(COLS, ROWS, history=800)
     pyte.Stream(screen).feed(out.decode("utf8", "replace"))
 
-    if history:
-        top = [
-            "".join(line[i].data for i in range(COLS)).rstrip()
-            for line in screen.history.top
-        ]
-        print("=== scrollback (%d lines) ===" % len(top))
-        for line in top:
-            print("|" + line)
-        print("=== screen ===")
-    for line in screen.display:
-        print(line.rstrip())
+    top = [
+        "".join(line[i].data for i in range(COLS)).rstrip()
+        for line in screen.history.top
+    ] if history else []
+    text = [line.rstrip() for line in screen.display]
+    cells = [
+        [(screen.buffer[y][x].fg, screen.buffer[y][x].bg, screen.buffer[y][x].bold)
+         for x in range(COLS)]
+        for y in range(ROWS)
+    ]
 
-    try:
-        os.kill(pid, 9)
-    except OSError:
-        pass
+    # pty.fork makes the child a session leader, so its pid is its pgid:
+    # killing the group takes the MCP servers and LSPs it started with it.
+    for sig in (15, 9):
+        try:
+            os.killpg(pid, sig)
+        except OSError:
+            pass
+        time.sleep(0.2)
+    # Close the pty BEFORE reaping: a child killed mid-write sits in the
+    # exiting state until its terminal is gone, and a blocking waitpid on it
+    # hangs the harness forever.
+    os.close(fd)
+    for _ in range(50):
+        try:
+            if os.waitpid(pid, os.WNOHANG)[0] != 0:
+                break
+        except OSError:
+            break
+        time.sleep(0.1)
+    return {"text": text, "cells": cells, "history": top}
 
 
 def main():

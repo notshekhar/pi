@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/notshekhar/pi/internal/modules/core/config"
+	"github.com/notshekhar/pi/internal/core/config"
 )
 
 func TestCommas(t *testing.T) {
@@ -96,8 +96,8 @@ func TestAutoCompactAcceptsBothForms(t *testing.T) {
 	if err := key.set(&b, "80%"); err != nil {
 		t.Fatal(err)
 	}
-	if a.AutoCompactThreshold != b.AutoCompactThreshold {
-		t.Errorf("0.8 → %v but 80%% → %v", a.AutoCompactThreshold, b.AutoCompactThreshold)
+	if a.AutoCompact() != b.AutoCompact() {
+		t.Errorf("0.8 → %v but 80%% → %v", a.AutoCompact(), b.AutoCompact())
 	}
 }
 

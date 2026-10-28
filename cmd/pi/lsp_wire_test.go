@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/notshekhar/pi/internal/modules/core/extension"
-	"github.com/notshekhar/pi/internal/modules/core/tools"
+	"github.com/notshekhar/pi/internal/core/extension"
+	"github.com/notshekhar/pi/internal/core/tools"
 )
 
 // The lsp tool must actually reach the agent when the extension is enabled —

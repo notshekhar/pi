@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/notshekhar/pi/internal/core/shells"
+	"github.com/notshekhar/pi/internal/core/sound"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,59 +16,54 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/notshekhar/pi/internal/modules/ai"
-	"github.com/notshekhar/pi/internal/modules/ai/provider"
-	"github.com/notshekhar/pi/internal/modules/core/agent"
-	"github.com/notshekhar/pi/internal/modules/core/build"
-	"github.com/notshekhar/pi/internal/modules/core/catalog"
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/extension"
-	"github.com/notshekhar/pi/internal/modules/core/gateway"
-	"github.com/notshekhar/pi/internal/modules/core/herdr"
-	"github.com/notshekhar/pi/internal/modules/core/hooks"
-	"github.com/notshekhar/pi/internal/modules/core/mcp"
-	"github.com/notshekhar/pi/internal/modules/core/permissions"
-	"github.com/notshekhar/pi/internal/modules/core/serve"
-	"github.com/notshekhar/pi/internal/modules/core/session"
-	"github.com/notshekhar/pi/internal/modules/core/skills"
-	"github.com/notshekhar/pi/internal/modules/core/status"
-	"github.com/notshekhar/pi/internal/modules/core/tools"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/provider"
+	"github.com/notshekhar/pi/internal/core/agent"
+	"github.com/notshekhar/pi/internal/core/build"
+	"github.com/notshekhar/pi/internal/core/catalog"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/extension"
+	"github.com/notshekhar/pi/internal/core/gateway"
+	"github.com/notshekhar/pi/internal/core/herdr"
+	"github.com/notshekhar/pi/internal/core/hooks"
+	"github.com/notshekhar/pi/internal/core/mcp"
+	"github.com/notshekhar/pi/internal/core/serve"
+	"github.com/notshekhar/pi/internal/core/session"
+	"github.com/notshekhar/pi/internal/core/skills"
+	"github.com/notshekhar/pi/internal/core/status"
+	"github.com/notshekhar/pi/internal/core/tools"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // repl is the REPL: the app renders, the glue pumps events into turns.
+// repl is the interactive program as one session sees it: the app-wide
+// state (shared) and the session it acts on (slot). Most code runs on the
+// foreground's repl; a turn pins its own (pinned) so it keeps writing to its
+// own session after the user switches away — loop's makeStateView.
 type repl struct {
-	app *tui.App
-	cfg config.Config
-	run *agent.Run
+	*shared
+	*slot
+}
 
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	turning bool
-	// restorePersona holds the session's own agent prompt while a one-shot
-	// `/<agent>` command borrows the slot for a single turn. nil when nothing
-	// is borrowed.
-	restorePersona *string
-	// planViaAgent records that plan mode was armed by SELECTING the plan
-	// agent rather than by /plan. Only then does leaving the agent turn it
-	// back off — a gate set deliberately must survive browsing the list.
-	planViaAgent bool
+// shared is the app-wide half (loop's SharedState).
+type shared struct {
+	app *tui.App
+
+	mu sync.Mutex
+	// cycleCustomAgent is the one non-cycle agent shift+tab also visits: a
+	// custom agent or hidden built-in the user explicitly selected.
+	cycleCustomAgent string
 	// inPanel is set while a picker goroutine is running, so a panel opened
 	// from inside one runs inline instead of racing it for the keyboard.
 	inPanel atomic.Bool
-	// lastContextTokens is the input-token count the provider reported for
-	// the last turn: what the window ACTUALLY held, as against the chars/4
-	// estimate everything else here uses.
-	lastContextTokens int
+	// live is the /rc server when it is on.
+	live *liveServe
 
 	mcp      *mcp.Manager
 	server   *serve.Server
 	telegram *gateway.Telegram
 	// status is what this pane is doing, for anything watching from outside.
 	status *status.Bus
-
-	// agent is the active persona's name, empty for the default one.
-	agent string
 	// timerLabel is what the user typed for the running countdown, so
 	// /timer can report "45m left (of 1h)".
 	timerLabel string
@@ -74,6 +71,52 @@ type repl struct {
 	// and its nil-ness is what "is the daemon running" means.
 	bg         bgSet
 	daemonStop chan struct{}
+	// slots are the live sessions (slots.go).
+	slots *slotSet
+}
+
+// slot is one live session (loop's SessionSlot): its run, its turn, its
+// queue, its transcript.
+type slot struct {
+	cfg    config.Config
+	run    *agent.Run
+	cancel context.CancelFunc
+	// queue is input typed while a turn runs, drained FIFO (queue.go).
+	queue   []string
+	turning bool
+	// restorePersona holds the session's own agent prompt while a one-shot
+	// `/<agent>` command borrows the slot for a single turn. nil when nothing
+	// is borrowed.
+	restorePersona *borrowedAgent
+	// planViaAgent records that plan mode was armed by SELECTING the plan
+	// agent rather than by /plan. Only then does leaving the agent turn it
+	// back off — a gate set deliberately must survive browsing the list.
+	planViaAgent bool
+	// lastContextTokens is the input-token count the provider reported for
+	// the last turn: what the window ACTUALLY held, as against the chars/4
+	// estimate everything else here uses.
+	lastContextTokens int
+	// costs is the session's spend tracker (see tracker()).
+	costs    *agent.CostTracker
+	costsFor *session.Session
+
+	// agent is the active persona's name, empty for the default one.
+	agent string
+	// conv is this session's transcript and status, on screen or not.
+	conv *tui.Conversation
+	// key is process-local and stable for the slot's life.
+	key int
+	// liveStatus / activity / lastActivity are the roster's view of it:
+	// idle | working | needs-input | done | failed.
+	liveStatus   string
+	activity     string
+	lastActivity time.Time
+	// firstPrompt titles it in the roster until it earns a name.
+	firstPrompt string
+	// draft is the composer text while it is out of sight.
+	draft string
+	// waiters are agent-driven prompts parked until it is on screen.
+	waiters []chan bool
 }
 
 // toolContext builds the tool set from the stored feature switches, so a
@@ -85,19 +128,23 @@ func toolContext(cfg config.Config) *tools.Context {
 		CWD:       cfg.CWD,
 		Registry:  tools.NewRegistry(),
 		Todos:     &tools.TodoList{},
-		WebSearch: stored.WebSearchEnabled,
-		Sandbox:   tools.SandboxFromSettings(stored.Sandbox),
+		WebSearch: stored.WebSearchOn(),
+		Sandbox:   sandboxMode(stored.Sandbox),
 		NoAsk:     !stored.AskUserOn(),
 		NoMemory:  !stored.MemoryOn(),
 		NoTodos:   !stored.TodosOn(),
 	}
 }
 
-func replTUI(parent context.Context, cfg config.Config) error {
+// replTUI runs the interactive app, on resumed when given, and returns the id
+// of the session it ended on (for the resume hint).
+func replTUI(parent context.Context, cfg config.Config, resumed *session.Session) (string, error) {
 	app, err := tui.NewApp(cfg.FullID(), cfg.CWD)
 	if err != nil {
-		return err
+		return "", err
 	}
+	app.SetClipboard(clipboardWrite)
+	app.SetURLOpener(func(u string) { openBrowser(u) })
 	defer app.Close()
 	// A stored theme wins; with none, ask the terminal what it is sitting on
 	// rather than assuming dark and painting over a light background.
@@ -105,22 +152,16 @@ func replTUI(parent context.Context, cfg config.Config) error {
 	// Always applied, even when it resolves to the default: NewApp leaves the
 	// canvas alone precisely so this is the single place that washes it, which
 	// is what keeps `system` from flashing night's grey on the way past.
-	palette := tui.NightPalette
-	if stored := config.LoadSettings().Theme; stored != "" {
-		if p, ok := tui.FindPalette(stored); ok {
-			palette = p
-		}
-	} else if app.Background() == tui.BackgroundLight {
-		palette = tui.DayPalette
-	}
-	app.SetTheme(palette)
+	app.SetTheme(tui.InitTheme(configuredThemeName()))
 
-	sess := session.New(cfg.FullID(), cfg.CWD)
-	t := &repl{app: app, cfg: cfg, status: status.New(status.DefaultSettle), run: &agent.Run{
-		Config:  cfg,
-		Session: sess,
-		Tools:   toolContext(cfg),
-	}}
+	sess := resumed
+	if sess == nil {
+		sess = session.New(cfg.FullID(), cfg.CWD)
+	}
+	first := &slot{cfg: cfg, run: &agent.Run{Config: cfg, Session: sess, Tools: toolContext(cfg)},
+		conv: app.Foreground(), liveStatus: "idle", lastActivity: time.Now()}
+	t := &repl{shared: &shared{app: app, status: status.New(status.DefaultSettle)}, slot: first}
+	t.slots = newSlotSet(first)
 	// What the pane is doing, published from the two authorities that already
 	// know: the working indicator, and the prompts where the AGENT stops and
 	// waits for an answer. Menus the user opened themselves are not the agent
@@ -154,6 +195,13 @@ func replTUI(parent context.Context, cfg config.Config) error {
 	// Language servers and anything else an extension spawned. Deferred here
 	// so it runs on every exit path, including a panic.
 	defer extension.Shutdown()
+	// Background shells are process-lifetime: nothing adopts them later.
+	defer shells.KillAll()
+	defer func() {
+		if t.live != nil {
+			t.live.h.Stop()
+		}
+	}()
 	defer func() {
 		if t.server != nil {
 			t.server.Stop()
@@ -179,29 +227,9 @@ func replTUI(parent context.Context, cfg config.Config) error {
 	if cfg.UnknownProvider != "" {
 		t.dim("provider %q is no longer configured — using %s", cfg.UnknownProvider, cfg.Provider)
 	}
-	// The `ask` and `plan` tools put their question to the user through the
-	// same picker every other choice uses.
-	t.run.Tools.Ask = func(ctx context.Context, question string, options []string) string {
-		return app.AskChoice(question, options)
-	}
-	// A subagent's own transcript stays hidden; this is the only thing about
-	// it the user sees while it runs.
-	t.run.Progress = func(id, status string) {
-		t.app.Do(func() { t.app.ToolStatus(id, status) })
-		// An empty status is how the task tool says it has finished — see
-		// TaskTool's deferred progress call. It is the only signal a subagent
-		// has stopped, so it is where SubagentStop belongs.
-		if status == "" {
-			go t.fireHook(context.Background(), hooks.Context{
-				Event: hooks.SubagentStop, ToolName: "task",
-			})
-		}
-	}
-	// The prompt runs on the turn goroutine and blocks there; the render loop
-	// answers it.
-	t.run.Ask = func(ctx context.Context, tool string, args map[string]any, reason string) bool {
-		return app.Ask(tool, permissions.Subject(tool, args), reason)
-	}
+	// The ask/plan tools and approvals go through the picker — gated on the
+	// session being on screen (wireRun), as loop's roster gates them.
+	t.wireRun(first)
 	// PreToolUse can refuse a call outright. Installed only when something is
 	// actually bound to the event, because installing it forces every tool
 	// call through the approval path — a cost worth paying for a hook that
@@ -243,24 +271,40 @@ func replTUI(parent context.Context, cfg config.Config) error {
 	// are in, not a preference you hold, and a fresh session starting
 	// read-only because the last one ended mid-plan is a surprise nobody can
 	// explain.
-	if saved := config.LoadSettings().Agent; saved != "" && saved != planAgent {
-		if a, ok := findSessionAgent(saved); ok && a.Name != defaultAgent {
-			t.agent, t.run.Persona = a.Name, a.Prompt
-			app.SetAgent(a.Name)
-		}
-	}
+	t.restoreAgent()
 	app.SetThinking(thinkingName(cfg.Reasoning))
-	app.SetSession(sess.ID)
+	// "unsaved" until the first message claims the session (loop's rule).
+	if sess.Saved() {
+		app.SetSession(sess.ID)
+	}
 	if m, ok := config.ModelInfo(cfg.Provider, cfg.ModelID); ok {
 		app.SetUsage(0, 0, m.Context, 0)
+		app.SetModelReasoning(m.Reasoning)
+	}
+	// A resumed session's context is its last request's, as loop's
+	// seedFromSession reports it.
+	if sess.Saved() {
+		app.SetContextTokens(int(agent.NewCostTracker().SeedFromSession(sess)))
 	}
 	app.ShowWelcome(t.welcomeInfo())
 	t.startupNotices()
+	// loop is up and the first frame is about to go out.
+	go sound.Cue(sound.Bloom)
+	// A resumed session: the conversation replays under the banner, and its
+	// usage is restored instead of reading zero until the next message.
+	if resumed != nil {
+		app.Do(func() {
+			t.replayTranscript(resumed)
+			app.SeedUsage(resumed.Meta.InputTokens, resumed.Meta.OutputTokens, resumed.Meta.CostUSD)
+			app.SetCostText(t.tracker().Format())
+		})
+	}
 
 	t.startMCP(parent)
 	go t.fireHook(parent, hooks.Context{Event: hooks.SessionStart})
 	go t.pump(parent)
-	return app.Run()
+	err = app.Run()
+	return t.run.Session.ID, err
 }
 
 // pump is the only goroutine that talks to the model. App mutations go
@@ -281,13 +325,27 @@ func (t *repl) pump(parent context.Context) {
 			t.app.Stop()
 			return
 		case tui.EvInterrupt:
+			// Esc stops the turn but keeps the queue: what was queued runs
+			// next, as soon as the interrupted turn has wound down.
+			t.mu.Lock()
+			if t.cancel != nil {
+				sound.Cue(sound.Press)
+				t.cancel()
+			}
+			t.mu.Unlock()
+		case tui.EvAbort:
+			// ctrl+c mid-turn: stop it AND drop everything queued behind it.
+			t.clearQueue()
 			t.mu.Lock()
 			if t.cancel != nil {
 				t.cancel()
 			}
 			t.mu.Unlock()
 		case tui.EvSubmit:
-			t.app.Do(func() { t.app.UserEcho(ev.Text) })
+			if t.enqueue(ev.Text) {
+				continue
+			}
+			t.do(func() { t.app.UserEcho(ev.Text) })
 			// Synchronous, unlike the others: this hook can REFUSE the prompt,
 			// and starting the turn while it decides would make the refusal
 			// arrive after the model had already been called.
@@ -300,6 +358,7 @@ func (t *repl) pump(parent context.Context) {
 					Event: hooks.UserPromptSubmit, Prompt: prompt,
 				})
 				if outcome.Block {
+					t.drainNext()
 					return
 				}
 				// A hook may add context for the model — a failing build, the
@@ -310,8 +369,17 @@ func (t *repl) pump(parent context.Context) {
 				t.startTurn(parent, prompt)
 			}()
 		case tui.EvSlash:
+			if t.enqueue(ev.Text) {
+				continue
+			}
 			t.slash(parent, ev.Text)
+			// A command that started a turn drains nothing now; the turn
+			// drains the queue when it ends.
+			t.drainNext()
 		case tui.EvBash:
+			if t.enqueue("!" + ev.Text) {
+				continue
+			}
 			t.bang(ev.Text)
 		case tui.EvCycleAgent:
 			t.cycleAgent()
@@ -323,11 +391,15 @@ func (t *repl) pump(parent context.Context) {
 			t.clearScreen()
 		case tui.EvCycleModel:
 			t.cycleModel()
+		case tui.EvSwitcher:
+			go t.showSwitcher()
 		}
 	}
 }
 
 func (t *repl) startTurn(parent context.Context, prompt string) {
+	// Pinned: the turn writes to ITS session even after a switch.
+	t = t.pinned()
 	t.mu.Lock()
 	if t.turning {
 		t.mu.Unlock()
@@ -340,7 +412,24 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 	t.mu.Unlock()
 
 	started := time.Now()
+	if t.firstPrompt == "" && !strings.HasPrefix(prompt, "/") {
+		t.firstPrompt = strings.SplitN(strings.TrimSpace(prompt), "\n", 2)[0]
+	}
+	t.setLiveStatus(t.slot, "working", "Generating")
 	go func() {
+		// loop's sound reporter: one cue per finished turn, error if anything
+		// went wrong; an interrupted turn stays silent (Esc played its own).
+		turnFailed := false
+		defer func() { t.settle(t.slot, turnFailed && ctx.Err() == nil) }()
+		defer func() {
+			if ctx.Err() == nil {
+				if turnFailed {
+					sound.Cue(sound.Error)
+				} else {
+					sound.Cue(sound.Success)
+				}
+			}
+		}()
 		defer func() {
 			t.mu.Lock()
 			t.turning = false
@@ -348,7 +437,7 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 			// A one-shot agent command borrowed the persona for this turn
 			// only; give it back now that the turn is over.
 			if t.restorePersona != nil {
-				t.run.Persona = *t.restorePersona
+				t.run.Persona, t.run.AllowedTools = t.restorePersona.persona, t.restorePersona.tools
 				t.restorePersona = nil
 			}
 			t.mu.Unlock()
@@ -357,8 +446,10 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 			// line only learns it here — before this it correctly says
 			// "unsaved".
 			id := t.run.Session.ID
-			t.app.Do(func() {
+			cost := t.tracker().Format()
+			t.do(func() {
 				t.app.SetSession(id)
+				t.app.SetCostText(cost)
 				t.app.LoaderStop()
 				// Anything still open was cut short by an interrupt or a
 				// stream that ended mid-block; settle it so nothing animates
@@ -370,19 +461,37 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 				// did not finish.
 				t.app.TurnSummary(elapsed)
 			})
+			if t.live != nil {
+				t.live.turnEnded()
+			}
 			go t.fireHook(context.Background(), hooks.Context{Event: hooks.Stop})
+			t.drainNext()
 		}()
 
-		t.app.Do(func() { t.app.LoaderStart() })
+		t.do(func() { t.app.LoaderStart() })
 
-		consume := func(stream <-chan ai.StreamPart) error {
-			return t.consume(stream)
+		// loop's runTurn: the prompt, auto-compaction BEFORE the request,
+		// each step persisted as it finishes, an interrupted turn kept. The
+		// renderer is fed the raw parts it always drew; the events go to
+		// anything following this session (/rc).
+		parts := make(chan ai.StreamPart, 64)
+		rendered := make(chan error, 1)
+		go func() { rendered <- t.consume(parts) }()
+		final, err := t.run.RunTurn(ctx, agent.TurnOptions{
+			Input:   prompt,
+			Tracker: t.tracker(),
+			Tap:     func(p ai.StreamPart) { parts <- p },
+			Emit:    t.turnEvent,
+		})
+		close(parts)
+		if rerr := <-rendered; rerr != nil && err == nil {
+			err = rerr
 		}
-		final, err := t.run.TurnStream(ctx, prompt, consume)
 		if err != nil {
 			if ctx.Err() != nil {
 				t.dim("(interrupted)")
 			} else {
+				turnFailed = true
 				t.fail("error: %s", err)
 			}
 			return
@@ -398,7 +507,7 @@ func (t *repl) consume(stream <-chan ai.StreamPart) error {
 		part := part
 		err := func() error {
 			done := make(chan error, 1)
-			t.app.Do(func() { done <- t.part(part) })
+			t.do(func() { done <- t.part(part) })
 			return <-done
 		}()
 		if err != nil && first == nil {
@@ -476,70 +585,60 @@ func (t *repl) finishUsage(final *ai.Result) {
 	if final == nil {
 		return
 	}
-	var in, out int64
-	if v := final.Usage.InputTokens.Total; v != nil {
-		in = *v
-	}
-	if v := final.Usage.OutputTokens.Total; v != nil {
-		out = *v
-	}
-	var cost float64
-	ctxWindow := 0
-	if m, ok := config.ModelInfo(t.cfg.Provider, t.cfg.ModelID); ok {
-		ctxWindow = m.Context
-		cost = float64(in)*m.Cost.Input/1e6 + float64(out)*m.Cost.Output/1e6
-		if v := final.Usage.InputTokens.CacheRead; v != nil && m.Cost.CacheRead > 0 {
-			cost -= float64(*v) * (m.Cost.Input - m.Cost.CacheRead) / 1e6
-		}
-	}
+	u := measureUsage(t.cfg, final)
+	in, out, cost, ctxWindow := u.in, u.out, u.cost, u.ctxWindow
 	// The provider's own count of what the last request carried — the only
 	// measured context figure there is, and what /context quotes.
 	t.lastContextTokens = int(in)
-	var cached int64
-	if v := final.Usage.InputTokens.CacheRead; v != nil {
-		cached = *v
-	}
-	t.app.Do(func() {
+	cached := u.cached
+	t.do(func() {
 		t.app.SetUsage(in, out, ctxWindow, cost)
 		t.app.SetCachedTokens(cached)
 	})
-	// Recorded on the session too, so spend survives the process and can be
-	// totalled across sessions.
-	if err := t.run.Session.AddUsage(in, out, cost); err != nil {
-		t.dim("usage not saved: %s", err)
-	}
-	t.autoCompact(int(in), ctxWindow)
+	// The ledger already has these rows: each step billed itself as it was
+	// saved. Compaction runs at the start of the next turn (RunTurn), as
+	// loop's does.
 }
 
-// autoCompact summarises the session once it fills too much of the window.
-//
-// Driven by the REAL input-token count the provider just reported, not the
-// chars÷4 estimate: after a request we know exactly how big the context was.
-//
-// Runs on the turn goroutine while it STILL HOLDS the turn lock — the
-// deferred release has not fired yet — which is what makes rewriting the
-// session here safe: no prompt can start alongside it.
-func (t *repl) autoCompact(used, window int) {
-	threshold := config.LoadSettings().AutoCompact()
-	if !agent.ShouldCompact(used, window, threshold) {
-		return
+// tracker is the session's spend, seeded from its history on first use and
+// reset when the session changes.
+func (t *repl) tracker() *agent.CostTracker {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.costs == nil || t.costsFor != t.run.Session {
+		t.costs = agent.NewCostTracker()
+		t.costs.SeedFromSession(t.run.Session)
+		t.costsFor = t.run.Session
 	}
-	t.dim("context %d%% full — compacting…", 100*used/max(window, 1))
+	return t.costs
+}
 
-	t.fireHook(context.Background(), hooks.Context{Event: hooks.PreCompact})
-	before, after, err := agent.Compact(context.Background(), t.run)
-	if err != nil {
-		// Not fatal: the session is untouched and the next turn may still
-		// fit. Saying so beats a silent no-op the user cannot explain.
-		t.fail("auto-compact failed: %s — /compact to retry", err)
-		return
+// turnEvent is a loop turn event from RunTurn: what the renderer does not get
+// from the stream parts (compaction), and the feed for /rc.
+func (t *repl) turnEvent(name string, data any) {
+	switch name {
+	case "compact-start":
+		t.fireHook(context.Background(), hooks.Context{Event: hooks.PreCompact})
+		t.dim("context full — compacting…")
+	case "compact-end":
+		if end, ok := data.(agent.CompactEndEvent); ok {
+			switch {
+			case end.Aborted:
+				t.dim("compaction interrupted")
+			case end.Error != "":
+				// Not fatal: the session is untouched and this turn may still fit.
+				t.fail("auto-compact failed: %s — /compact to retry", end.Error)
+			case end.TokensBefore > 0:
+				t.do(func() {
+					t.app.Print(t.app.Theme().Fg(tui.SlotSuccess, fmt.Sprintf(
+						"auto-compacted ~%s → ~%s tokens", commas(end.TokensBefore), commas(end.TokensAfter))))
+				})
+			}
+		}
 	}
-	t.app.Do(func() {
-		th := t.app.Theme()
-		t.app.Print(th.Fg(tui.SlotSuccess, fmt.Sprintf(
-			"auto-compacted ~%s → ~%s tokens",
-			commas(agent.EstimateTokens(before)), commas(agent.EstimateTokens(after)))))
-	})
+	if t.live != nil {
+		t.live.publish(t.run.Session.ID, name, data)
+	}
 }
 
 func (t *repl) slash(parent context.Context, line string) {
@@ -583,7 +682,7 @@ func (t *repl) help() {
 		table = append(table, command{name: c.Name, description: c.About})
 	}
 
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		lines := make([]string, 0, len(table)+5)
 		for _, c := range table {
@@ -614,17 +713,25 @@ func (t *repl) quit() { t.app.Events <- tui.Event{Kind: tui.EvQuit} }
 // screen was the confusing half: nothing about the display said the agent had
 // stopped remembering any of it.
 func (t *repl) newSession() {
-	if t.busy() {
+	// A turn in flight is not thrown away: it carries on in the background
+	// (Ctrl+S to go back) and the new session opens beside it. Only an idle
+	// session is replaced in place.
+	if t.isTurning() {
+		t.openNew()
+		t.dim("previous session keeps running in the background · ctrl+s to switch")
 		return
 	}
+	t.firstPrompt = ""
+	shells.KillSession(t.run.Session.ID)
 	t.run.Session = session.New(t.cfg.FullID(), t.cfg.CWD)
 	t.run.Tools.Registry = tools.NewRegistry()
 	t.run.Tools.Todos.Clear()
 	t.lastContextTokens = 0
 	// Plan mode is a stance on a conversation, and this is a different one.
 	t.run.Planning, t.planViaAgent = false, false
-	t.app.Do(func() {
+	t.do(func() {
 		t.app.SetSession("")
+		t.app.SetCostText("")
 		t.app.SetPlanning(false)
 		t.app.SetTodos(nil)
 		t.app.ResetUsage(t.contextWindow())
@@ -697,6 +804,7 @@ func (t *repl) pickModel(rest string) {
 	if rest != "" {
 		t.cfg.ModelID = rest
 		t.apply()
+		sound.Cue(sound.Click)
 		return
 	}
 	// A manager loop, not a one-shot picker: registering a model id is done
@@ -752,6 +860,7 @@ func (t *repl) pickModel(rest string) {
 		// Choosing a model is the whole point of the picker, so it closes.
 		t.cfg.ModelID = choice.Value
 		t.apply()
+		sound.Cue(sound.Click)
 		return closePanel
 	})
 }
@@ -780,39 +889,38 @@ func (t *repl) providerModels() []catalog.Model {
 	return ms
 }
 
-// customModels is the set of model ids registered under a provider.
+// sandboxMode maps loop's sandbox setting onto pi's sandbox.
+func sandboxMode(s *config.SandboxSetting) tools.SandboxMode {
+	if s.On() {
+		return tools.SandboxWorkspace
+	}
+	return tools.SandboxOff
+}
+
+// customModels is the set of model ids registered under a provider in
+// ~/.loop/models.json.
 func customModels(provider string) map[string]bool {
 	out := map[string]bool{}
-	for _, id := range config.LoadSettings().CustomModels[provider] {
-		out[id] = true
+	for _, id := range catalog.ListCustomModelIDs() {
+		if prov, short, ok := strings.Cut(id, "/"); ok && prov == provider {
+			out[short] = true
+		}
 	}
 	return out
 }
 
-// addCustomModel registers a model id the catalog does not carry.
+// addCustomModel registers a model id the catalog does not carry (loop's
+// /model add → addCustomModel into models.json).
 func (t *repl) addCustomModel() {
 	provider := t.cfg.Provider
 	id := strings.TrimSpace(t.ask("new model id under "+provider+"/ (e.g. some-model-v2)", ""))
 	if id == "" {
 		return
 	}
-	if err := config.Update(func(s *config.Settings) {
-		if s.CustomModels == nil {
-			s.CustomModels = map[string][]string{}
-		}
-		for _, existing := range s.CustomModels[provider] {
-			if existing == id {
-				return
-			}
-		}
-		s.CustomModels[provider] = append(s.CustomModels[provider], id)
-	}); err != nil {
+	if _, err := catalog.AddCustomModel(catalog.CustomModelInput{Provider: provider, ModelID: id}); err != nil {
 		t.fail("model: %s", err)
 		return
 	}
-	// Said plainly rather than validated: there is no way to ask a provider
-	// whether it serves a model without trying to use it, and a check that
-	// cannot be made should not be implied.
 	t.dim("added %s/%s (custom). It'll error at chat time if %s doesn't serve it.", provider, id, provider)
 	t.cfg.ModelID = id
 	t.apply()
@@ -820,20 +928,7 @@ func (t *repl) addCustomModel() {
 
 // removeCustomModel forgets a registered id.
 func (t *repl) removeCustomModel(id string) {
-	provider := t.cfg.Provider
-	if err := config.Update(func(s *config.Settings) {
-		kept := make([]string, 0, len(s.CustomModels[provider]))
-		for _, existing := range s.CustomModels[provider] {
-			if existing != id {
-				kept = append(kept, existing)
-			}
-		}
-		if len(kept) == 0 {
-			delete(s.CustomModels, provider)
-			return
-		}
-		s.CustomModels[provider] = kept
-	}); err != nil {
+	if _, err := catalog.RemoveCustomModel(t.cfg.Provider + "/" + id); err != nil {
 		t.fail("model: %s", err)
 		return
 	}
@@ -871,7 +966,7 @@ func (t *repl) pickProvider(rest string) {
 
 func (t *repl) apply() {
 	resolved, err := config.Resolve(t.cfg)
-	t.app.Do(func() {
+	t.do(func() {
 		if err != nil {
 			t.app.Print(t.app.Theme().Fg(tui.SlotError, err.Error()))
 			return
@@ -886,7 +981,7 @@ func (t *repl) apply() {
 			t.app.SetModelReasoning(info.Reasoning)
 		}
 		_ = config.Update(func(s *config.Settings) {
-			s.Provider, s.Model = resolved.Provider, resolved.ModelID
+			s.DefaultModel = resolved.FullID()
 		})
 		t.app.Print(t.app.Theme().Fg(tui.SlotDim, "model "+resolved.FullID()))
 	})
@@ -894,7 +989,7 @@ func (t *repl) apply() {
 
 // bang runs a shell command inline and prints the output to the transcript.
 func (t *repl) bang(cmdline string) {
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		t.app.Print(th.Fg(tui.SlotAccent, "❯ ") + th.Fg(tui.SlotMuted, cmdline))
 	})
@@ -903,7 +998,7 @@ func (t *repl) bang(cmdline string) {
 		cmd.Dir = t.cfg.CWD
 		out, err := cmd.CombinedOutput()
 		text := strings.TrimRight(string(out), "\n")
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			if text != "" {
 				lines := strings.Split(text, "\n")
@@ -917,6 +1012,7 @@ func (t *repl) bang(cmdline string) {
 				t.app.Print(th.Fg(tui.SlotError, "exit: "+err.Error()))
 			}
 		})
+		t.drainNext()
 	}()
 }
 
@@ -989,76 +1085,68 @@ func comma(n int64) string {
 
 func (t *repl) dim(format string, args ...any) {
 	text := fmt.Sprintf(format, args...)
-	t.app.Do(func() { t.app.Print(t.app.Theme().Fg(tui.SlotDim, text)) })
+	t.do(func() { t.app.Print(t.app.Theme().Fg(tui.SlotDim, text)) })
 }
 
 func (t *repl) fail(format string, args ...any) {
 	text := fmt.Sprintf(format, args...)
-	t.app.Do(func() { t.app.Print(t.app.Theme().Fg(tui.SlotError, text)) })
+	t.do(func() { t.app.Print(t.app.Theme().Fg(tui.SlotError, text)) })
 }
 
-// setTheme swaps the palette. Noir is the only look; night and day are its
-// two themes.
+// configuredThemeName is loop's: `theme`, else the old per-mode keys.
+func configuredThemeName() string {
+	var theme string
+	var perMode map[string]string
+	config.SettingsStore().Get("theme", &theme)
+	config.SettingsStore().Get("uiThemes", &perMode)
+	return tui.ConfiguredThemeName(theme, perMode)
+}
+
+// setTheme is loop's switchTheme: the picker bare, else that theme.
 func (t *repl) setTheme(name string) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	// Aliases, because "dark" and "light" are what people type.
-	switch name {
-	case "dark":
-		name = "night"
-	case "light":
-		name = "day"
-	}
+	name = strings.TrimSpace(name)
 	if name == "" {
-		t.pickTheme()
+		go t.pickTheme()
 		return
 	}
-	palette, ok := tui.FindPalette(name)
-	if !ok {
-		t.dim("unknown theme %q — /theme with no argument lists them", name)
-		return
+	if !t.applyTheme(name) {
+		t.fail("unknown theme: %s (have: %s)", name, strings.Join(tui.ThemeNames(), ", "))
 	}
-	t.applyTheme(palette)
 }
 
-// pickTheme offers every palette, built-in and user-defined.
+// pickTheme is the picker both /theme and the /settings row open.
 func (t *repl) pickTheme() {
-	palettes := tui.AllPalettes()
-	items := make([]tui.Item, 0, len(palettes))
-	current := config.LoadSettings().Theme
-	initial := 0
-	for i, p := range palettes {
-		kind := "dark"
-		if p.Light {
-			kind = "light"
+	cur := t.app.Theme().Name
+	var items []tui.Item
+	for _, n := range tui.ThemeNames() {
+		desc := ""
+		if n == cur {
+			desc = "(current)"
 		}
-		// `system` is not a third colour scheme — it is noir with no canvas of
-		// its own, so say what it does rather than which half it landed on.
-		if p.Name == tui.SystemThemeName {
-			kind = "your terminal's own background"
-		}
-		if p.Name == current {
-			initial = i
-		}
-		items = append(items, tui.Item{Value: p.Name, Label: p.Name, Description: kind})
+		items = append(items, tui.Item{Value: n, Label: n, Description: desc})
 	}
-	go func() {
-		if choice := t.app.Pick("Theme", items, initial, current); choice != nil {
-			if palette, ok := tui.FindPalette(choice.Value); ok {
-				t.applyTheme(palette)
-			}
-		}
-	}()
+	if pick := t.app.Pick("Theme (type to filter)", items, 0, ""); pick != nil {
+		t.applyTheme(pick.Value)
+	}
 }
 
-func (t *repl) applyTheme(palette tui.Palette) {
-	t.app.Do(func() { t.app.SetTheme(palette) })
-	// Remembered, so the next session opens on the same canvas. A failed
-	// write is worth saying out loud but not worth refusing the change over.
-	if err := config.Update(func(s *config.Settings) { s.Theme = palette.Name }); err != nil {
-		t.dim("theme %s (not saved: %s)", palette.Name, err)
-		return
+// applyTheme applies and persists a theme; unknown names are refused rather
+// than resolving to the fallback, which would look like a typo working.
+func (t *repl) applyTheme(name string) bool {
+	known := false
+	for _, n := range tui.ThemeNames() {
+		if n == name {
+			known = true
+		}
 	}
-	t.dim("theme %s", palette.Name)
+	th, ok := tui.LoadTheme(name)
+	if !known || !ok {
+		return false
+	}
+	_ = config.SettingsStore().Set("theme", name)
+	t.do(func() { t.app.SetTheme(th) })
+	t.dim("theme → %s", name)
+	return true
 }
 
 // version is what the masthead reports; see build.Version for why it lives
@@ -1068,7 +1156,7 @@ const version = build.Version
 // startupNotices prints the status block under the masthead: the things that
 // silently change how a session behaves, stated once where they are read.
 func (t *repl) startupNotices() {
-	t.app.Do(t.printStartupNotices)
+	t.do(t.printStartupNotices)
 }
 
 // printStartupNotices is the body, for callers already on the render loop.

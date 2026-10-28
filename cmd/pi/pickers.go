@@ -5,12 +5,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/notshekhar/pi/internal/modules/core/catalog"
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/hooks"
-	"github.com/notshekhar/pi/internal/modules/core/permissions"
-	"github.com/notshekhar/pi/internal/modules/core/skills"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/catalog"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/hooks"
+	"github.com/notshekhar/pi/internal/core/permissions"
+	"github.com/notshekhar/pi/internal/core/skills"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // Pickers: what a command does when you give it no argument.
@@ -272,7 +272,7 @@ func (t *repl) pickAlias() {
 	for _, name := range names {
 		width = max(width, len(name))
 	}
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		lines := make([]string, 0, len(names))
 		for _, name := range names {
@@ -325,12 +325,8 @@ type denyEntry struct{ rule, pattern string }
 // bashDenyPatterns is the stored denylist, rules and patterns both.
 func bashDenyPatterns() []denyEntry {
 	var out []denyEntry
-	for _, raw := range config.LoadSettings().Permissions {
-		rule, err := permissions.ParseRule(raw)
-		if err != nil || rule.Tool != "bash" || rule.Mode != permissions.Deny {
-			continue
-		}
-		out = append(out, denyEntry{rule: raw, pattern: rule.Pattern})
+	for _, pattern := range config.LoadSettings().BashDeny {
+		out = append(out, denyEntry{rule: pattern, pattern: pattern})
 	}
 	return out
 }
@@ -347,13 +343,8 @@ func (t *repl) addBashDeny() {
 			return
 		}
 	}
-	rule, err := permissions.ParseRule(fmt.Sprintf("deny bash(%s)", pattern))
-	if err != nil {
-		t.fail("%s", err)
-		return
-	}
 	if err := config.Update(func(s *config.Settings) {
-		s.Permissions = append(s.Permissions, rule.String())
+		s.BashDeny = append(append([]string{}, s.BashDeny...), pattern)
 	}); err != nil {
 		t.fail("bashdeny: %s", err)
 		return
@@ -380,7 +371,7 @@ var permissionActions = []tui.Item{
 func (t *repl) pickPermission() {
 	const addRule = "\x00add"
 	t.manage(func() (string, []tui.Item) {
-		stored := config.LoadSettings().Permissions
+		stored := config.LoadSettings().Permissions.Entries()
 		items := []tui.Item{{
 			Value:       addRule,
 			Label:       "+ add rule",
@@ -412,22 +403,19 @@ func (t *repl) addPermissionRule() {
 	if raw == "" {
 		return
 	}
-	rule, err := permissions.ParseRule(action.Value + " " + raw)
-	if err != nil {
+	if _, ok := permissions.ParseRuleString(permissions.Mode(action.Value), raw); !ok {
 		t.fail("unrecognized rule: %s", raw)
-		t.dim("expected tool(pattern), a bare tool name, or *")
+		t.dim("expected Tool(pattern), a bare tool name, or *")
 		return
 	}
-	stored := rule.String()
-	for _, existing := range config.LoadSettings().Permissions {
+	stored := action.Value + " " + raw
+	for _, existing := range config.LoadSettings().Permissions.Entries() {
 		if existing == stored {
 			t.dim("%q is already a %s rule", raw, action.Value)
 			return
 		}
 	}
-	if err := config.Update(func(s *config.Settings) {
-		s.Permissions = append(s.Permissions, stored)
-	}); err != nil {
+	if err := config.AddPermission(action.Value, raw); err != nil {
 		t.fail("permissions: %s", err)
 		return
 	}
@@ -437,15 +425,7 @@ func (t *repl) addPermissionRule() {
 
 // removePermissionRule drops one stored rule and reloads the policy.
 func (t *repl) removePermissionRule(rule string) {
-	if err := config.Update(func(s *config.Settings) {
-		kept := make([]string, 0, len(s.Permissions))
-		for _, r := range s.Permissions {
-			if r != rule {
-				kept = append(kept, r)
-			}
-		}
-		s.Permissions = kept
-	}); err != nil {
+	if err := config.RemovePermission(rule); err != nil {
 		t.fail("permissions: %s", err)
 		return
 	}
@@ -501,7 +481,7 @@ func (t *repl) pickHook() {
 	t.manage(func() (string, []tui.Item) {
 		cfg, _ := config.LoadSettings().HookConfig()
 		entries := hooks.List(cfg)
-		path, _ := config.SettingsPath()
+		path := config.SettingsPath()
 		items := []tui.Item{{
 			Value:       addHook,
 			Label:       "+ add hook",
@@ -608,15 +588,6 @@ func elide(s string, width int) string {
 		return s
 	}
 	return s[:width-3] + "…"
-}
-
-// agentsCmd is `/agents`: a picker with no argument, a direct switch with one.
-func (t *repl) agentsCmd(rest string) {
-	if name := strings.TrimSpace(rest); name != "" {
-		t.setAgent(name)
-		return
-	}
-	t.pickAgent()
 }
 
 // skillsMenu is `/skills`: a picker with no argument, the skill itself with one.

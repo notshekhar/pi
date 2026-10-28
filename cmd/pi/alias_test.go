@@ -1,11 +1,9 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/notshekhar/pi/internal/modules/core/config"
+	"github.com/notshekhar/pi/internal/core/config"
 )
 
 func withAliases(t *testing.T, aliases map[string]string) {
@@ -16,10 +14,7 @@ func withAliases(t *testing.T, aliases map[string]string) {
 	if aliases == nil {
 		return
 	}
-	if err := os.MkdirAll(filepath.Join(home, ".pi-agent"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := config.SaveSettings(config.Settings{Aliases: aliases}); err != nil {
+	if err := config.Update(func(s *config.Settings) { s.Aliases = aliases }); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/notshekhar/pi/internal/modules/ai"
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // /background and /daemon — work that runs while the prompt stays yours.
@@ -116,7 +116,7 @@ func (s *bgSet) start(parent context.Context, prompt string, t *repl) *bgTask {
 		task.Done, task.Err, task.Result = time.Now(), err, result
 		s.mu.Unlock()
 
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			switch {
 			case err != nil:
@@ -162,7 +162,7 @@ func (t *repl) backgroundManager(parent context.Context) {
 			}
 			if !task.Done.IsZero() {
 				result := task.Result
-				t.app.Do(func() { t.app.Print(result) })
+				t.do(func() { t.app.Print(result) })
 				return keepPanel
 			}
 			if t.confirmRemove(firstLine(task.Prompt), "cancel this running task") {
@@ -233,7 +233,7 @@ func (t *repl) startDaemon() {
 				}
 				for _, r := range dueReminders(now) {
 					reminder := r
-					t.app.Do(func() {
+					t.do(func() {
 						th := t.app.Theme()
 						t.app.Print(th.Fg(tui.SlotWarning, th.Bold("reminder")) + th.Fg(tui.SlotText, " "+reminder.Text))
 					})
@@ -263,7 +263,7 @@ func (t *repl) stopDaemon() {
 // interleave into a history neither of them wrote, and the model would then
 // read the other task's work as its own context.
 func (t *repl) runDetached(ctx context.Context, prompt string) (string, error) {
-	run, err := newRun(t.cfg)
+	run, err := newRun(t.cfg, nil)
 	if err != nil {
 		return "", err
 	}

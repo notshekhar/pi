@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // /timer — a countdown in the status line.
@@ -19,7 +19,7 @@ func (t *repl) timer(rest string) {
 
 	switch input {
 	case "off", "cancel":
-		t.app.Do(func() { t.app.SetTimer(time.Time{}) })
+		t.do(func() { t.app.SetTimer(time.Time{}) })
 		t.timerLabel = ""
 		t.dim("timer cancelled")
 		return
@@ -40,7 +40,7 @@ func (t *repl) timer(rest string) {
 	}
 	ends := time.Now().Add(d)
 	t.timerLabel = input
-	t.app.Do(func() { t.app.SetTimer(ends) })
+	t.do(func() { t.app.SetTimer(ends) })
 	t.dim("timer set — %s", input)
 
 	// One shot, and it announces itself even if the deadline passes while a
@@ -50,7 +50,7 @@ func (t *repl) timer(rest string) {
 		if !t.app.TimerEndsAt().Equal(ends) {
 			return // cancelled or replaced
 		}
-		t.app.Do(func() {
+		t.do(func() {
 			t.app.SetTimer(time.Time{})
 			th := t.app.Theme()
 			t.app.Print(th.Fg(tui.SlotWarning, th.Bold("timer up")) + th.Fg(tui.SlotMuted, " — "+input))

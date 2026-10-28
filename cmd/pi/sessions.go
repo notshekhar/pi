@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	"github.com/notshekhar/pi/internal/core/agent"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/notshekhar/pi/internal/modules/core/session"
-	"github.com/notshekhar/pi/internal/modules/core/tools"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/session"
+	"github.com/notshekhar/pi/internal/core/tools"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // Session management: list, resume, fork, rename, delete.
@@ -151,6 +152,18 @@ func sessionTime(at time.Time) string {
 // carrying the old registry across would let an edit through on a file the
 // agent has not actually read in this run.
 func (t *repl) resume(id string) {
+	// Already live in this pi (running in the background, say): go to it
+	// rather than open a second copy that would fight it over the session.
+	if live := t.slots.bySessionID(id); live != nil {
+		t.switchTo(live)
+		return
+	}
+	// Never replace a session mid-turn: it keeps running, and the resumed
+	// one opens beside it.
+	if t.isTurning() {
+		t.openNew()
+	}
+	t.firstPrompt = ""
 	loaded, err := session.Load(id)
 	if err != nil {
 		t.fail("resume: %s", err)
@@ -158,9 +171,14 @@ func (t *repl) resume(id string) {
 	}
 	t.run.Session = loaded
 	t.run.Tools.Registry = tools.NewRegistry()
+	cost := t.tracker().Format()
+	ctxTokens := int(agent.NewCostTracker().SeedFromSession(loaded))
 
-	t.app.Do(func() {
+	t.do(func() {
 		t.app.Clear()
+		t.app.SetSession(loaded.ID)
+		t.app.SetCostText(cost)
+		t.app.SetContextTokens(ctxTokens)
 		th := t.app.Theme()
 		t.app.Print(
 			th.Fg(tui.SlotAccent, th.Bold("resumed"))+" "+th.Fg(tui.SlotText, loaded.Meta.Label()),
@@ -247,7 +265,7 @@ func (t *repl) forkSession() {
 		}
 		t.run.Session = forked
 		t.run.Tools.Registry = tools.NewRegistry()
-		t.app.Do(func() {
+		t.do(func() {
 			t.app.Clear()
 			t.replayTranscript(forked)
 			t.dim("forked at prompt — %d messages kept, the original is untouched", len(forked.Messages))

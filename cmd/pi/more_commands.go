@@ -12,13 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/notshekhar/pi/internal/modules/core/catalog"
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/gateway"
-	"github.com/notshekhar/pi/internal/modules/core/permissions"
-	"github.com/notshekhar/pi/internal/modules/core/serve"
-	"github.com/notshekhar/pi/internal/modules/core/session"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/catalog"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/gateway"
+	"github.com/notshekhar/pi/internal/core/serve"
+	"github.com/notshekhar/pi/internal/core/session"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // The rest of the command surface.
@@ -64,92 +63,6 @@ func (t *repl) cloneSession() {
 	original := t.run.Session.Meta.Label()
 	t.run.Session = cloned
 	t.dim("cloned %s — you are now on the copy", original)
-}
-
-// sessionTree draws the fork tree and lets a branch be switched to.
-//
-// Grouped by working directory first, because a session list spanning every
-// repository you have touched is not a tree anyone reads. Within a
-// directory, forks nest under the session they came from — which is only
-// possible because a fork RECORDS its parent: the conversations themselves
-// are byte-identical up to the branch point, so the structure cannot be
-// recovered from them afterwards.
-func (t *repl) sessionTree() {
-	metas, err := session.List()
-	if err != nil {
-		t.fail("tree: %s", err)
-		return
-	}
-	if len(metas) == 0 {
-		t.dim("no saved sessions")
-		return
-	}
-
-	byDir := map[string][]session.Meta{}
-	for _, m := range metas {
-		dir := m.CWD
-		if dir == "" {
-			dir = "(unknown)"
-		}
-		byDir[dir] = append(byDir[dir], m)
-	}
-	dirs := make([]string, 0, len(byDir))
-	for dir := range byDir {
-		dirs = append(dirs, dir)
-	}
-	sort.Slice(dirs, func(i, j int) bool {
-		// The current repository first; it is why the command was run.
-		if dirs[i] == t.cfg.CWD {
-			return true
-		}
-		if dirs[j] == t.cfg.CWD {
-			return false
-		}
-		return dirs[i] < dirs[j]
-	})
-
-	var items []tui.Item
-	initial := 0
-	t.app.Do(func() {
-		th := t.app.Theme()
-		var lines []string
-		for _, dir := range dirs {
-			label := tui.ShortenPath(dir)
-			if dir == t.cfg.CWD {
-				label += "  (here)"
-			}
-			lines = append(lines, th.Fg(tui.SlotAccent, label))
-			for _, row := range treeRows(byDir[dir]) {
-				marker := "  "
-				if row.meta.ID == t.run.Session.ID {
-					marker = "→ "
-					initial = len(items)
-				}
-				// Truncate as well as pad: padRight only ever grows a
-				// string, so a long title ran straight into the detail
-				// column and wrapped the row.
-				name := tui.Truncate(row.prefix+row.meta.Label(), 44)
-				lines = append(lines, marker+th.Fg(tui.SlotText, padRight(name, 45))+
-					th.Fg(tui.SlotDim, row.meta.Detail()))
-				items = append(items, tui.Item{
-					Value:       row.meta.ID,
-					Label:       row.prefix + row.meta.Label(),
-					Description: row.meta.Detail(),
-				})
-			}
-			lines = append(lines, "")
-		}
-		t.app.Print(lines...)
-	})
-
-	// Pick blocks on the render loop, so it must not run on it.
-	go func() {
-		choice := t.app.Pick("Switch branch", items, initial, t.run.Session.ID)
-		if choice == nil || choice.Value == t.run.Session.ID {
-			return
-		}
-		t.resume(choice.Value)
-	}()
 }
 
 // treeRow is one session and the branch art that leads to it.
@@ -248,7 +161,7 @@ func (t *repl) share() {
 			t.dim("shared, but gh printed no url:\n%s", strings.TrimSpace(string(out)))
 			return
 		}
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			t.app.Print(th.Fg(tui.SlotSuccess, "shared ") + th.Fg(tui.SlotAccent, url))
 		})
@@ -306,7 +219,7 @@ func (t *repl) hotkeys() {
 	}
 	width += 2
 
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		lines := make([]string, 0, len(bindings))
 		for _, b := range bindings {
@@ -329,15 +242,12 @@ func (t *repl) bashDeny(rest string) {
 }
 
 func (t *repl) showBashDeny() {
-	stored := config.LoadSettings().Permissions
-	t.app.Do(func() {
+	stored := config.LoadSettings().BashDeny
+	t.do(func() {
 		th := t.app.Theme()
 		var lines []string
-		for _, raw := range stored {
-			if rule, err := permissions.ParseRule(raw); err == nil &&
-				rule.Tool == "bash" && rule.Mode == permissions.Deny {
-				lines = append(lines, "  "+th.Fg(tui.SlotError, rule.Pattern))
-			}
+		for _, pattern := range stored {
+			lines = append(lines, "  "+th.Fg(tui.SlotError, pattern))
 		}
 		if len(lines) == 0 {
 			t.app.Print(th.Fg(tui.SlotDim, "no bash deny rules beyond the built-in ones — /permissions to see those"))
@@ -422,18 +332,32 @@ func (t *repl) reload() {
 	if t.busy() {
 		return
 	}
-	t.applySettings()
-	// Skills and prompt files are commands, so a reload has to rebuild the
-	// completion catalog too — otherwise a skill added during the session is
-	// runnable but not offerable, which reads as it not existing.
-	t.app.Do(func() { t.app.SetSources(t.commandItems(), fileItems(t.cfg.CWD)) })
-	t.dim("reloaded settings, skills, and commands · /mcp reconnect for tool servers")
+	// Loop's hard reload: every config surface re-read from disk, and models
+	// re-fetched from the network — blocking, so the count it reports is real.
+	t.do(func() { t.app.LoaderStart() })
+	go func() {
+		defer t.do(t.app.LoaderStop)
+		t.applySettings()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		config.RefreshConfigStores()
+		available, total, err := catalog.Refresh(ctx)
+		// Skills and prompt files are commands, so the completion catalog is
+		// rebuilt too — a skill added mid-session must be offerable, not just
+		// runnable.
+		t.do(func() { t.app.SetSources(t.commandItems(), fileItems(t.cfg.CWD)) })
+		if err != nil {
+			t.dim("reload: could not write the model cache: %v", err)
+		}
+		t.dim("reloaded — settings, skills, commands, custom providers, models (%d/%d available) · /mcp reconnect for tool servers",
+			available, total)
+	}()
 }
 
 // changelog points at where the work is recorded rather than inventing a
 // version history this project does not keep.
 func (t *repl) changelog() {
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		t.app.Print(
 			th.Fg(tui.SlotMuted, "pi-agent "+version),
@@ -549,7 +473,7 @@ func (t *repl) customProviders(rest string) {
 	case len(fields) >= 2:
 		p := config.CustomProvider{BaseURL: fields[1]}
 		if len(fields) > 2 {
-			p.EnvVar = fields[2]
+			p.Auth = &config.CustomAuth{Kind: "env", Var: fields[2]}
 		}
 		for _, id := range fields[3:] {
 			p.Models = append(p.Models, config.CustomModel{ID: id})
@@ -566,7 +490,7 @@ func (t *repl) customProviders(rest string) {
 
 func (t *repl) showCustomProviders() {
 	names := config.CustomProviderNames()
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		if len(names) == 0 {
 			t.app.Print(
@@ -611,7 +535,7 @@ func (t *repl) goal(parent context.Context, rest string) {
 	t.cancel = cancel
 	t.mu.Unlock()
 
-	t.app.Do(func() { t.app.UserEcho("/goal " + goal) })
+	t.do(func() { t.app.UserEcho("/goal " + goal) })
 	t.dim("planning…")
 
 	go func() {
@@ -620,12 +544,13 @@ func (t *repl) goal(parent context.Context, rest string) {
 			t.turning = false
 			t.cancel = nil
 			t.mu.Unlock()
-			t.app.Do(func() {
+			t.do(func() {
 				t.app.LoaderStop()
 				t.app.InterruptOpen()
 			})
+			defer t.drainNext()
 		}()
-		t.app.Do(func() { t.app.LoaderStart() })
+		t.do(func() { t.app.LoaderStart() })
 
 		// The work phase reuses the ordinary turn machinery, so it renders
 		// exactly like every other turn.
@@ -644,7 +569,7 @@ func (t *repl) goal(parent context.Context, rest string) {
 			return
 		}
 
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			if result.Passed {
 				t.app.Print(th.Fg(tui.SlotSuccess, fmt.Sprintf(
@@ -754,20 +679,23 @@ func (t *repl) customProviderWizard() {
 	case "apikey":
 		// Through the prompt, never an argument: a key on the command line is
 		// in the shell history and in the transcript.
-		p.APIKey = strings.TrimSpace(t.ask("API key (not echoed back)", ""))
-		if p.APIKey == "" {
+		key := strings.TrimSpace(t.ask("API key (not echoed back)", ""))
+		if key == "" {
 			return
 		}
+		p.Auth = &config.CustomAuth{Kind: "apikey", APIKey: key}
 	case "env":
-		p.EnvVar = strings.TrimSpace(t.ask("Environment variable holding the key", ""))
-		if p.EnvVar == "" {
+		v := strings.TrimSpace(t.ask("Environment variable holding the key", ""))
+		if v == "" {
 			return
 		}
+		p.Auth = &config.CustomAuth{Kind: "env", Var: v}
 	case "command":
-		p.KeyCommand = strings.TrimSpace(t.ask("Command whose output is the key", ""))
-		if p.KeyCommand == "" {
+		cmd := strings.TrimSpace(t.ask("Command whose output is the key", ""))
+		if cmd == "" {
 			return
 		}
+		p.Auth = &config.CustomAuth{Kind: "helper", Command: cmd}
 	}
 
 	if headers := strings.TrimSpace(t.ask(`Extra headers, optional — "X-Tenant: acme; X-Env: prod"`, "")); headers != "" {
@@ -783,7 +711,7 @@ func (t *repl) customProviderWizard() {
 	if len(discovered) > 0 {
 		p.Models = discovered
 		t.dim("found %d models", len(discovered))
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			var lines []string
 			for _, m := range discovered[:min(len(discovered), 12)] {
@@ -813,13 +741,12 @@ func (t *repl) customProviderWizard() {
 	// fraction OF it, so a window of zero means a session that never compacts
 	// and eventually just fails on a too-long request. Only asked for when
 	// discovery did not already supply one.
-	if p.Models[0].Context == 0 {
+	if p.Models[0].ContextWindow == 0 {
 		if ctx := strings.TrimSpace(t.ask("Context window in tokens, optional (e.g. 200000)", "")); ctx != "" {
 			if n, err := strconv.Atoi(strings.ReplaceAll(ctx, ",", "")); err == nil && n > 0 {
-				p.Context = n
 				for i := range p.Models {
-					if p.Models[i].Context == 0 {
-						p.Models[i].Context = n
+					if p.Models[i].ContextWindow == 0 {
+						p.Models[i].ContextWindow = n
 					}
 				}
 			}
@@ -849,7 +776,7 @@ func (t *repl) customProviderWizard() {
 	// Selected straight away: someone who just configured an endpoint wants
 	// to use it, and making them run /provider afterwards is a step with no
 	// decision in it.
-	t.cfg.Provider, t.cfg.ModelID = name, p.Models[0].ID
+	t.cfg.Provider, t.cfg.ModelID = config.CustomPrefix+name, p.Models[0].ID
 	t.apply()
 }
 
@@ -909,7 +836,7 @@ func (t *repl) signInXai(parent context.Context) {
 		ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 		defer cancel()
 		err := config.XaiLogin(ctx, func(url, instructions string) {
-			t.app.Do(func() {
+			t.do(func() {
 				th := t.app.Theme()
 				t.app.Print(
 					th.Fg(tui.SlotDim, instructions),
@@ -929,8 +856,9 @@ func (t *repl) signInXai(parent context.Context) {
 	}()
 }
 
-// openBrowser asks the desktop to open a URL, and says nothing if it cannot.
-func openBrowser(url string) {
+// openBrowser asks the desktop to open a URL; false when nothing could be
+// started (over SSH, say) so the caller can print the URL instead.
+func openBrowser(url string) bool {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -940,7 +868,11 @@ func openBrowser(url string) {
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
-	_ = cmd.Start()
+	if cmd.Start() != nil {
+		return false
+	}
+	go func() { _ = cmd.Wait() }()
+	return true
 }
 
 // askForKey prompts for a provider's credential.
@@ -971,7 +903,7 @@ func (t *repl) saveKey(provider, key string) {
 }
 
 func (t *repl) showLogin() {
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		var lines []string
 		for _, p := range catalog.Providers {
@@ -997,12 +929,12 @@ func (t *repl) showLogin() {
 // gatewayPanel is `/gateways` with no argument.
 func (t *repl) gatewayPanel(parent context.Context) {
 	t.manage(func() (string, []tui.Item) {
-		settings := config.LoadSettings()
+		settings := config.LoadTelegram()
 		state, about := "not configured", "set this gateway up"
 		switch {
 		case t.telegram != nil:
 			state, about = "running", "a paired chat is driving this machine"
-		case settings.TelegramToken != "":
+		case settings.Token != "":
 			state, about = "configured", "start it, or change the credentials"
 		}
 		return "Gateways — remote chat control (Esc to close)", []tui.Item{{
@@ -1018,11 +950,11 @@ func (t *repl) gatewayPanel(parent context.Context) {
 
 // telegramActions is the per-gateway menu.
 func (t *repl) telegramActions(parent context.Context) {
-	settings := config.LoadSettings()
+	settings := config.LoadTelegram()
 	var items []tui.Item
 	if t.telegram != nil {
 		items = append(items, tui.Item{Value: "stop", Label: "stop", Description: "disconnect the bot"})
-	} else if settings.TelegramToken != "" {
+	} else if settings.Token != "" {
 		items = append(items, tui.Item{Value: "start", Label: "start", Description: "connect and start polling"})
 	}
 	items = append(items,
@@ -1045,14 +977,14 @@ func (t *repl) telegramActions(parent context.Context) {
 		if token == "" {
 			return
 		}
-		if err := config.Update(func(s *config.Settings) { s.TelegramToken = token }); err != nil {
+		if err := config.SetTelegramToken(token); err != nil {
 			t.fail("gateways: %s", err)
 			return
 		}
 		t.dim("telegram token stored")
 	case "chat":
 		raw := strings.TrimSpace(t.ask("Telegram chat id (only this chat may drive the agent)",
-			fmt.Sprint(settings.TelegramChatID)))
+			fmt.Sprint(settings.ChatID)))
 		if raw == "" {
 			return
 		}
@@ -1061,7 +993,7 @@ func (t *repl) telegramActions(parent context.Context) {
 			t.fail("chat id must be a number, got %q", raw)
 			return
 		}
-		if err := config.Update(func(s *config.Settings) { s.TelegramChatID = id }); err != nil {
+		if err := config.SetTelegramChatID(id); err != nil {
 			t.fail("gateways: %s", err)
 			return
 		}
@@ -1106,7 +1038,7 @@ func (t *repl) serve(parent context.Context, rest string) {
 	srv := serve.New(func(prompt string) {
 		// A prompt from the network runs exactly like a typed one, including
 		// the echo — so what a remote client asked for is visible here.
-		t.app.Do(func() { t.app.UserEcho(prompt) })
+		t.do(func() { t.app.UserEcho(prompt) })
 		t.startTurn(parent, prompt)
 	})
 	if err := srv.Start("", port); err != nil {
@@ -1114,7 +1046,7 @@ func (t *repl) serve(parent context.Context, rest string) {
 		return
 	}
 	t.server = srv
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		t.app.Print(
 			th.Fg(tui.SlotSuccess, "serving on "+srv.Addr),
@@ -1126,7 +1058,6 @@ func (t *repl) serve(parent context.Context, rest string) {
 // gateways reports the chat connections, and starts the Telegram one.
 func (t *repl) gateways(parent context.Context, rest string) {
 	rest = strings.TrimSpace(rest)
-	settings := config.LoadSettings()
 
 	switch rest {
 	case "":
@@ -1139,7 +1070,8 @@ func (t *repl) gateways(parent context.Context, rest string) {
 			t.dim("telegram is already running")
 			return
 		}
-		bot := gateway.NewTelegram(settings.TelegramToken, settings.TelegramChatID)
+		tg := config.LoadTelegram()
+		bot := gateway.NewTelegram(tg.Token, tg.ChatID)
 		if bot == nil {
 			t.dim("no telegramToken in settings")
 			return
@@ -1174,7 +1106,7 @@ func (t *repl) pollTelegram(ctx context.Context, bot *gateway.Telegram) {
 		backoff = time.Second
 		for _, m := range messages {
 			prompt := m.Text
-			t.app.Do(func() { t.app.UserEcho("[telegram] " + prompt) })
+			t.do(func() { t.app.UserEcho("[telegram] " + prompt) })
 			t.startTurn(ctx, prompt)
 		}
 	}

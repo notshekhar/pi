@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/hooks"
-	"github.com/notshekhar/pi/internal/modules/core/skills"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/hooks"
+	"github.com/notshekhar/pi/internal/core/skills"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // Hooks and skills, from the app's side.
@@ -38,7 +38,7 @@ func (t *repl) fireHook(ctx context.Context, hc hooks.Context) hooks.Outcome {
 		return outcome // a silent success is the normal case
 	}
 	event, messages, blocked, reason := hc.Event, outcome.Messages, outcome.Block, outcome.Reason
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		if blocked {
 			t.app.Print(th.Fg(tui.SlotError, "hook "+string(event)+" blocked: "+reason))
@@ -64,7 +64,7 @@ func (t *repl) skillsCmd(rest string) {
 			t.fail("%s", err)
 			return
 		}
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			t.app.Print(th.Fg(tui.SlotAccent, th.Bold(skill.Name)) + "  " +
 				th.Fg(tui.SlotDim, skill.Description))
@@ -75,7 +75,7 @@ func (t *repl) skillsCmd(rest string) {
 	}
 
 	all := skills.Load(t.cfg.CWD)
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		if len(all) == 0 {
 			userDir, _ := skills.UserDir()

@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/notshekhar/pi/internal/modules/core/agent"
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/hooks"
-	"github.com/notshekhar/pi/internal/modules/core/session"
-	"github.com/notshekhar/pi/internal/modules/core/tools"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/agent"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/hooks"
+	"github.com/notshekhar/pi/internal/core/session"
+	"github.com/notshekhar/pi/internal/core/tools"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // The slash-command surface beyond model/provider selection.
@@ -37,7 +37,7 @@ func (t *repl) clear() {
 	if t.busy() {
 		return
 	}
-	t.app.Do(t.app.Wipe)
+	t.do(t.app.Wipe)
 	t.newSession()
 }
 
@@ -48,7 +48,7 @@ func (t *repl) clear() {
 // a clean screen mid-task, and losing the conversation to it would be a very
 // expensive surprise.
 func (t *repl) clearScreen() {
-	t.app.Do(func() {
+	t.do(func() {
 		t.app.Wipe()
 		t.redrawHeader()
 	})
@@ -61,7 +61,7 @@ func (t *repl) showCostAll() {
 		t.fail("cost: %s", err)
 		return
 	}
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		t.app.Print(
 			th.Fg(tui.SlotMuted, "sessions ")+th.Fg(tui.SlotText, fmt.Sprint(usage.Sessions)),
@@ -78,10 +78,10 @@ func (t *repl) showCostAll() {
 // lifetime total answers none of them. The per-provider split is at the
 // bottom because it is the one that explains a surprising month.
 func (t *repl) showCost() {
-	buckets, bucketErr := session.SpendBuckets(t.cfg.CWD)
+	buckets, bucketErr := session.Stats(t.cfg.CWD)
 	home, _ := os.UserHomeDir()
 
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		lines := t.steakLines("")
 		lines = append(lines, "", th.Fg(tui.SlotAccent, th.Bold("cost")))
@@ -110,9 +110,9 @@ func (t *repl) showCost() {
 			shown = "~" + shown[len(home):]
 		}
 		lines = append(lines,
-			row("directory", buckets.Directory, shown),
+			row("directory", buckets.Cwd, shown),
 			row("today", buckets.Today, ""),
-			row("last 7 days", buckets.Week, ""),
+			row("last 7 days", buckets.Last7, ""),
 			row("this month", buckets.Month, ""),
 			row("lifetime", buckets.Lifetime, ""))
 
@@ -164,7 +164,7 @@ func (t *repl) showContext() {
 		headline = report.TotalTokens
 	}
 
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 
 		if window <= 0 {
@@ -307,7 +307,7 @@ func meter(pct, width int) string {
 // It claims the turn lock for its whole run: compaction is a model call that
 // rewrites the session, so letting a prompt start alongside it would have two
 // writers on the same history.
-func (t *repl) compact(parent context.Context) {
+func (t *repl) compact(parent context.Context, focus string) {
 	t.mu.Lock()
 	if t.turning {
 		t.mu.Unlock()
@@ -320,31 +320,32 @@ func (t *repl) compact(parent context.Context) {
 	t.mu.Unlock()
 
 	t.dim("compacting…")
-	t.app.Do(func() { t.app.LoaderStart() })
+	t.do(func() { t.app.LoaderStart() })
 	go func() {
 		defer func() {
 			t.mu.Lock()
 			t.turning = false
 			t.cancel = nil
 			t.mu.Unlock()
-			t.app.Do(t.app.LoaderStop)
+			t.do(t.app.LoaderStop)
+			t.drainNext()
 		}()
 
 		t.fireHook(ctx, hooks.Context{Event: hooks.PreCompact})
-		before, after, err := agent.Compact(ctx, t.run)
+		res, err := agent.Compact(ctx, t.run, agent.CompactOptions{Manual: true, Focus: focus})
 		if err != nil {
 			t.fail("compact: %s", err)
 			return
 		}
 		saved := 0
-		if before > 0 {
-			saved = 100 * (before - after) / before
+		if res.TokensBefore > 0 {
+			saved = 100 * (res.TokensBefore - res.TokensAfter) / res.TokensBefore
 		}
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			t.app.Print(th.Fg(tui.SlotSuccess, fmt.Sprintf(
 				"compacted ~%s → ~%s tokens (%d%% smaller)",
-				commas(agent.EstimateTokens(before)), commas(agent.EstimateTokens(after)), saved)))
+				commas(res.TokensBefore), commas(res.TokensAfter), saved)))
 		})
 	}()
 }
@@ -352,6 +353,13 @@ func (t *repl) compact(parent context.Context) {
 // busy reports whether a turn owns the session right now. Commands that read
 // or write the history check it first: mid-turn the answer would be a torn
 // read of a conversation the turn goroutine is still appending to.
+// isTurning reports a turn in the foreground session, quietly.
+func (t *repl) isTurning() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.turning
+}
+
 func (t *repl) busy() bool {
 	t.mu.Lock()
 	turning := t.turning
@@ -525,7 +533,7 @@ func (t *repl) changeDir(rest string) {
 	t.cfg.CWD = resolved
 	t.run.Config.CWD = resolved
 	t.run.Tools.CWD = resolved
-	t.app.Do(func() { t.app.SetCWD(resolved) })
+	t.do(func() { t.app.SetCWD(resolved) })
 	t.dim("%s", resolved)
 }
 

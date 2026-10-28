@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/notshekhar/pi/internal/modules/core/extension"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/extension"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // The slash-command registry.
@@ -56,7 +56,7 @@ func commands() []command {
 		{"providers", "Alias for /provider", arg((*repl).providerCmd)},
 		{"new", "Start a new session", bare((*repl).newSession)},
 		{"clear", "Start a new session (clears screen)", bare((*repl).clear)},
-		{"compact", "Manually compact the session context", func(t *repl, ctx context.Context, _ string) { t.compact(ctx) }},
+		{"compact", "Manually compact the session context (/compact [focus])", func(t *repl, ctx context.Context, rest string) { t.compact(ctx, rest) }},
 		{"plan", "Toggle plan mode — read-only until a plan is approved (/plan <task> to start planning)", arg((*repl).setPlanMode)},
 		{"thinking", "Set reasoning/thinking level (off|minimal|low|medium|high|xhigh)", arg((*repl).setThinking)},
 		{"effort", "Alias for /thinking — set reasoning effort (off|minimal|low|medium|high|xhigh)", arg((*repl).setThinking)},
@@ -104,7 +104,7 @@ func commands() []command {
 		{"skill", "Alias for /skills", arg((*repl).skillsMenu)},
 		{"fork", "Create a new fork from a previous user message", bare((*repl).forkSession)},
 		{"clone", "Duplicate the current session at current position", bare((*repl).cloneSession)},
-		{"tree", "Navigate the session tree (switch branches)", bare((*repl).sessionTree)},
+		{"tree", "Navigate session tree (switch branches)", bare((*repl).showTree)},
 		{"share", "Share session as a secret GitHub gist (needs gh CLI)", bare((*repl).share)},
 		{"scoped-models", "Enable/disable models for ctrl+p cycling (panel, or add/rm <id>)", arg((*repl).scopedModels)},
 		{"gateways", "Set up remote chat gateways — each runs as its own daemon", func(t *repl, ctx context.Context, rest string) { t.gateways(ctx, rest) }},
@@ -112,6 +112,15 @@ func commands() []command {
 		{"extensions", "Manage extensions: enable, disable, info", arg((*repl).extensionsCmd)},
 		{"install", "Install an extension: /install <path to a Go main package>", arg((*repl).installExtension)},
 		{"alias", "Command aliases: /alias · /alias <name> </cmd args…> · /alias rm <name>", arg((*repl).alias)},
+		{"recipe", "Reusable workflows: save <name> [focus], list, show/edit/rm <name>, or <name> [inputs]", func(t *repl, ctx context.Context, rest string) { t.recipeCmd(ctx, rest) }},
+		{"handoff", "Continue in a fresh session with an editable brief and model/agent choice (optional focus)", func(t *repl, ctx context.Context, rest string) { t.handoffCmd(ctx, rest) }},
+		{"shells", "Background shells: /shells lists · /shells run <cmd> · /shells <id> shows output · /shells kill <id>|all", arg((*repl).shellsCmd)},
+		{"sound", "Interface chimes: /sound · /sound on|off|max", arg((*repl).soundCmd)},
+		{"trace", "Where this session's time and money went — opens in your browser (path optional)", arg((*repl).traceCmd)},
+		{"update", "Update pi to the latest release", func(t *repl, ctx context.Context, _ string) { t.updateApp(ctx) }},
+		{"artifacts", "Pages the agent wrote — pick one to open it in your browser", bare((*repl).manageArtifacts)},
+		{"datasource", "Manage database connections for the data-analyst agent", bare((*repl).manageDatasources)},
+		{"rc", "Remote control: let your phone or another loop drive this one (/rc off to stop)", arg((*repl).remoteControl)},
 		{"quit", "Quit pi-agent", bare((*repl).quit)},
 		{"exit", "Alias for /quit", bare((*repl).quit)},
 	}

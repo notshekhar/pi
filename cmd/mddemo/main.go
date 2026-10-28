@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 func main() {

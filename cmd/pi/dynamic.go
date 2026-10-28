@@ -3,15 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/notshekhar/pi/internal/core/agents"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/notshekhar/pi/internal/modules/core/agent"
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/skills"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/home"
+	"github.com/notshekhar/pi/internal/core/skills"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // Commands that are not in the table.
@@ -90,58 +90,79 @@ func (t *repl) runSkill(ctx context.Context, skill skills.Skill, rest string) {
 	t.submit(ctx, text)
 }
 
-// agentCommands exposes each agent as `/<name> <message>` — one message under
-// that agent's prompt, without switching the session.
+// agentCommands is loop's registerAgentCommand per agent: `/<name>
+// <message>` runs one message under that agent ("default" gets none — plain
+// messages already use it), plus `/data` for the data-analyst.
 func agentCommands() []command {
-	out := make([]command, 0, len(agent.TaskAgents))
-	for _, a := range agent.TaskAgents {
-		persona := a
+	var out []command
+	add := func(name, cmdName, desc string) {
 		// A name that collides with a real command is skipped, not shadowed:
 		// an agent must never take over `/model`.
-		if lookupCommand(persona.Name) != nil {
+		if lookupCommand(cmdName) != nil {
+			return
+		}
+		out = append(out, command{name: cmdName, description: desc,
+			run: func(t *repl, ctx context.Context, rest string) { t.useAgent(ctx, name, rest) }})
+	}
+	for _, a := range agents.List() {
+		if a.Name == agents.DefaultAgentName || a.Hidden {
 			continue
 		}
-		out = append(out, command{
-			name:        persona.Name,
-			description: fmt.Sprintf("Run one message with agent %q: /%s <message>", persona.Name, persona.Name),
-			run: func(t *repl, ctx context.Context, rest string) {
-				t.runAsAgent(ctx, persona, rest)
-			},
-		})
+		add(a.Name, a.Name, fmt.Sprintf("Run one message with the %s agent: /%s <message>", a.Name, a.Name))
+	}
+	if !hasCommand(out, "data") {
+		add(agents.DataAnalystAgentName, "data", "Run one message with the data-analyst agent: /data <message>")
 	}
 	return out
 }
 
-// runAsAgent runs a single turn under a persona and restores the session's
-// own agent afterwards.
-func (t *repl) runAsAgent(ctx context.Context, persona agent.TaskAgent, rest string) {
-	if strings.TrimSpace(rest) == "" {
-		t.dim("usage: /%s <message>", persona.Name)
+func hasCommand(list []command, name string) bool {
+	for _, c := range list {
+		if c.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// borrowedAgent is the session's own agent while a one-shot borrows the turn.
+type borrowedAgent struct {
+	persona string
+	tools   []string
+}
+
+// useAgent is loop's: `/<agent> <message>` runs that message under the
+// agent's prompt and tools; the session's selected agent is untouched.
+func (t *repl) useAgent(ctx context.Context, name, message string) {
+	if !agents.Exists(name) {
+		t.fail("unknown agent: %s — /agents to create one", name)
 		return
 	}
-	// The persona is put back by startTurn's cleanup, not here: the turn runs
-	// on its own goroutine, so restoring on the way out of this function
-	// would undo the switch before the model was ever asked.
-	previous := t.run.Persona
-	t.restorePersona = &previous
-	t.run.Persona = persona.Prompt
-	t.submit(ctx, rest)
+	if strings.TrimSpace(message) == "" {
+		t.dim("usage: /%s <message> — one message with this agent. Session switch: /agents", name)
+		return
+	}
+	// Put back by startTurn's cleanup: the turn runs on its own goroutine.
+	t.restorePersona = &borrowedAgent{t.run.Persona, t.run.AllowedTools}
+	t.run.Persona = agents.Prompt(name)
+	if name == agents.DefaultAgentName {
+		t.run.Persona = ""
+	}
+	t.run.AllowedTools = agents.Tools(name)
+	t.dim("agent for this message: %s", name)
+	t.submit(ctx, message)
 }
 
 // submit runs text as a turn, exactly as though it had been typed.
 func (t *repl) submit(ctx context.Context, text string) {
-	t.app.Do(func() { t.app.UserEcho(text) })
+	t.do(func() { t.app.UserEcho(text) })
 	t.startTurn(ctx, text)
 }
 
 // promptCommands turns each markdown file under the prompts directory into a
 // command that submits its contents.
 func promptCommands() []command {
-	dir, err := config.Dir()
-	if err != nil {
-		return nil
-	}
-	dir = filepath.Join(dir, promptsDirName)
+	dir := home.AgentDir("prompts")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil

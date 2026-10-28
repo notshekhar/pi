@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/notshekhar/pi/internal/modules/core/extension"
-	"github.com/notshekhar/pi/internal/modules/core/schedule"
-	"github.com/notshekhar/pi/internal/modules/core/session"
+	"github.com/notshekhar/pi/internal/core/extension"
+	"github.com/notshekhar/pi/internal/core/schedule"
+	"github.com/notshekhar/pi/internal/core/session"
 )
 
 // Dispatch, /help, and the palette all read the same table. They used to be

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/schedule"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/home"
+	"github.com/notshekhar/pi/internal/core/schedule"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // /reminder — one-time or cron-scheduled notes that fire in the transcript.
@@ -63,7 +63,7 @@ func (r Reminder) Schedule() string {
 }
 
 func remindersPath() (string, error) {
-	dir, err := config.Dir()
+	dir, err := home.Ensure()
 	if err != nil {
 		return "", err
 	}

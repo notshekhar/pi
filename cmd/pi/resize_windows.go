@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // resizePoll is how often the Windows build checks the terminal's size.

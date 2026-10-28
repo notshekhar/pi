@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/mcp"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/mcp"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // MCP servers: connecting at startup, and `/mcp` to see what happened.
@@ -33,7 +33,7 @@ func (t *repl) startMCP(ctx context.Context) {
 		t.mcp.Connect(ctx, servers, t.cfg.CWD)
 		tools := t.mcp.Tools()
 
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			var failed []mcp.Status
 			for _, s := range t.mcp.Status() {
@@ -142,7 +142,7 @@ func (t *repl) mcpPanel() {
 // server can be configured, enabled, and failing.
 func mcpState(cfg mcp.ServerConfig, s mcp.Status) string {
 	switch {
-	case cfg.Disabled:
+	case cfg.Disabled():
 		return "disabled"
 	case s.Err != nil:
 		return "error"
@@ -166,7 +166,7 @@ func mcpDetail(cfg mcp.ServerConfig) string {
 func (t *repl) mcpActions(name string) {
 	stored := config.LoadSettings().MCPServers[name]
 	toggle, about := "disable", "keep it configured but unused"
-	if stored.Disabled {
+	if stored.Disabled() {
 		toggle, about = "enable", "connect it again"
 	}
 	action := t.choose(name,
@@ -192,7 +192,7 @@ func (t *repl) mcpActions(name string) {
 func (t *repl) setMCPEnabled(name string, on bool) {
 	if err := config.Update(func(s *config.Settings) {
 		cfg := s.MCPServers[name]
-		cfg.Disabled = !on
+		cfg.SetDisabled(!on)
 		s.MCPServers[name] = cfg
 	}); err != nil {
 		t.fail("mcp: %s", err)
@@ -269,10 +269,10 @@ func (t *repl) showMCP() {
 	status := t.mcp.Status()
 	tools := t.mcp.Tools()
 
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		if len(configured) == 0 {
-			path, _ := config.SettingsPath()
+			path := config.SettingsPath()
 			t.app.Print(
 				th.Fg(tui.SlotDim, "no mcp servers configured"),
 				th.Fg(tui.SlotDim, "add them under \"mcpServers\" in "+path),
@@ -294,7 +294,7 @@ func (t *repl) showMCP() {
 			s, seen := byName[cfg.Name]
 			state, slot := "connecting…", tui.SlotDim
 			switch {
-			case cfg.Disabled:
+			case cfg.Disabled():
 				state, slot = "disabled", tui.SlotDim
 			case seen && s.Err != nil:
 				state, slot = s.Err.Error(), tui.SlotError

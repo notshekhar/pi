@@ -8,14 +8,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/notshekhar/pi/internal/modules/ai"
-	"github.com/notshekhar/pi/internal/modules/ai/provider"
-	"github.com/notshekhar/pi/internal/modules/core/agent"
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/extension"
-	"github.com/notshekhar/pi/internal/modules/core/extension/statusline"
-	"github.com/notshekhar/pi/internal/modules/core/memory"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/core/agent"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/extension"
+	"github.com/notshekhar/pi/internal/core/extension/statusline"
+	"github.com/notshekhar/pi/internal/core/home"
+	"github.com/notshekhar/pi/internal/core/memory"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // `/settings` — read and edit the stored preferences without leaving the app.
@@ -73,45 +73,35 @@ type settingKey struct {
 
 var settingKeys = []settingKey{
 	{
-		name: "theme", choices: paletteNames(), help: "colour palette",
-		get: func(s config.Settings) string { return orDefault(s.Theme, "night") },
+		name: "theme", choices: tui.ThemeNames(), help: "colour palette",
+		get: func(s config.Settings) string { return configuredThemeName() },
 		set: func(s *config.Settings, v string) error {
-			// Validated against the registry, not a hardcoded pair: it is what
-			// offers the choices just above, and it already knows about
-			// `system` and every user theme. Spelling the names twice is how
-			// the picker came to offer themes this rejected.
-			palette, ok := tui.FindPalette(v)
-			if !ok {
-				return fmt.Errorf("unknown theme %q — one of: %s", v, strings.Join(paletteNames(), ", "))
+			if _, ok := tui.LoadTheme(v); !ok {
+				return fmt.Errorf("unknown theme: %s (have: %s)", v, strings.Join(tui.ThemeNames(), ", "))
 			}
-			s.Theme = palette.Name
+			s.Theme = v
 			return nil
 		},
 	},
 	{
-		name: "provider", help: "default provider id",
-		get: func(s config.Settings) string { return orDefault(s.Provider, "(unset)") },
-		set: func(s *config.Settings, v string) error { s.Provider = v; return nil },
-	},
-	{
-		name: "model", help: "default model id",
-		get: func(s config.Settings) string { return orDefault(s.Model, "(unset)") },
-		set: func(s *config.Settings, v string) error { s.Model = v; return nil },
+		name: "defaultModel", help: "default model (provider/model)",
+		get: func(s config.Settings) string { return orDefault(s.DefaultModel, "(unset)") },
+		set: func(s *config.Settings, v string) error { s.DefaultModel = v; return nil },
 	},
 	{
 		name: "thinking", choices: thinkingLevelNames, help: "how much the model reasons before answering",
 		get: func(s config.Settings) string {
-			if s.Reasoning == "" {
+			if s.ThinkingLevel == "" {
 				return "(provider default)"
 			}
-			return thinkingName(provider.ReasoningEffort(s.Reasoning))
+			return thinkingName(s.Reasoning())
 		},
 		// Named "off" here and "none" on the wire, the same split /thinking
 		// makes: the user turns thinking off, the provider is told the effort
 		// is none.
 		set: func(s *config.Settings, v string) error {
 			if v == "" {
-				s.Reasoning = ""
+				s.ThinkingLevel = ""
 				return nil
 			}
 			if v == "none" {
@@ -120,7 +110,7 @@ var settingKeys = []settingKey{
 			if !contains(thinkingLevelNames, v) {
 				return fmt.Errorf("thinking must be one of: %s", strings.Join(thinkingLevelNames, ", "))
 			}
-			s.Reasoning = string(thinkingWire(v))
+			s.ThinkingLevel = config.EffortToThinking(thinkingWire(v))
 			return nil
 		},
 	},
@@ -151,9 +141,8 @@ var settingKeys = []settingKey{
 		},
 		set: func(s *config.Settings, v string) error {
 			if v == "off" || v == "0" {
-				// Stored as negative, because zero means "unset, use the
-				// default" — an explicit off has to be distinguishable.
-				s.AutoCompactThreshold = -1
+				off := 0.0
+				s.AutoCompactThreshold = &off
 				return nil
 			}
 			f, err := strconv.ParseFloat(strings.TrimSuffix(v, "%"), 64)
@@ -166,7 +155,7 @@ var settingKeys = []settingKey{
 			if f <= 0 || f > 1 {
 				return fmt.Errorf("autoCompact must be between 0 and 100%%")
 			}
-			s.AutoCompactThreshold = f
+			s.AutoCompactThreshold = &f
 			return nil
 		},
 	},
@@ -179,22 +168,22 @@ var settingKeys = []settingKey{
 		func(s *config.Settings, v bool) { s.Subagents = &v }),
 	boolKey("memory", "agent saves per-repo facts across sessions",
 		func(s config.Settings) bool { return s.MemoryOn() },
-		func(s *config.Settings, v bool) { s.MemoryEnabled = &v }),
+		func(s *config.Settings, v bool) { s.Memory = &v }),
 	boolKey("recap", "short recap under responses that changed files",
 		func(s config.Settings) bool { return s.RecapOn() },
-		func(s *config.Settings, v bool) { s.RecapEnabled = &v }),
+		func(s *config.Settings, v bool) { s.Recap = &v }),
 	boolKey("askUser", "let the agent pause mid-turn to ask you questions",
 		func(s config.Settings) bool { return s.AskUserOn() },
 		func(s *config.Settings, v bool) { s.AskUser = &v }),
 	boolKey("todos", "pinned checklist the agent maintains during long tasks",
 		func(s config.Settings) bool { return s.TodosOn() },
-		func(s *config.Settings, v bool) { s.TodosEnabled = &v }),
+		func(s *config.Settings, v bool) { s.Todos = &v }),
 	boolKey("webSearch", "give the agent a websearch tool (scrapes DuckDuckGo)",
-		func(s config.Settings) bool { return s.WebSearchEnabled },
-		func(s *config.Settings, v bool) { s.WebSearchEnabled = v }),
+		func(s config.Settings) bool { return s.WebSearchOn() },
+		func(s *config.Settings, v bool) { s.WebSearch = &v }),
 	boolKey("mcp", "connect configured MCP servers and expose their tools",
 		func(s config.Settings) bool { return s.MCPOn() },
-		func(s *config.Settings, v bool) { s.MCPEnabled = &v }),
+		func(s *config.Settings, v bool) { s.MCP = &v }),
 	boolKey("workspaceContext", "inject AGENTS.md / CLAUDE.md into the system prompt",
 		func(s config.Settings) bool { return s.WorkspaceContextOn() },
 		func(s *config.Settings, v bool) { s.WorkspaceContext = &v }),
@@ -206,16 +195,16 @@ var settingKeys = []settingKey{
 		func(s *config.Settings, v bool) { s.UILive = &v }),
 	boolKey("herdr", "report working/blocked/idle to a herdr pane; inert outside one",
 		func(s config.Settings) bool { return s.HerdrOn() },
-		func(s *config.Settings, v bool) { s.HerdrEnabled = &v }),
+		func(s *config.Settings, v bool) { s.Herdr = &v }),
 	boolKey("clock", "live clock in the status line",
 		func(s config.Settings) bool { return s.ClockOn() },
-		func(s *config.Settings, v bool) { s.ClockEnabled = &v }),
+		func(s *config.Settings, v bool) { s.Clock = &v }),
 	boolKey("reminders", "fire /reminder alerts; off mutes without deleting",
 		func(s config.Settings) bool { return s.RemindersOn() },
-		func(s *config.Settings, v bool) { s.RemindersEnabled = &v }),
+		func(s *config.Settings, v bool) { s.Reminders = &v }),
 	boolKey("serve", "allow /serve — anyone with the url and token drives this machine",
 		func(s config.Settings) bool { return s.ServeOn() },
-		func(s *config.Settings, v bool) { s.ServeEnabled = &v }),
+		func(s *config.Settings, v bool) { s.Serve = &v }),
 	boolKey("bashApprove", "ask before every bash command",
 		func(s config.Settings) bool { return s.BashApproveOn() },
 		func(s *config.Settings, v bool) { s.BashApprove = &v }),
@@ -227,17 +216,28 @@ var settingKeys = []settingKey{
 			if err != nil || n < 0 {
 				return fmt.Errorf("subagentMaxParallel must be a whole number")
 			}
-			s.SubagentMaxParallel = n
+			s.SubagentMaxParallel = &n
 			return nil
 		},
 	},
 	{
 		name: "sandbox", choices: []string{"off", "workspace"}, help: "bound what shell commands may write",
-		get: func(s config.Settings) string { return orDefault(s.Sandbox, "off") },
+		get: func(s config.Settings) string {
+			if s.Sandbox.On() {
+				return "workspace"
+			}
+			return "off"
+		},
 		set: func(s *config.Settings, v string) error {
 			switch v {
 			case "off", "workspace", "":
-				s.Sandbox = v
+				on := v == "workspace"
+				sb := config.SandboxSetting{}
+				if s.Sandbox != nil {
+					sb = *s.Sandbox
+				}
+				sb.Enabled = &on
+				s.Sandbox = &sb
 				return nil
 			}
 			return fmt.Errorf("sandbox must be off or workspace")
@@ -251,17 +251,6 @@ var settingKeys = []settingKey{
 				v = ""
 			}
 			s.SubagentModel = v
-			return nil
-		},
-	},
-	{
-		name: "compactModel", help: "model that summarises a session when it compacts — blank inherits",
-		get: func(s config.Settings) string { return orDefault(s.CompactModel, "inherit") },
-		set: func(s *config.Settings, v string) error {
-			if v == "inherit" {
-				v = ""
-			}
-			s.CompactModel = v
 			return nil
 		},
 	},
@@ -281,7 +270,7 @@ var settingKeys = []settingKey{
 	{
 		name: "permission rules", help: "allow/ask/deny rules over the tools (bash(git *), read(secrets/**), …)",
 		manager: (*repl).pickPermission,
-		status:  func(s config.Settings) string { return fmt.Sprint(len(s.Permissions)) },
+		status:  func(s config.Settings) string { return fmt.Sprint(len(s.Permissions.Entries())) },
 	},
 	{
 		name: "hooks", help: "shell commands run at session, prompt, tool, and turn boundaries",
@@ -304,16 +293,6 @@ var settingKeys = []settingKey{
 			return fmt.Sprintf("%d", len(s.ScopedModels))
 		},
 	},
-}
-
-// paletteNames is every theme the picker may offer, user themes included.
-func paletteNames() []string {
-	palettes := tui.AllPalettes()
-	names := make([]string, 0, len(palettes))
-	for _, p := range palettes {
-		names = append(names, p.Name)
-	}
-	return names
 }
 
 func orDefault(v, fallback string) string {
@@ -393,7 +372,7 @@ func (t *repl) applyKey(name string) {
 
 func (t *repl) showSettings() {
 	stored := config.LoadSettings()
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		lines := make([]string, 0, len(settingKeys)+3)
 		for _, key := range settingKeys {
@@ -402,10 +381,7 @@ func (t *repl) showSettings() {
 					th.Fg(tui.SlotText, padRight(key.value(stored), 18))+
 					th.Fg(tui.SlotDim, key.help))
 		}
-		path, err := config.SettingsPath()
-		if err == nil {
-			lines = append(lines, "", th.Fg(tui.SlotDim, path))
-		}
+		lines = append(lines, "", th.Fg(tui.SlotDim, config.SettingsPath()))
 		lines = append(lines, th.Fg(tui.SlotDim, "/settings <key> <value> to change one"))
 		t.app.Print(lines...)
 	})
@@ -413,7 +389,7 @@ func (t *repl) showSettings() {
 
 // showAgents lists the subagents `task` can delegate to.
 func (t *repl) showAgents() {
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		lines := make([]string, 0, len(agent.TaskAgents)+2)
 		for _, a := range agent.TaskAgents {
@@ -439,11 +415,9 @@ func (t *repl) pickMemoryFile() {
 	type spot struct{ label, dir string }
 	spots := []spot{
 		{"Project memory", root},
-		{"Project memory (local)", filepath.Join(root, config.DirName)},
+		{"Project memory (local)", filepath.Join(root, home.DirName)},
 	}
-	if home, err := config.Dir(); err == nil {
-		spots = append([]spot{{"User memory (global)", home}}, spots...)
-	}
+	spots = append([]spot{{"User memory (global)", home.Dir()}}, spots...)
 	if t.cfg.CWD != root {
 		spots = append(spots, spot{"Directory memory", t.cfg.CWD})
 	}
@@ -552,7 +526,7 @@ func (t *repl) memoryCmd(rest string) {
 			t.fail("%s", err)
 			return
 		}
-		t.app.Do(func() {
+		t.do(func() {
 			th := t.app.Theme()
 			t.app.Print(th.Fg(tui.SlotAccent, th.Bold(fact.Name)) + "  " +
 				th.Fg(tui.SlotDim, fact.Description))
@@ -568,7 +542,7 @@ func (t *repl) listMemory(store *memory.Store) {
 		t.fail("memory: %s", err)
 		return
 	}
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		if len(facts) == 0 {
 			t.app.Print(
@@ -722,15 +696,16 @@ func (t *repl) applySettings() {
 		})
 	}
 
-	t.app.Do(func() {
+	t.do(func() {
 		t.app.SetStatusTransform(chain...)
-		if palette, ok := tui.FindPalette(orDefault(stored.Theme, "night")); ok {
-			t.app.SetTheme(palette)
-		}
+		t.app.SetTheme(tui.InitTheme(configuredThemeName()))
 		t.app.SetClock(stored.ClockOn())
 		// Applied live: pinning moves the prompt, and a toggle that waited
 		// for a relaunch would read as one that does nothing.
 		t.app.SetPinnedInput(stored.PinnedInputOn())
+		t.app.SetToolDetail(stored.ToolDetail, func(detail string) {
+			_ = config.Update(func(s *config.Settings) { s.ToolDetail = detail })
+		})
 		t.app.SetLiveVariant(stored.UILiveOn())
 	})
 }

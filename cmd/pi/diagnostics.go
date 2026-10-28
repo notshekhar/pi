@@ -7,13 +7,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/notshekhar/pi/internal/modules/ai/provider"
-	"github.com/notshekhar/pi/internal/modules/core/catalog"
-	"github.com/notshekhar/pi/internal/modules/core/config"
-	"github.com/notshekhar/pi/internal/modules/core/hooks"
-	"github.com/notshekhar/pi/internal/modules/core/memory"
-	"github.com/notshekhar/pi/internal/modules/core/skills"
-	"github.com/notshekhar/pi/internal/modules/tui"
+	"github.com/notshekhar/pi/internal/ai/provider"
+	"github.com/notshekhar/pi/internal/core/catalog"
+	"github.com/notshekhar/pi/internal/core/config"
+	"github.com/notshekhar/pi/internal/core/hooks"
+	"github.com/notshekhar/pi/internal/core/memory"
+	"github.com/notshekhar/pi/internal/core/skills"
+	"github.com/notshekhar/pi/internal/tui"
 )
 
 // `/recap`, `/thinking`, `/alias`, `/doctor` — the small surface that makes a
@@ -26,7 +26,7 @@ func (t *repl) recap() {
 	}
 	r := t.run.Session.Recap(t.cfg.CWD)
 
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		if r.Turns == 0 && len(r.Tools) == 0 {
 			t.app.Print(th.Fg(tui.SlotDim, "nothing to recap yet"))
@@ -125,12 +125,12 @@ func (t *repl) setThinking(rest string) {
 
 	t.cfg.Reasoning = thinkingWire(level)
 	t.run.Config.Reasoning = t.cfg.Reasoning
-	stored := string(t.cfg.Reasoning)
-	if err := config.Update(func(s *config.Settings) { s.Reasoning = stored }); err != nil {
+	stored := config.EffortToThinking(t.cfg.Reasoning)
+	if err := config.Update(func(s *config.Settings) { s.ThinkingLevel = stored }); err != nil {
 		t.dim("thinking → %s (not saved: %s)", level, err)
 		return
 	}
-	t.app.Do(func() { t.app.SetThinking(level) })
+	t.do(func() { t.app.SetThinking(level) })
 	t.dim("thinking → %s", level)
 }
 
@@ -243,7 +243,7 @@ func validAliasName(name string) bool {
 
 func (t *repl) showAliases() {
 	aliases := config.LoadSettings().Aliases
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		if len(aliases) == 0 {
 			t.app.Print(
@@ -283,7 +283,7 @@ func expandAlias(line string) string {
 
 // doctor reports whether the environment is actually set up.
 func (t *repl) doctor() {
-	settingsPath, _ := config.SettingsPath()
+	settingsPath := config.SettingsPath()
 	_, settingsErr := config.LoadSettings().HookConfig()
 	memDir := ""
 	if store, err := memory.Open(t.cfg.CWD); err == nil {
@@ -292,7 +292,7 @@ func (t *repl) doctor() {
 	skillCount := len(skills.Load(t.cfg.CWD))
 	caps := tui.TerminalCaps()
 
-	t.app.Do(func() {
+	t.do(func() {
 		th := t.app.Theme()
 		ok := func(good bool, yes, no string) string {
 			if good {

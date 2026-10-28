@@ -803,3 +803,52 @@ func userPrompt(text string) provider.Prompt {
 		provider.UserMessage{Content: []provider.UserPart{provider.TextPart{Text: text}}},
 	}
 }
+
+// A response text block carries citations as a list (here empty, as
+// OpenRouter's Anthropic endpoint sends it); it must not fail the stream.
+const citedStream = `event: message_start
+data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","container":null,"content":[],"model":"claude-sonnet-4.5","usage":{"input_tokens":9,"output_tokens":1,"output_tokens_details":null,"cache_creation_input_tokens":3,"cache_read_input_tokens":4000,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":0},"server_tool_use":null,"service_tier":null}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"","citations":[]}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":9,"output_tokens":16,"cache_creation_input_tokens":3,"cache_read_input_tokens":4000,"cost":0.000267,"cost_details":{"upstream_inference_cost":0.000267}}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+
+func TestStreamToleratesResponseCitations(t *testing.T) {
+	p, _, _ := newTestProvider(t, sseHandler(citedStream))
+	res, err := p.LanguageModel("claude-sonnet-4.5").DoStream(context.Background(), provider.CallOptions{
+		Prompt: provider.Prompt{provider.UserMessage{Content: []provider.UserPart{provider.TextPart{Text: "hi"}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finish *provider.Finish
+	for _, part := range collect(t, res) {
+		switch v := part.(type) {
+		case provider.ErrorPart:
+			t.Fatalf("stream failed: %v", v.Err)
+		case provider.Finish:
+			finish = &v
+		}
+	}
+	if finish == nil {
+		t.Fatal("no finish")
+	}
+	in := finish.Usage.InputTokens
+	if *in.Total != 4012 || *in.CacheRead != 4000 || *in.CacheWrite != 3 || *in.NoCache != 9 {
+		t.Errorf("input = %d (read %d, write %d, fresh %d), want 4012 (4000, 3, 9)",
+			*in.Total, *in.CacheRead, *in.CacheWrite, *in.NoCache)
+	}
+}

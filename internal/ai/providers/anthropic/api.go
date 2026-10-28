@@ -121,6 +121,18 @@ type citations struct {
 	Enabled bool `json:"enabled"`
 }
 
+// UnmarshalJSON accepts the response side too: there a text block's
+// citations are a list of the passages it cites, which nothing here reads.
+// Decoding that list as the request's toggle failed the whole event, and with
+// it the stream.
+func (c *citations) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] != '{' {
+		return nil
+	}
+	type plain citations
+	return json.Unmarshal(data, (*plain)(c))
+}
+
 // apiTool is a client-executed tool definition.
 type apiTool struct {
 	Type        string `json:"type,omitempty"`

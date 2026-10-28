@@ -359,3 +359,28 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+// EffectiveSDKProvider is loop's effectiveSdkProvider: the SDK a request is
+// really shaped for, so a custom gateway speaking Anthropic's API gets
+// Anthropic's request shaping (prompt caching above all).
+func EffectiveSDKProvider(provider string) string {
+	if !IsCustom(provider) && builtinSDK[provider] {
+		return provider
+	}
+	p, ok := LookupCustom(provider)
+	if !ok || p.SDK == "" {
+		return provider
+	}
+	if p.SDK == "openai-compatible" {
+		return "openai"
+	}
+	return strings.ToLower(p.SDK)
+}
+
+// builtinSDK is every provider LanguageModel builds itself; any other id is
+// a custom endpoint.
+var builtinSDK = map[string]bool{
+	"google": true, "anthropic": true, "deepseek": true, "kimi": true, "bedrock": true,
+	"openai": true, "openrouter": true, "xai": true, "mistral": true, "glm": true, "zai": true,
+	"groq": true, "cerebras": true, "zenmux": true, "vercel": true, "ollama": true,
+}

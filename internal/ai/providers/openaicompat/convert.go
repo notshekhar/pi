@@ -366,6 +366,11 @@ func convertUsage(u *apiUsage) provider.Usage {
 	total := u.PromptTokens
 	cacheRead := u.cachedInputTokens()
 	noCache := total - cacheRead
+	// A gateway that counts the cache outside prompt_tokens (the AI SDK's
+	// xAI guard): the prompt is the sum, and prompt_tokens the uncached part.
+	if cacheRead > total {
+		total, noCache = u.PromptTokens+cacheRead, u.PromptTokens
+	}
 
 	output := u.CompletionTokens
 
@@ -380,7 +385,13 @@ func convertUsage(u *apiUsage) provider.Usage {
 
 	if u.CompletionTokensDetails != nil {
 		reasoning := u.CompletionTokensDetails.ReasoningTokens
-		text := output - reasoning
+		// OpenAI counts reasoning inside completion_tokens; xAI reports it
+		// beside them (total_tokens = prompt + completion + reasoning), so
+		// there the output is the sum and completion_tokens the text.
+		if reasoning > 0 && u.TotalTokens == u.PromptTokens+u.CompletionTokens+reasoning {
+			output = u.CompletionTokens + reasoning
+		}
+		text := max(0, output-reasoning)
 		usage.OutputTokens.Reasoning = &reasoning
 		usage.OutputTokens.Text = &text
 	}

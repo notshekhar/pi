@@ -34,7 +34,7 @@ func (r *Run) TurnStream(ctx context.Context, prompt string, consume Consume) (*
 	names := r.ToolNames()
 
 	needsApproval, approveTool := r.approvalHooks()
-	res, err := ai.StreamText(ctx, ai.Options{
+	res, err := ai.StreamText(ctx, cachedOptions(ai.Options{
 		Model:         model,
 		System:        SystemPromptFor(r.Config.CWD, names, r.Planning) + r.personaBlock() + r.extensionBlock(),
 		Messages:      r.Session.ModelMessages(),
@@ -43,7 +43,7 @@ func (r *Run) TurnStream(ctx context.Context, prompt string, consume Consume) (*
 		Reasoning:     r.Config.Reasoning,
 		NeedsApproval: needsApproval,
 		ApproveTool:   approveTool,
-	})
+	}, r.Config, r.Session.ID))
 	if err != nil {
 		return nil, err
 	}

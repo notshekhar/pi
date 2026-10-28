@@ -138,7 +138,7 @@ func (r *Run) oneShot(ctx context.Context, prompt string) (string, error) {
 	sub := &Run{Config: r.Config, Permissions: r.Permissions}
 	needsApproval, approveTool := sub.approvalHooks()
 
-	res, err := ai.GenerateText(ctx, ai.Options{
+	res, err := ai.GenerateText(ctx, cachedOptions(ai.Options{
 		Model:         model,
 		System:        "You work inside " + r.Config.CWD + ".",
 		Messages:      []provider.Message{ai.UserText(prompt)},
@@ -146,7 +146,7 @@ func (r *Run) oneShot(ctx context.Context, prompt string) (string, error) {
 		MaxSteps:      r.Config.MaxSteps,
 		NeedsApproval: needsApproval,
 		ApproveTool:   approveTool,
-	})
+	}, r.Config, r.Session.ID))
 	if err != nil {
 		return "", err
 	}

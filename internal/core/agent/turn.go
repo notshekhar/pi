@@ -245,7 +245,7 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 		persistErr     error
 		toolNames      = map[string]string{}
 	)
-	res, err := ai.StreamText(ctx, ai.Options{
+	res, err := ai.StreamText(ctx, cachedOptions(ai.Options{
 		Model:         model,
 		System:        SystemPromptFor(r.Config.CWD, names, r.Planning) + r.personaBlock() + r.extensionBlock(),
 		Messages:      r.Session.ModelMessages(),
@@ -273,7 +273,7 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 			mu.Unlock()
 			emit("step-usage", StepUsageEvent{Usage: stamped, Breakdown: breakdown})
 		},
-	})
+	}, r.Config, r.Session.ID))
 	if err != nil {
 		emit("error", PlainError(err))
 		return nil, err

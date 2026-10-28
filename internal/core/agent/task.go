@@ -133,7 +133,8 @@ func TaskTool(parent *Run, progress TaskProgress) ai.Tool {
 
 // runSubagent drives one nested run to completion and returns its final text.
 func runSubagent(ctx context.Context, parent *Run, agent TaskAgent, prompt, id string, progress TaskProgress) (string, error) {
-	model, err := config.LanguageModel(parent.Config.ForScope("subagent"))
+	subCfg := parent.Config.ForScope("subagent")
+	model, err := config.LanguageModel(subCfg)
 	if err != nil {
 		return "", err
 	}
@@ -163,7 +164,7 @@ func runSubagent(ctx context.Context, parent *Run, agent TaskAgent, prompt, id s
 		steps = config.DefaultMaxSteps
 	}
 
-	res, err := ai.StreamText(ctx, ai.Options{
+	res, err := ai.StreamText(ctx, cachedOptions(ai.Options{
 		Model: model,
 		System: fmt.Sprintf("%s\n\nWorking directory: %s\n\nYou have these tools: %s.",
 			agent.Prompt, parent.Config.CWD, strings.Join(names, ", ")),
@@ -173,7 +174,7 @@ func runSubagent(ctx context.Context, parent *Run, agent TaskAgent, prompt, id s
 		Reasoning:     parent.Config.Reasoning,
 		NeedsApproval: needsApproval,
 		ApproveTool:   approveTool,
-	})
+	}, subCfg, parent.Session.ID+"/"+id))
 	if err != nil {
 		return "", err
 	}

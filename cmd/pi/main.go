@@ -23,7 +23,45 @@ import (
 	"github.com/notshekhar/pi/internal/tui"
 )
 
+// printHelp is loop's printHelp, for pi's commands.
+func printHelp() {
+	fmt.Printf(`pi — terminal coding agent, a Go build of loop (v%s)
+
+Usage:
+  pi                      Start interactive TUI
+  pi run <prompt>         Run a single prompt and exit
+  pi sessions [--all]     List sessions in current cwd
+  pi archive <id>         Archive a session (hides it from the lists)
+  pi unarchive <id>       Restore an archived session
+  pi rpc                  Start the JSON-RPC server on stdio (loop's desktop app)
+  pi serve [--host|--port|--no-terminal]  Web UI + WebSocket RPC (opt-in via /settings; token-locked)
+  pi upgrade [--force]    Install the latest release
+  pi version | -v         Print version
+  pi help | -h            Show this help
+
+Flags:
+  --model <provider/id>   Override default model
+  --provider <id>         Override active provider
+  --session <id>          Resume a session
+  --cwd <dir>             Working directory
+  --reasoning <level>     none, low, medium, high, xhigh
+  --max-steps <n>         Maximum agent steps
+`, version)
+}
+
 func main() {
+	// loop's `version | -v | --version` and `help | -h | --help`, answered
+	// before the flag parser, which would reject --version as unknown.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version", "-v", "--version", "-version":
+			fmt.Println(version)
+			return
+		case "help", "-h", "--help", "-help":
+			printHelp()
+			return
+		}
+	}
 	cfg := config.Config{}
 	flag.StringVar(&cfg.Provider, "provider", "", "provider id (kimi, anthropic, …)")
 	flag.StringVar(&cfg.ModelID, "model", "", "short id or provider/model")

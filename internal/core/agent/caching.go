@@ -141,6 +141,23 @@ func cachedOptions(opts ai.Options, cfg config.Config, conv string) ai.Options {
 		headers["x-grok-conv-id"] = conv
 		opts.Headers = headers
 	}
+	// OpenAI's Responses API does the same by prompt_cache_key: requests
+	// sharing one land on the same cache.
+	if config.EffectiveSDKProvider(cfg.Provider) == "openai" && conv != "" {
+		po := maps.Clone(opts.ProviderOptions)
+		if po == nil {
+			po = provider.ProviderOptions{}
+		}
+		block := maps.Clone(po["openai"])
+		if block == nil {
+			block = provider.JSONObject{}
+		}
+		if _, set := block["promptCacheKey"]; !set {
+			block["promptCacheKey"] = conv
+		}
+		po["openai"] = block
+		opts.ProviderOptions = po
+	}
 	shape, ok := explicitCacheShape(cfg)
 	if !ok {
 		return opts

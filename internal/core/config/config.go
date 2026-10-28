@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai/provider"
@@ -14,6 +15,7 @@ import (
 	"github.com/notshekhar/pi/internal/ai/providers/google"
 	"github.com/notshekhar/pi/internal/ai/providers/kimi"
 	"github.com/notshekhar/pi/internal/ai/providers/openaicompat"
+	"github.com/notshekhar/pi/internal/ai/providers/openairesponses"
 	"github.com/notshekhar/pi/internal/core/catalog"
 )
 
@@ -138,7 +140,9 @@ func LanguageModel(c Config) (provider.LanguageModel, error) {
 	case "bedrock":
 		return bedrock.New(bedrock.Options{}).LanguageModel(c.ModelID), nil
 	case "openai":
-		return compat("openai", "", key, "OPENAI_API_KEY", true, false).LanguageModel(c.ModelID), nil
+		// loop's createOpenAI(...)(model): the Responses API, which OpenAI's
+		// newer models require for tools with a reasoning effort.
+		return responses("openai", "", key, "OPENAI_API_KEY", false).LanguageModel(c.ModelID), nil
 	case "openrouter":
 		return compat("openrouter", "https://openrouter.ai/api/v1", key, "OPENROUTER_API_KEY", false, false).LanguageModel(c.ModelID), nil
 	case "xai":
@@ -165,7 +169,8 @@ func LanguageModel(c Config) (provider.LanguageModel, error) {
 	case "cerebras":
 		return compat("cerebras", "https://api.cerebras.ai/v1", key, "CEREBRAS_API_KEY", false, false).LanguageModel(c.ModelID), nil
 	case "zenmux":
-		return compat("zenmux", "https://zenmux.ai/api/v1", key, "ZENMUX_API_KEY", false, false).LanguageModel(c.ModelID), nil
+		// loop: createOpenAI with ZenMux's base URL — the Responses API.
+		return responses("zenmux", "https://zenmux.ai/api/v1", key, "ZENMUX_API_KEY", false).LanguageModel(c.ModelID), nil
 	case "vercel":
 		return compat("vercel", "https://ai-gateway.vercel.sh/v1", key, "AI_GATEWAY_API_KEY", false, false).LanguageModel(c.ModelID), nil
 	case "ollama":
@@ -210,17 +215,57 @@ func customModel(name, modelID string, p CustomProvider) (provider.LanguageModel
 			BaseURL: p.BaseURL,
 			Headers: provider.Headers(p.Headers),
 		}).LanguageModel(modelID), nil
-	default:
-		return openaicompat.New(openaicompat.Options{
-			Name:    name,
-			BaseURL: p.BaseURL,
-			APIKey:  key,
-			Headers: provider.Headers(p.Headers),
+	case "openai", "openai-compatible", "":
+		// loop's customModel: createOpenAI for both shapes, so the Responses
+		// API at the base URL with /v1 appended when it names no version.
+		return openairesponses.New(openairesponses.Options{
+			Name:           name,
+			BaseURL:        versionedBaseURL(p.BaseURL),
+			APIKey:         key,
+			Headers:        provider.Headers(p.Headers),
+			ForceReasoning: knownReasoning(name),
 			// An endpoint reached through headers or mTLS has no bearer token
 			// at all, and demanding one would lock it out.
 			AllowMissingAPIKey: key == "",
 		}).LanguageModel(modelID), nil
+	default:
+		return openaicompat.New(openaicompat.Options{
+			Name:               name,
+			BaseURL:            p.BaseURL,
+			APIKey:             key,
+			Headers:            provider.Headers(p.Headers),
+			AllowMissingAPIKey: key == "",
+		}).LanguageModel(modelID), nil
 	}
+}
+
+var versionSegment = regexp.MustCompile(`/v\d+(\b|/)`)
+
+// versionedBaseURL is loop's normalizeBaseURL for the OpenAI shapes: the
+// SDK expects the version segment in the base URL, so one that names none
+// gets /v1.
+func versionedBaseURL(base string) string {
+	trimmed := strings.TrimRight(base, "/")
+	if trimmed == "" || versionSegment.MatchString(trimmed) {
+		return trimmed
+	}
+	return trimmed + "/v1"
+}
+
+// knownReasoning is loop's forceReasoning: the catalog positively knows the
+// model reasons though its id does not say so.
+func knownReasoning(prov string) func(string) bool {
+	return func(modelID string) bool {
+		m, ok := ModelInfo(prov, modelID)
+		return ok && m.Reasoning
+	}
+}
+
+func responses(name, baseURL, key, env string, allowMissing bool) *openairesponses.Provider {
+	return openairesponses.New(openairesponses.Options{
+		Name: name, BaseURL: baseURL, APIKey: key, APIKeyEnv: env,
+		ForceReasoning: knownReasoning(name), AllowMissingAPIKey: allowMissing,
+	})
 }
 
 func compat(name, baseURL, key, env string, maxCompletion, allowMissing bool) *openaicompat.Provider {

@@ -328,3 +328,20 @@ func TestExplicitCachingBeyondAnthropic(t *testing.T) {
 		}
 	}
 }
+
+// OpenAI-shaped requests carry the session as prompt_cache_key, which
+// routes them to the same cache (as x-grok-conv-id does on xAI); a key the
+// caller set wins.
+func TestOpenAIRequestsCarryAPromptCacheKey(t *testing.T) {
+	opts := cachedOptions(ai.Options{}, config.Config{Provider: "openai", ModelID: "gpt-6.1-sol"}, "sess-9")
+	if opts.ProviderOptions.Get("openai")["promptCacheKey"] != "sess-9" {
+		t.Errorf("provider options = %v", opts.ProviderOptions)
+	}
+	own := ai.Options{ProviderOptions: provider.ProviderOptions{"openai": {"promptCacheKey": "mine"}}}
+	if got := cachedOptions(own, config.Config{Provider: "openai"}, "sess-9").ProviderOptions.Get("openai")["promptCacheKey"]; got != "mine" {
+		t.Errorf("caller's key replaced: %v", got)
+	}
+	if own.ProviderOptions.Get("openai")["promptCacheKey"] != "mine" {
+		t.Error("the caller's options were mutated")
+	}
+}

@@ -87,6 +87,10 @@ type KeyDecoder struct {
 	// a channel, a chunk that arrives after a timeout simply waits here for
 	// the next read instead of being lost.
 	bytes chan []byte
+	// read is the stdin reader, taken once when the decoder starts: the
+	// reader goroutine outlives Close (it is parked in a read), so looking
+	// the package variable up on every pass raced with anything replacing it.
+	read func([]byte) (int, error)
 }
 
 func DecodeKeys() *KeyDecoder {
@@ -96,6 +100,7 @@ func DecodeKeys() *KeyDecoder {
 		Ch:    make(chan Key, 256),
 		quit:  make(chan struct{}),
 		bytes: make(chan []byte, 8),
+		read:  readStdin,
 	}
 	go d.readLoop()
 	go d.loop()
@@ -106,7 +111,7 @@ func DecodeKeys() *KeyDecoder {
 func (d *KeyDecoder) readLoop() {
 	buf := make([]byte, 1024)
 	for {
-		n, err := readStdin(buf)
+		n, err := d.read(buf)
 		if err != nil || n == 0 {
 			close(d.bytes)
 			return

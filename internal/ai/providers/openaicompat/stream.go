@@ -96,10 +96,14 @@ type streamState struct {
 	usage      provider.Usage
 	finish     provider.FinishReason
 	sentFinish bool
+	// finished is a finish_reason seen: the provider's completion signal.
+	finished bool
+	end      providerutil.StreamEnd
 }
 
 // emit sends a part, giving up if the consumer has gone away.
 func (s *streamState) emit(part provider.StreamPart) bool {
+	s.end.Observe(part)
 	select {
 	case s.out <- part:
 		return true
@@ -145,6 +149,15 @@ func (s *streamState) run(body io.ReadCloser) {
 
 	s.closeBlocks()
 	s.flushToolCalls()
+	// Without a finish_reason what streamed may be cut short (the AI SDK's
+	// openai chat model: interrupted).
+	if s.ctx.Err() == nil {
+		reason, err := s.end.Reason(s.finished, s.finish)
+		if err != nil {
+			s.emit(provider.ErrorPart{Err: fmt.Errorf("openaicompat: %w", err)})
+		}
+		s.finish = reason
+	}
 	s.emitFinish()
 }
 
@@ -168,6 +181,7 @@ func (s *streamState) handle(chunk streamChunk) {
 		}
 		if c.FinishReason != nil {
 			s.finish = mapFinishReason(c.FinishReason)
+			s.finished = true
 		}
 	}
 }

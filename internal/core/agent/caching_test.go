@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -65,6 +66,13 @@ type gateway struct {
 	script []string
 }
 
+// requests is a snapshot of the bodies recorded so far.
+func (g *gateway) requests() []map[string]any {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]map[string]any{}, g.bodies...)
+}
+
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
 	var body map[string]any
@@ -77,6 +85,22 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply = g.script[n-1]
 	}
 	g.mu.Unlock()
+	if status, body, ok := strings.Cut(reply, "HTTP "); ok && status == "" {
+		// "HTTP <code> <body>": a refused request.
+		code, msg, _ := strings.Cut(body, " ")
+		w.Header().Set("Content-Type", "application/json")
+		n, _ := strconv.Atoi(code)
+		w.WriteHeader(n)
+		_, _ = io.WriteString(w, msg)
+		return
+	}
+	if body["stream"] != true {
+		// A non-streaming call (the summarizer): one JSON message.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"m","type":"message","role":"assistant","model":"claude-x",`+
+			`"content":[{"type":"text","text":"## Goal\nsummary"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":5}}`)
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	_, _ = io.WriteString(w, strings.ReplaceAll(reply, "%d", string(rune('0'+n))))
 }
@@ -91,7 +115,7 @@ func withGateway(t *testing.T, sdk string, g http.Handler) config.Config {
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 	auth := map[string]any{"providers": map[string]any{}, "customProviders": map[string]any{
-		"gw": map[string]any{"sdk": sdk, "baseURL": srv.URL, "apiKey": "k", "models": []string{"claude-x"}},
+		"gw": map[string]any{"sdk": sdk, "baseURL": srv.URL, "apiKey": "k", "models": []map[string]any{{"id": "claude-x", "contextWindow": 1000}}},
 	}}
 	raw, _ := json.Marshal(auth)
 	if err := os.MkdirAll(filepath.Join(dir, ".loop"), 0o700); err != nil {
@@ -271,5 +295,36 @@ func TestMoveAnthropicCacheTailKeepsOtherOptions(t *testing.T) {
 	// The input is not mutated: a run's own history stays clean.
 	if msgs[2].(provider.UserMessage).ProviderOptions.Get("anthropic") == nil {
 		t.Error("MoveAnthropicCacheTail mutated its input")
+	}
+}
+
+// Claude through OpenRouter's chat completions and Bedrock's Claude models
+// cache only past an explicit mark too, each under its own provider key.
+func TestExplicitCachingBeyondAnthropic(t *testing.T) {
+	for _, c := range []struct {
+		cfg config.Config
+		key string
+	}{
+		{config.Config{Provider: "openrouter", ModelID: "anthropic/claude-sonnet-4.5"}, "openrouter"},
+		{config.Config{Provider: "bedrock", ModelID: "us.anthropic.claude-sonnet-4-5-v1:0"}, "bedrock"},
+		{config.Config{Provider: "openrouter", ModelID: "deepseek/deepseek-v4-flash"}, ""},
+	} {
+		opts := cachedOptions(ai.Options{System: "S", Messages: []provider.Message{ai.UserText("hi")}}, c.cfg, "conv")
+		if c.key == "" {
+			if opts.System != "S" || opts.PrepareStep != nil {
+				t.Errorf("%s: reshaped a self-caching model", c.cfg.FullID())
+			}
+			continue
+		}
+		sys, ok := opts.Messages[0].(provider.SystemMessage)
+		if !ok || opts.System != "" || sys.ProviderOptions.Get(c.key) == nil {
+			t.Errorf("%s: system not anchored under %q: %+v", c.cfg.FullID(), c.key, opts.Messages[0])
+		}
+		if opts.Messages[1].(provider.UserMessage).ProviderOptions.Get(c.key) == nil || opts.PrepareStep == nil {
+			t.Errorf("%s: no moving tail anchor", c.cfg.FullID())
+		}
+		if opts.MaxOutputTokens != nil {
+			t.Errorf("%s: output cap is Anthropic's alone", c.cfg.FullID())
+		}
 	}
 }

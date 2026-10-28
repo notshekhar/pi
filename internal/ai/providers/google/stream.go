@@ -83,10 +83,12 @@ type streamState struct {
 	finish         provider.FinishReason
 	rawFinish      string
 	sentFinish     bool
+	end            providerutil.StreamEnd
 }
 
 // emit sends a part, giving up if the consumer has gone away.
 func (s *streamState) emit(part provider.StreamPart) bool {
+	s.end.Observe(part)
 	select {
 	case s.out <- part:
 		return true
@@ -292,5 +294,13 @@ func (s *streamState) emitFinish() {
 	}
 	s.sentFinish = true
 	s.finish = mapFinishReason(s.rawFinish, s.toolCallSeen)
+	// Without a candidate's finishReason what streamed may be cut short.
+	if s.ctx.Err() == nil {
+		reason, err := s.end.Reason(s.rawFinish != "", s.finish)
+		if err != nil {
+			s.emit(provider.ErrorPart{Err: fmt.Errorf("google: %w", err)})
+		}
+		s.finish = reason
+	}
 	s.emit(provider.Finish{Usage: s.usage, FinishReason: s.finish})
 }

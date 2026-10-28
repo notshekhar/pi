@@ -191,3 +191,25 @@ func TestNormalizeToolCallID(t *testing.T) {
 		t.Errorf("mistral = %q, want tooluseab", got)
 	}
 }
+
+// Tool results end most agent steps, so the moving tail breakpoint lands on
+// them: a cache point follows the results in the user turn.
+func TestConvertCachePointAfterToolResults(t *testing.T) {
+	mark := provider.ProviderOptions{"bedrock": {"cachePoint": map[string]any{"type": "default"}}}
+	out, err := convertPrompt(provider.Prompt{
+		provider.UserMessage{Content: []provider.UserPart{provider.TextPart{Text: "hi"}}},
+		provider.AssistantMessage{Content: []provider.AssistantPart{
+			provider.ToolCallPart{ToolCallID: "t1", ToolName: "ls", Input: []byte(`{}`)},
+		}},
+		provider.ToolMessage{Content: []provider.ToolPart{
+			provider.ToolResultPart{ToolCallID: "t1", Output: provider.ToolOutputText{Value: "a.txt"}},
+		}, ProviderOptions: mark},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := out.Messages[len(out.Messages)-1].Content
+	if len(last) != 2 || last[0].ToolResult == nil || last[1].CachePoint == nil {
+		t.Fatalf("tool turn = %+v, want the result then a cache point", last)
+	}
+}

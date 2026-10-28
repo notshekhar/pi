@@ -595,3 +595,42 @@ func TestImageGenerationRequestAndWarnings(t *testing.T) {
 		t.Errorf("response_format = %q, want it omitted by default", req.ResponseFormat)
 	}
 }
+
+// finishOf streams body and returns its Finish and any error parts.
+func finishOf(t *testing.T, body string) (provider.Finish, []error) {
+	t.Helper()
+	p, _ := newTestProvider(t, body)
+	res, err := p.LanguageModel("gpt-x").DoStream(context.Background(), provider.CallOptions{Prompt: userPrompt("hi")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finish provider.Finish
+	var errs []error
+	for _, part := range collect(res) {
+		switch v := part.(type) {
+		case provider.Finish:
+			finish = v
+		case provider.ErrorPart:
+			errs = append(errs, v.Err)
+		}
+	}
+	return finish, errs
+}
+
+// A stream cut off before its finish_reason is interrupted (ai@7), not a
+// clean stop; one that sent nothing at all is an error, not an empty answer.
+func TestStreamCutShort(t *testing.T) {
+	cut := textChunks[:strings.Index(textChunks, `data: {"id":"chatcmpl-1","model":"gpt-x","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)]
+	finish, errs := finishOf(t, cut)
+	if finish.FinishReason.Unified != provider.FinishInterrupted || len(errs) != 0 {
+		t.Errorf("cut stream: finish %q, errors %v; want interrupted, none", finish.FinishReason.Unified, errs)
+	}
+	finish, errs = finishOf(t, "")
+	if finish.FinishReason.Unified != provider.FinishError || len(errs) != 1 {
+		t.Errorf("empty stream: finish %q, errors %v; want error and one error part", finish.FinishReason.Unified, errs)
+	}
+	finish, errs = finishOf(t, textChunks)
+	if finish.FinishReason.Unified != provider.FinishStop || len(errs) != 0 {
+		t.Errorf("whole stream: finish %q, errors %v", finish.FinishReason.Unified, errs)
+	}
+}

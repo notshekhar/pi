@@ -389,7 +389,7 @@ func convertUsage(u *usageMetadata) provider.Usage {
 		return provider.Usage{}
 	}
 
-	promptTotal := u.PromptTokenCount
+	promptTotal := u.PromptTokenCount + u.ToolUsePromptTokenCount
 	cacheRead := u.CachedContentTokenCount
 	noCache := promptTotal - cacheRead
 

@@ -156,6 +156,12 @@ type CompactOptions struct {
 	Focus string
 	// KeepRecentTokens overrides the kept window.
 	KeepRecentTokens int
+	// Summarize writes the summary in one request instead of the text
+	// summarizer (idle compaction's cache-reading summary); where the cut
+	// falls is unchanged.
+	Summarize func(ctx context.Context) (text string, usage *session.Usage, finish provider.FinishReasonKind, err error)
+	// Trigger is recorded on the entry ("idle").
+	Trigger string
 }
 
 // CompactResult reports what a compaction did. CutAt 0 means nothing to do.
@@ -461,17 +467,6 @@ func formatFileLists(f session.FileLists) string {
 	return out
 }
 
-// isContextOverflow recognises a provider refusing a request as too large.
-func isContextOverflow(err error) bool {
-	msg := strings.ToLower(err.Error())
-	for _, s := range []string{"context length", "context window", "too long", "too large", "maximum context", "413", "prompt is too long"} {
-		if strings.Contains(msg, s) {
-			return true
-		}
-	}
-	return false
-}
-
 // requestSummary is one summariser request on the session's model, every
 // attempt billed (source "compact"). An empty or cut-off summary is an error:
 // it would become the session's only memory of what it replaced.
@@ -633,7 +628,7 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 
 	text := ""
 	budget := summaryInputBudgetChars(window)
-	for retry := 0; ; retry++ {
+	for retry := 0; opts.Summarize == nil; retry++ {
 		historyText, err := summarizeHistory(budget)
 		prefixText := ""
 		if err == nil && len(turnPrefix) > 0 {
@@ -653,6 +648,21 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 		}
 		budget /= 2
 	}
+	if opts.Summarize != nil {
+		out, u, finish, err := opts.Summarize(ctx)
+		if u != nil {
+			bill(*u)
+		}
+		switch {
+		case err != nil:
+			return CompactResult{}, err
+		case finish == provider.FinishLength:
+			return CompactResult{}, errors.New("the summary hit the output limit before it finished")
+		case strings.TrimSpace(out) == "":
+			return CompactResult{}, errors.New("the model returned an empty summary")
+		}
+		text = strings.TrimSpace(out)
+	}
 	if ctx.Err() != nil {
 		return CompactResult{}, ctx.Err()
 	}
@@ -668,6 +678,9 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 		Type: session.TypeCompact, Summary: text, CutAt: cut,
 		TokensBefore: tokensBefore, TokensAfter: &tokensAfter,
 		Extra: map[string]json.RawMessage{"details": details},
+	}
+	if opts.Trigger != "" {
+		entry.Extra["trigger"], _ = json.Marshal(opts.Trigger)
 	}
 	if usage != nil {
 		stamped := StampUsage(modelID, *usage)

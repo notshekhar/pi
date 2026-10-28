@@ -128,6 +128,9 @@ func New(opts Options) *Provider {
 		// Moonshot has no json_schema response format in the same way
 		// DeepSeek does not; fall back to describing the schema.
 		DisableJSONSchema: true,
+		// The AI SDK's Moonshot chat: a turn's reasoning goes back as
+		// reasoning_content (K2 thinking needs it on tool-calling turns).
+		ReplayReasoning: true,
 	})}
 }
 

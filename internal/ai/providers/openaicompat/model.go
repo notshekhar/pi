@@ -41,7 +41,14 @@ func (m *languageModel) SupportedURLs(context.Context) (map[string][]*regexp.Reg
 
 // buildRequest renders call options into a chat completions body.
 func (m *languageModel) buildRequest(opts provider.CallOptions, stream bool) (*chatRequest, []provider.Warning, error) {
-	messages, warnings, err := convertPrompt(opts.Prompt)
+	replay := replayNever
+	switch {
+	case m.provider.requireReasoning != nil && m.provider.requireReasoning(m.modelID):
+		replay = replayAlways
+	case m.provider.replayReasoning:
+		replay = replayPresent
+	}
+	messages, warnings, err := convertPrompt(opts.Prompt, m.provider.optionsKey, replay)
 	if err != nil {
 		return nil, nil, err
 	}

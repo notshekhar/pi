@@ -18,13 +18,19 @@ import (
 //     than blocks inside a user message;
 //   - tool calls hang off the assistant message as a sibling field instead of
 //     being content blocks.
-func convertPrompt(prompt provider.Prompt) ([]apiMessage, []provider.Warning, error) {
+//
+// optionsKey names the provider's block in a message's provider options; a
+// cacheControl there marks a prompt-cache breakpoint (see markCache).
+//
+// replay is how reasoning is sent back (see reasoningReplay).
+func convertPrompt(prompt provider.Prompt, optionsKey string, replay reasoningReplay) ([]apiMessage, []provider.Warning, error) {
 	var (
 		messages []apiMessage
 		warnings []provider.Warning
 	)
 
 	for _, msg := range prompt {
+		before := len(messages)
 		switch m := msg.(type) {
 		case provider.SystemMessage:
 			messages = append(messages, apiMessage{Role: "system", Content: m.Content})
@@ -38,7 +44,7 @@ func convertPrompt(prompt provider.Prompt) ([]apiMessage, []provider.Warning, er
 			messages = append(messages, converted)
 
 		case provider.AssistantMessage:
-			converted, w, err := assistantMessage(m)
+			converted, w, err := assistantMessage(m, replay)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -58,9 +64,67 @@ func convertPrompt(prompt provider.Prompt) ([]apiMessage, []provider.Warning, er
 				Message: fmt.Sprintf("unsupported message type %T", msg),
 			}
 		}
+		if cc := cacheMark(messageOptions(msg).Get(optionsKey)); cc != nil && len(messages) > before {
+			markCache(&messages[len(messages)-1], cc)
+		}
 	}
 
 	return messages, warnings, nil
+}
+
+// cacheMark reads a breakpoint from a provider-options block: cacheControl
+// (or cache_control) as an object, or true for an ephemeral one.
+func cacheMark(block provider.JSONObject) *cacheControl {
+	raw, ok := block["cacheControl"]
+	if !ok {
+		raw, ok = block["cache_control"]
+	}
+	switch v := raw.(type) {
+	case map[string]any:
+		cc := &cacheControl{Type: "ephemeral"}
+		if t, ok := v["type"].(string); ok && t != "" {
+			cc.Type = t
+		}
+		if ttl, ok := v["ttl"].(string); ok {
+			cc.TTL = ttl
+		}
+		return cc
+	case bool:
+		if v {
+			return &cacheControl{Type: "ephemeral"}
+		}
+	}
+	return nil
+}
+
+// markCache puts a cache_control on a message's last content part — the
+// shape gateways relaying Anthropic's caching take (OpenRouter's Claude
+// models cache nothing without one). String content becomes one text part.
+func markCache(m *apiMessage, cc *cacheControl) {
+	switch c := m.Content.(type) {
+	case string:
+		if c != "" {
+			m.Content = []contentPart{{Type: "text", Text: c, CacheControl: cc}}
+		}
+	case []contentPart:
+		if len(c) > 0 {
+			c[len(c)-1].CacheControl = cc
+		}
+	}
+}
+
+func messageOptions(m provider.Message) provider.ProviderOptions {
+	switch v := m.(type) {
+	case provider.SystemMessage:
+		return v.ProviderOptions
+	case provider.UserMessage:
+		return v.ProviderOptions
+	case provider.AssistantMessage:
+		return v.ProviderOptions
+	case provider.ToolMessage:
+		return v.ProviderOptions
+	}
+	return nil
 }
 
 // userMessage renders a user message, using the plain string form when it is
@@ -163,9 +227,21 @@ func filePart(p provider.FilePart) (*contentPart, []provider.Warning, error) {
 
 // assistantMessage renders an assistant message, hoisting tool calls out of
 // the content list into the sibling tool_calls field.
-func assistantMessage(m provider.AssistantMessage) (apiMessage, []provider.Warning, error) {
+// reasoningReplay is whether an assistant turn's reasoning goes back as
+// reasoning_content: never, when the turn had some, or always (empty when
+// it had none).
+type reasoningReplay int
+
+const (
+	replayNever reasoningReplay = iota
+	replayPresent
+	replayAlways
+)
+
+func assistantMessage(m provider.AssistantMessage, replay reasoningReplay) (apiMessage, []provider.Warning, error) {
 	var (
 		text      strings.Builder
+		reasoning strings.Builder
 		toolCalls []apiToolCall
 		warnings  []provider.Warning
 	)
@@ -176,9 +252,10 @@ func assistantMessage(m provider.AssistantMessage) (apiMessage, []provider.Warni
 			text.WriteString(p.Text)
 
 		case provider.ReasoningPart:
-			// Reasoning is not replayed: the chat API has no field for it on
-			// an input message, and gateways that echo reasoning_content back
-			// reject it on the way in.
+			// Replayed as reasoning_content, as the AI SDK does: DeepSeek and
+			// Kimi need it on tool-calling turns, and a provider whose cache
+			// holds the reasoning it produced reads the turn back as cached.
+			reasoning.WriteString(p.Text)
 
 		case provider.ToolCallPart:
 			args, err := json.Marshal(p.Input)
@@ -208,6 +285,9 @@ func assistantMessage(m provider.AssistantMessage) (apiMessage, []provider.Warni
 	// alongside tool_calls.
 	if text.Len() > 0 || len(toolCalls) == 0 {
 		out.Content = text.String()
+	}
+	if r := reasoning.String(); replay == replayAlways || replay == replayPresent && r != "" {
+		out.ReasoningContent = &r
 	}
 	return out, warnings, nil
 }
@@ -381,6 +461,11 @@ func convertUsage(u *apiUsage) provider.Usage {
 			CacheRead: &cacheRead,
 		},
 		OutputTokens: provider.OutputTokens{Total: &output},
+	}
+	if d := u.PromptTokensDetails; d != nil && d.CacheWriteTokens > 0 {
+		write := d.CacheWriteTokens
+		fresh := max(0, noCache-write)
+		usage.InputTokens.CacheWrite, usage.InputTokens.NoCache = &write, &fresh
 	}
 
 	if u.CompletionTokensDetails != nil {

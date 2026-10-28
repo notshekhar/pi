@@ -347,9 +347,10 @@ func (m *languageModel) applyTools(req *messagesRequest, opts provider.CallOptio
 	case provider.ToolChoiceAuto:
 		req.ToolChoice = &toolChoice{Type: "auto"}
 	case provider.ToolChoiceNone:
-		// Anthropic has no "none": withholding the tools is the equivalent,
-		// and keeps the model from calling something it was told not to.
-		req.Tools = nil
+		// The tools stay in the request: they open the prompt-cache prefix,
+		// so withholding them (the AI SDK's way, from before Anthropic had
+		// "none") turns a request meant to read the cache into a full miss.
+		req.ToolChoice = &toolChoice{Type: "none"}
 	case provider.ToolChoiceRequired:
 		req.ToolChoice = &toolChoice{Type: "any"}
 	case provider.ToolChoiceTool:

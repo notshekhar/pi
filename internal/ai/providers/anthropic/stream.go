@@ -122,6 +122,8 @@ type streamState struct {
 	// the forced tool's argument fragments are streamed as text deltas.
 	jsonTool bool
 	usage    provider.Usage
+	rawUsage anthropicUsage // the merged wire counts usage is built from
+	end      providerutil.StreamEnd
 	finish   provider.FinishReason
 	// sentFinish guards against emitting Finish twice when message_delta and
 	// message_stop both arrive.
@@ -130,6 +132,7 @@ type streamState struct {
 
 // emit sends a part, dropping it if the consumer has gone away.
 func (s *streamState) emit(part provider.StreamPart) bool {
+	s.end.Observe(part)
 	select {
 	case s.out <- part:
 		return true
@@ -178,8 +181,16 @@ func (s *streamState) run(body io.ReadCloser) {
 		s.emit(provider.ErrorPart{Err: fmt.Errorf("anthropic: reading stream: %w", err)})
 	}
 
-	// A stream that ends without message_delta still owes the consumer a
-	// Finish, or a caller waiting on usage would block forever.
+	// A stream that ends without message_stop still owes the consumer a
+	// Finish, or a caller waiting on usage would block forever — marked
+	// interrupted, since what streamed may be cut short.
+	if !s.sentFinish && s.ctx.Err() == nil {
+		reason, err := s.end.Reason(false, s.finish)
+		if err != nil {
+			s.emit(provider.ErrorPart{Err: fmt.Errorf("anthropic: %w", err)})
+		}
+		s.finish = reason
+	}
 	s.emitFinish()
 }
 
@@ -194,7 +205,8 @@ func (s *streamState) handle(kind string, event streamEvent) {
 			}})
 			// message_start carries the input token counts; message_delta
 			// later carries only the output count, so both must be merged.
-			s.usage = convertUsage(event.Message.Usage)
+			s.rawUsage = event.Message.Usage
+			s.usage = convertUsage(s.rawUsage)
 		}
 
 	case "content_block_start":
@@ -219,10 +231,16 @@ func (s *streamState) handle(kind string, event streamEvent) {
 
 	case "error":
 		if event.Error != nil {
+			// The AI SDK's getAnthropicStreamErrorMetadata: a mid-stream error
+			// frame has no HTTP status, so its type stands in for one — which
+			// is what tells a retry an overload from a bad request.
+			status, retryable := streamErrorStatus(event.Error.Type)
 			s.emit(provider.ErrorPart{Err: &provider.APICallError{
-				Message: event.Error.Message,
-				URL:     s.model.client.BaseURL + "/v1/messages",
-				Data:    event.Error.Type,
+				Message:     event.Error.Message,
+				URL:         s.model.client.BaseURL + "/v1/messages",
+				StatusCode:  status,
+				IsRetryable: retryable,
+				Data:        event.Error.Type,
 			}})
 		}
 
@@ -408,18 +426,32 @@ func (s *streamState) stopBlock(index int) {
 	}
 }
 
-// mergeUsage folds the output counts from message_delta into the input counts
-// captured at message_start.
+// mergeUsage folds message_delta's counts into message_start's, field by
+// field as the AI SDK does: a figure the delta carries replaces the one
+// before, and one it leaves out is kept. Converting the delta on its own
+// would zero the cache counts of a gateway that repeats input_tokens there
+// but not the cache fields. An input_tokens of 0 counts as left out: the
+// delta has historically repeated it as zero.
 func (s *streamState) mergeUsage(u anthropicUsage) {
-	merged := convertUsage(u)
-
-	// message_delta reports output tokens but repeats input_tokens as zero,
-	// so keep whatever message_start reported unless this event improves on it.
-	if merged.InputTokens.NoCache != nil && *merged.InputTokens.NoCache == 0 &&
-		s.usage.InputTokens.NoCache != nil && *s.usage.InputTokens.NoCache > 0 {
-		merged.InputTokens = s.usage.InputTokens
+	r := s.rawUsage
+	if u.InputTokens > 0 {
+		r.InputTokens = u.InputTokens
 	}
-	s.usage = merged
+	r.OutputTokens = u.OutputTokens
+	if u.OutputTokensDetails != nil {
+		r.OutputTokensDetails = u.OutputTokensDetails
+	}
+	if u.CacheReadInputTokens != nil {
+		r.CacheReadInputTokens = u.CacheReadInputTokens
+	}
+	if u.CacheCreationInputTokens != nil {
+		r.CacheCreationInputTokens = u.CacheCreationInputTokens
+	}
+	if u.Iterations != nil {
+		r.Iterations = u.Iterations
+	}
+	s.rawUsage = r
+	s.usage = convertUsage(r)
 }
 
 // emitFinish sends the terminal Finish part, at most once.
@@ -429,4 +461,28 @@ func (s *streamState) emitFinish() {
 	}
 	s.sentFinish = true
 	s.emit(provider.Finish{Usage: s.usage, FinishReason: s.finish})
+}
+
+// streamErrorStatus maps a stream error frame's type to the status and
+// retryability the same failure would have had as an HTTP response.
+func streamErrorStatus(kind string) (int, bool) {
+	switch kind {
+	case "api_error":
+		return 500, true
+	case "overloaded_error":
+		return 529, true
+	case "rate_limit_error":
+		return 429, true
+	case "request_too_large":
+		return 413, false
+	case "authentication_error":
+		return 401, false
+	case "permission_error":
+		return 403, false
+	case "not_found_error":
+		return 404, false
+	case "billing_error", "invalid_request_error":
+		return 400, false
+	}
+	return 0, false
 }

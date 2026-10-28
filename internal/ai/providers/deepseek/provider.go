@@ -10,8 +10,7 @@
 //	model := deepseek.New(deepseek.Options{}).LanguageModel(deepseek.Reasoner)
 //
 // deepseek-reasoner emits its thinking in reasoning_content, which surfaces as
-// Reasoning parts. That reasoning cannot be replayed as input: the chat API
-// has no field for it, so core drops it from the history on the next turn.
+// Reasoning parts and is replayed the same way on later turns.
 //
 // DeepSeek has no json_schema response format, so structured output falls back
 // to describing the schema in the prompt and every such call carries a warning.
@@ -19,6 +18,7 @@ package deepseek
 
 import (
 	"net/http"
+	"regexp"
 
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providers/openaicompat"
@@ -82,8 +82,21 @@ func New(opts Options) *Provider {
 		// Measured: a json_schema response format returns "This
 		// response_format type is unavailable now". Only json_object exists.
 		DisableJSONSchema: true,
+		// The AI SDK's DeepSeek chat: reasoning goes back as
+		// reasoning_content, and V4 demands the field on every assistant
+		// turn.
+		ReplayReasoning:        true,
+		RequireReasoningReplay: IsV4Model,
 	})}
 }
+
+var legacyModel = regexp.MustCompile(`(^|[/.])deepseek-(?:chat|reasoner|v[1-3](?:\.\d+)?)([-/:.]|$)`)
+
+// IsV4Model is the AI SDK's isDeepSeekV4Model: a model id with V4-or-newer
+// behaviour (thinking on by default, reasoning_content required on every
+// assistant turn). Known legacy aliases and pre-V4 versions keep the old
+// behaviour; unrecognised ids inherit the current protocol.
+func IsV4Model(modelID string) bool { return !legacyModel.MatchString(modelID) }
 
 // LanguageModel returns a model handle. Use the Chat and Reasoner constants
 // for the documented ids.

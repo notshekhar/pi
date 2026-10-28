@@ -204,6 +204,11 @@ func toolBlocks(m provider.ToolMessage, isMistral bool) ([]apiBlock, error) {
 		}
 		blocks = append(blocks, *block)
 	}
+	// Tool results end most agent steps, so they carry the moving tail
+	// breakpoint as often as a user message does.
+	if cacheBreakpoint(m.ProviderOptions) && len(blocks) > 0 {
+		blocks = append(blocks, apiBlock{CachePoint: &cachePoint{Type: "default"}})
+	}
 	return blocks, nil
 }
 

@@ -319,6 +319,12 @@ func (r *runner) shouldContinue(step Step) bool {
 	if len(step.ToolExecutions) == 0 {
 		return false
 	}
+	// A step whose stream was cut short is not a turn the model finished:
+	// stepping on would build on output it never completed (ai@7's
+	// shouldStartNextStep).
+	if step.FinishReason.Unified == provider.FinishInterrupted {
+		return false
+	}
 	if len(r.steps) >= r.opts.maxSteps() {
 		return false
 	}

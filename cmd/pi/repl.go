@@ -78,9 +78,12 @@ type shared struct {
 // slot is one live session (loop's SessionSlot): its run, its turn, its
 // queue, its transcript.
 type slot struct {
-	cfg    config.Config
-	run    *agent.Run
-	cancel context.CancelFunc
+	// idleCompacting is an idle compaction (agent/idlecompact.go) running
+	// after this slot's turn ended; it owns its own closing message.
+	idleCompacting bool
+	cfg            config.Config
+	run            *agent.Run
+	cancel         context.CancelFunc
 	// queue is input typed while a turn runs, drained FIFO (queue.go).
 	queue   []string
 	turning bool
@@ -617,11 +620,38 @@ func (t *repl) tracker() *agent.CostTracker {
 // from the stream parts (compaction), and the feed for /rc.
 func (t *repl) turnEvent(name string, data any) {
 	switch name {
+	case "stream-retry":
+		if e, ok := data.(agent.StreamRetryEvent); ok {
+			t.dim("stream failed (%s) — retrying %d/%d", e.Reason, e.Attempt, e.Max)
+		}
 	case "compact-start":
 		t.fireHook(context.Background(), hooks.Context{Event: hooks.PreCompact})
-		t.dim("context full — compacting…")
+		start, _ := data.(agent.CompactStartEvent)
+		t.mu.Lock()
+		t.idleCompacting = start.Reason == "idle"
+		idle := t.idleCompacting
+		t.mu.Unlock()
+		if !idle {
+			t.dim("context full — compacting…")
+		}
 	case "compact-end":
-		if end, ok := data.(agent.CompactEndEvent); ok {
+		t.mu.Lock()
+		idle := t.idleCompacting
+		t.idleCompacting = false
+		t.mu.Unlock()
+		if end, ok := data.(agent.CompactEndEvent); ok && idle {
+			// Cancelled because the user came back: nothing to say.
+			switch {
+			case end.Error != "":
+				t.fail("idle compaction failed: %s", end.Error)
+			case !end.Aborted && end.Summary != "":
+				t.do(func() {
+					t.app.Print(t.app.Theme().Fg(tui.SlotSuccess, fmt.Sprintf(
+						"⟲ Compacted while idle, before the prompt cache expired · %s → %s tokens",
+						formatTokens(end.TokensBefore), formatTokens(end.TokensAfter))))
+				})
+			}
+		} else if ok {
 			switch {
 			case end.Aborted:
 				t.dim("compaction interrupted")

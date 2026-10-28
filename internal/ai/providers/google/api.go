@@ -206,4 +206,7 @@ type usageMetadata struct {
 	TotalTokenCount         int64 `json:"totalTokenCount"`
 	CachedContentTokenCount int64 `json:"cachedContentTokenCount"`
 	ThoughtsTokenCount      int64 `json:"thoughtsTokenCount"`
+	// ToolUsePromptTokenCount is the prompt the built-in tools' results
+	// added (search, code execution): input the AI SDK counts too.
+	ToolUsePromptTokenCount int64 `json:"toolUsePromptTokenCount"`
 }

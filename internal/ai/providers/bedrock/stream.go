@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -131,10 +132,14 @@ type streamState struct {
 	// a tool_use stop reason is reported as stop.
 	jsonFromTool bool
 	sentFinish   bool
+	// stopped is messageStop seen: the provider's completion signal.
+	stopped bool
+	end     providerutil.StreamEnd
 }
 
 // emit sends a part, dropping it if the consumer has gone away.
 func (s *streamState) emit(part provider.StreamPart) bool {
+	s.end.Observe(part)
 	select {
 	case s.out <- part:
 		return true
@@ -231,6 +236,7 @@ func (s *streamState) handle(kind string, event streamEvent) {
 
 	case "messageStop":
 		s.finish = mapStopReason(event.StopReason, s.jsonFromTool)
+		s.stopped = true
 
 	case "metadata":
 		if event.Usage != nil {
@@ -389,6 +395,14 @@ func (s *streamState) emitFinish() {
 	s.sentFinish = true
 	if s.jsonFromTool && s.finish.Raw == "tool_use" {
 		s.finish = mapStopReason("tool_use", true)
+	}
+	// Without messageStop what streamed may be cut short.
+	if s.ctx.Err() == nil {
+		reason, err := s.end.Reason(s.stopped, s.finish)
+		if err != nil {
+			s.emit(provider.ErrorPart{Err: fmt.Errorf("bedrock: %w", err)})
+		}
+		s.finish = reason
 	}
 	s.emit(provider.Finish{Usage: s.usage, FinishReason: s.finish})
 }

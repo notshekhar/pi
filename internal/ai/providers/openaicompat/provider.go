@@ -106,6 +106,16 @@ type Options struct {
 	// The zero value requires a key, since a silently unauthenticated request
 	// to a hosted endpoint just fails later with a worse message.
 	AllowMissingAPIKey bool
+
+	// ReplayReasoning sends an assistant turn's reasoning back as
+	// reasoning_content, as the AI SDK's DeepSeek and Moonshot models do:
+	// those APIs need it on tool-calling turns. Off by default — strict
+	// gateways (Mistral) reject the unknown field.
+	ReplayReasoning bool
+
+	// RequireReasoningReplay reports models that need reasoning_content on
+	// EVERY replayed assistant turn, empty when it had none — DeepSeek V4.
+	RequireReasoningReplay func(modelID string) bool
 }
 
 // Provider creates chat-completions language models.
@@ -117,6 +127,10 @@ type Provider struct {
 	retry        providerutil.RetryConfig
 	includeUsage bool
 	noJSONSchema bool
+	// replayReasoning and requireReasoning are Options.ReplayReasoning and
+	// Options.RequireReasoningReplay.
+	replayReasoning  bool
+	requireReasoning func(modelID string) bool
 	// imageResponseFormat is sent on image calls when non-empty.
 	imageResponseFormat string
 
@@ -161,6 +175,8 @@ func New(opts Options) *Provider {
 		noJSONSchema:           opts.DisableJSONSchema,
 		imageResponseFormat:    opts.ImageResponseFormat,
 		useMaxCompletionTokens: opts.UseMaxCompletionTokens,
+		replayReasoning:        opts.ReplayReasoning,
+		requireReasoning:       opts.RequireReasoningReplay,
 	}
 
 	p.client = &providerutil.Client{

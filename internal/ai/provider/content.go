@@ -144,6 +144,10 @@ const (
 	FinishToolCalls FinishReasonKind = "tool-calls"
 	// FinishError means generation stopped because of an error.
 	FinishError FinishReasonKind = "error"
+	// FinishInterrupted means the provider's stream ended without its
+	// completion signal: the output may be cut short. A run does not step on
+	// from it (the AI SDK's "interrupted").
+	FinishInterrupted FinishReasonKind = "interrupted"
 	// FinishOther covers anything else.
 	FinishOther FinishReasonKind = "other"
 )

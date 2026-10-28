@@ -2,6 +2,7 @@ package openaicompat
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/notshekhar/pi/internal/ai/provider"
@@ -12,9 +13,7 @@ func TestCachedInputTokensSpellings(t *testing.T) {
 	if got := (&apiUsage{PromptCacheHitTokens: &hit}).cachedInputTokens(); got != 4 {
 		t.Errorf("deepseek spelling = %d", got)
 	}
-	if got := (&apiUsage{PromptTokensDetails: &struct {
-		CachedTokens int64 `json:"cached_tokens"`
-	}{CachedTokens: 3}}).cachedInputTokens(); got != 3 {
+	if got := (&apiUsage{PromptTokensDetails: &promptTokensDetails{CachedTokens: 3}}).cachedInputTokens(); got != 3 {
 		t.Errorf("openai nested spelling = %d", got)
 	}
 	if got := (&apiUsage{CachedTokens: &hit}).cachedInputTokens(); got != 4 {
@@ -66,5 +65,79 @@ func TestUsageCacheOutsidePromptTokens(t *testing.T) {
 	if *u.InputTokens.Total != 910 || *u.InputTokens.NoCache != 10 || *u.InputTokens.CacheRead != 900 {
 		t.Errorf("input = %d (fresh %d, cached %d), want 910 (10, 900)",
 			*u.InputTokens.Total, *u.InputTokens.NoCache, *u.InputTokens.CacheRead)
+	}
+}
+
+// A cacheControl in the provider's options block becomes cache_control on
+// the message's last content part (string content becomes a text part) —
+// how OpenRouter takes Claude's breakpoints. Unmarked messages keep the
+// plain string form.
+func TestCacheControlMarksTheLastPart(t *testing.T) {
+	mark := provider.ProviderOptions{"openrouter": {"cacheControl": map[string]any{"type": "ephemeral"}}}
+	msgs, _, err := convertPrompt(provider.Prompt{
+		provider.SystemMessage{Content: "sys", ProviderOptions: mark},
+		provider.UserMessage{Content: []provider.UserPart{provider.TextPart{Text: "plain"}}},
+		provider.ToolMessage{Content: []provider.ToolPart{
+			provider.ToolResultPart{ToolCallID: "a", Output: provider.ToolOutputText{Value: "one"}},
+			provider.ToolResultPart{ToolCallID: "b", Output: provider.ToolOutputText{Value: "two"}},
+		}, ProviderOptions: mark},
+	}, "openrouter", replayNever)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(msgs)
+	want := `[{"role":"system","content":[{"type":"text","text":"sys","cache_control":{"type":"ephemeral"}}]},` +
+		`{"role":"user","content":"plain"},{"role":"tool","content":"one","tool_call_id":"a"},` +
+		`{"role":"tool","content":[{"type":"text","text":"two","cache_control":{"type":"ephemeral"}}],"tool_call_id":"b"}]`
+	if string(raw) != want {
+		t.Errorf("messages =\n%s\nwant\n%s", raw, want)
+	}
+	// Another provider's key is not this one's.
+	other, _, _ := convertPrompt(provider.Prompt{provider.SystemMessage{Content: "sys", ProviderOptions: mark}}, "xai", replayNever)
+	if _, ok := other[0].Content.(string); !ok {
+		t.Error("a mark for openrouter was applied by another provider")
+	}
+}
+
+// OpenRouter reports an explicit cache write beside the read (a real Claude
+// frame): it is split out of the fresh input so it bills at the write price.
+func TestUsageCacheWriteTokens(t *testing.T) {
+	u := usageOf(t, `{"prompt_tokens":3017,"completion_tokens":5,"total_tokens":3022,
+		"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":3009}}`)
+	in := u.InputTokens
+	if *in.Total != 3017 || *in.CacheWrite != 3009 || *in.NoCache != 8 || *in.CacheRead != 0 {
+		t.Errorf("input = %d (write %v, fresh %d, read %d), want 3017 (3009, 8, 0)",
+			*in.Total, in.CacheWrite, *in.NoCache, *in.CacheRead)
+	}
+}
+
+// Reasoning goes back as reasoning_content when the provider replays it:
+// present when the turn had some, always (empty) for a model that requires
+// it, and never by default.
+func TestReasoningReplay(t *testing.T) {
+	prompt := provider.Prompt{
+		provider.UserMessage{Content: []provider.UserPart{provider.TextPart{Text: "hi"}}},
+		provider.AssistantMessage{Content: []provider.AssistantPart{provider.ReasoningPart{Text: "think"}, provider.TextPart{Text: "a"}}},
+		provider.AssistantMessage{Content: []provider.AssistantPart{provider.TextPart{Text: "b"}}},
+	}
+	for replay, want := range map[reasoningReplay][2]string{
+		replayNever:   {"", ""},
+		replayPresent: {`"reasoning_content":"think"`, ""},
+		replayAlways:  {`"reasoning_content":"think"`, `"reasoning_content":""`},
+	} {
+		msgs, _, err := convertPrompt(prompt, "deepseek", replay)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, w := range want {
+			raw, _ := json.Marshal(msgs[i+1])
+			got := strings.Contains(string(raw), "reasoning_content")
+			if (w == "") == got && !(w != "" && strings.Contains(string(raw), w)) {
+				t.Errorf("replay %d, turn %d: %s", replay, i, raw)
+			}
+			if w != "" && !strings.Contains(string(raw), w) {
+				t.Errorf("replay %d, turn %d: %s, want %s", replay, i, raw, w)
+			}
+		}
 	}
 }

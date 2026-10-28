@@ -98,6 +98,15 @@ type FinishEvent struct {
 }
 
 // CompactStartEvent / CompactEndEvent bracket a compaction.
+// StreamRetryEvent is loop's stream-retry: a transient failure killed the
+// stream between steps, and the turn is reopening it.
+type StreamRetryEvent struct {
+	Attempt   int    `json:"attempt"`
+	Max       int    `json:"max"`
+	Reason    string `json:"reason"`
+	StepsDone int    `json:"stepsDone"`
+}
+
 type CompactStartEvent struct {
 	Reason string `json:"reason"`
 	Mode   string `json:"mode,omitempty"`
@@ -217,6 +226,9 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 		return nil, err
 	}
 
+	// A new turn cancels a pending idle compaction: the user is back.
+	CancelIdleCompact(r.Session.ID)
+
 	// The prompt is saved first: its entry id is the turn's id everywhere.
 	r.Session.Lock()
 	err = r.Session.Add(ai.UserText(opts.Input))
@@ -245,95 +257,173 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 		persistErr     error
 		toolNames      = map[string]string{}
 	)
-	res, err := ai.StreamText(ctx, cachedOptions(ai.Options{
-		Model:         model,
-		System:        SystemPromptFor(r.Config.CWD, names, r.Planning) + r.personaBlock() + r.extensionBlock(),
-		Messages:      r.Session.ModelMessages(),
-		Tools:         toolset,
-		MaxSteps:      r.Config.MaxSteps,
-		Reasoning:     r.Config.Reasoning,
-		NeedsApproval: needsApproval,
-		ApproveTool:   approveTool,
-		OnStepFinish: func(step ai.Step) {
-			// Persisted as the step finishes, so an abort later keeps it.
-			u := ToUsage(step.Usage)
-			breakdown := tracker.Add(modelID, u, bill)
-			rowID := tracker.TakeLastLedgerRowID()
-			stamped := StampUsage(modelID, u)
-			if err := r.persistStep(step, &stamped, modelID, rowID); err != nil {
+	system := SystemPromptFor(r.Config.CWD, names, r.Planning) + r.personaBlock() + r.extensionBlock()
+	// loop's attempt loop: one iteration is one stream. A transient failure
+	// that lands BETWEEN steps reopens the stream over what the finished
+	// steps persisted (a resume); a request the provider refused for its
+	// size is compacted and retried once. With a step's output already
+	// streaming, either would make the model repeat it, so the error is
+	// reported instead.
+	maxSteps := r.Config.MaxSteps
+	if maxSteps <= 0 {
+		maxSteps = config.DefaultMaxSteps
+	}
+	maxResumes := DefaultMaxStreamResumes
+	if v := config.LoadSettings().MaxStreamResumes; v != nil {
+		maxResumes = max(0, *v)
+	}
+	var (
+		sawFinish         bool
+		streamErr         error
+		finalErr          error
+		final             *ai.Result
+		stepsDone         int
+		resumes           int
+		overflowRecovered bool
+		earlier           []ai.Step
+		earlierUsage      provider.Usage
+	)
+	for {
+		r.Session.RLock()
+		messages := r.Session.ModelMessages()
+		r.Session.RUnlock()
+		streamErr = nil
+		var heldErrors []ai.StreamPart
+		res, err := ai.StreamText(ctx, cachedOptions(ai.Options{
+			Model:         model,
+			System:        system,
+			Messages:      messages,
+			Tools:         toolset,
+			MaxSteps:      max(1, maxSteps-stepsDone),
+			Reasoning:     r.Config.Reasoning,
+			NeedsApproval: needsApproval,
+			ApproveTool:   approveTool,
+			OnStepFinish: func(step ai.Step) {
+				// Persisted as the step finishes, so an abort later keeps it.
+				u := ToUsage(step.Usage)
+				breakdown := tracker.Add(modelID, u, bill)
+				rowID := tracker.TakeLastLedgerRowID()
+				stamped := StampUsage(modelID, u)
+				if err := r.persistStep(step, &stamped, modelID, rowID); err != nil {
+					mu.Lock()
+					persistErr = err
+					mu.Unlock()
+				}
 				mu.Lock()
-				persistErr = err
+				stepsDone++
+				persistedAny = true
+				lastStepUsage = &stamped
+				textSinceStep.Reset()
+				reasonSinceStp.Reset()
 				mu.Unlock()
-			}
-			mu.Lock()
-			persistedAny = true
-			lastStepUsage = &stamped
-			textSinceStep.Reset()
-			reasonSinceStp.Reset()
-			mu.Unlock()
-			emit("step-usage", StepUsageEvent{Usage: stamped, Breakdown: breakdown})
-		},
-	}, r.Config, r.Session.ID))
-	if err != nil {
-		emit("error", PlainError(err))
-		return nil, err
-	}
+				emit("step-usage", StepUsageEvent{Usage: stamped, Breakdown: breakdown})
+			},
+		}, r.Config, r.Session.ID))
+		if err != nil {
+			emit("error", PlainError(err))
+			return nil, err
+		}
 
-	sawFinish := false
-	var streamErr error
-	for part := range res.Stream {
+		for part := range res.Stream {
+			// An error is held back from the renderer until the attempt loop
+			// knows it will not recover from it.
+			if p, ok := part.(provider.ErrorPart); ok {
+				if streamErr == nil {
+					streamErr = p.Err
+				}
+				heldErrors = append(heldErrors, part)
+				continue
+			}
+			if opts.Tap != nil {
+				opts.Tap(part)
+			}
+			switch p := part.(type) {
+			case provider.TextDelta:
+				mu.Lock()
+				textSinceStep.WriteString(p.Delta)
+				mu.Unlock()
+				emit("text-delta", p.Delta)
+			case provider.ReasoningStart:
+				emit("reasoning-start", nil)
+			case provider.ReasoningDelta:
+				mu.Lock()
+				reasonSinceStp.WriteString(p.Delta)
+				mu.Unlock()
+				emit("reasoning-delta", p.Delta)
+			case provider.ReasoningEnd:
+				emit("reasoning-end", nil)
+			case provider.ToolInputStart:
+				toolNames[p.ID] = p.ToolName
+				emit("tool-input-start", ToolInputStartEvent{ToolName: p.ToolName, ToolCallID: p.ID})
+			case provider.ToolInputDelta:
+				emit("tool-input-delta", ToolInputDeltaEvent{ToolCallID: p.ID, Delta: p.Delta})
+			case provider.ToolCall:
+				toolNames[p.ToolCallID] = p.ToolName
+				emit("tool-call", ToolCallEvent{ToolName: p.ToolName, Input: decodeInput(p.Input), ToolCallID: p.ToolCallID})
+			case ai.ToolExecuted:
+				x := p.Execution
+				out, failed := outputValue(x.Result.Output())
+				switch {
+				case x.Err != nil && !x.Denied:
+					emit("tool-error", ToolErrorEvent{ToolCallID: x.ToolCallID, ToolName: x.ToolName, Error: PlainError(x.Err)})
+				case failed:
+					emit("tool-error", ToolErrorEvent{ToolCallID: x.ToolCallID, ToolName: x.ToolName, Error: out})
+				default:
+					emit("tool-result", ToolResultEvent{ToolCallID: x.ToolCallID, Output: out})
+				}
+				if x.ToolName == "todo" && x.Err == nil {
+					r.persistTodos(emit)
+				}
+			case ai.RunFinish:
+				total := ToUsage(p.Usage)
+				sawFinish = true
+				mu.Lock()
+				last := lastStepUsage
+				mu.Unlock()
+				emit("finish", FinishEvent{Usage: &total, LastStepUsage: last})
+			}
+		}
+		final, finalErr = res.Final()
+		final = withEarlierSteps(final, earlier, earlierUsage)
+
+		failure := firstErr(streamErr, finalErr)
+		mu.Lock()
+		tailInFlight := textSinceStep.Len() > 0 || reasonSinceStp.Len() > 0
+		mu.Unlock()
+		if failure != nil && ctx.Err() == nil && !tailInFlight {
+			if !overflowRecovered && isContextOverflow(failure) {
+				overflowRecovered = true
+				emit("compact-start", CompactStartEvent{Reason: "overflow"})
+				cres, cerr := Compact(ctx, r, CompactOptions{})
+				end := CompactEndEvent{Summary: cres.Summary, CutAt: cres.CutAt, TokensBefore: cres.TokensBefore, TokensAfter: cres.TokensAfter}
+				if cerr != nil && !errors.Is(cerr, ErrNothingToCompact) {
+					end.Error = cerr.Error()
+				}
+				emit("compact-end", end)
+				if cerr == nil && cres.CutAt > 0 {
+					earlier, earlierUsage = keepSteps(final)
+					continue
+				}
+			}
+			if IsRetryableStreamError(failure) && !sawFinish && resumes < maxResumes && stepsDone < maxSteps {
+				resumes++
+				emit("stream-retry", StreamRetryEvent{Attempt: resumes, Max: maxResumes,
+					Reason: describeRetry(failure), StepsDone: stepsDone})
+				waitOrDone(ctx, resumeDelay(resumes-1))
+				if ctx.Err() == nil {
+					earlier, earlierUsage = keepSteps(final)
+					continue
+				}
+			}
+		}
+		// Not recovering: the renderer sees the failure after all.
 		if opts.Tap != nil {
-			opts.Tap(part)
-		}
-		switch p := part.(type) {
-		case provider.TextDelta:
-			mu.Lock()
-			textSinceStep.WriteString(p.Delta)
-			mu.Unlock()
-			emit("text-delta", p.Delta)
-		case provider.ReasoningStart:
-			emit("reasoning-start", nil)
-		case provider.ReasoningDelta:
-			mu.Lock()
-			reasonSinceStp.WriteString(p.Delta)
-			mu.Unlock()
-			emit("reasoning-delta", p.Delta)
-		case provider.ReasoningEnd:
-			emit("reasoning-end", nil)
-		case provider.ToolInputStart:
-			toolNames[p.ID] = p.ToolName
-			emit("tool-input-start", ToolInputStartEvent{ToolName: p.ToolName, ToolCallID: p.ID})
-		case provider.ToolInputDelta:
-			emit("tool-input-delta", ToolInputDeltaEvent{ToolCallID: p.ID, Delta: p.Delta})
-		case provider.ToolCall:
-			toolNames[p.ToolCallID] = p.ToolName
-			emit("tool-call", ToolCallEvent{ToolName: p.ToolName, Input: decodeInput(p.Input), ToolCallID: p.ToolCallID})
-		case ai.ToolExecuted:
-			x := p.Execution
-			out, failed := outputValue(x.Result.Output())
-			switch {
-			case x.Err != nil && !x.Denied:
-				emit("tool-error", ToolErrorEvent{ToolCallID: x.ToolCallID, ToolName: x.ToolName, Error: PlainError(x.Err)})
-			case failed:
-				emit("tool-error", ToolErrorEvent{ToolCallID: x.ToolCallID, ToolName: x.ToolName, Error: out})
-			default:
-				emit("tool-result", ToolResultEvent{ToolCallID: x.ToolCallID, Output: out})
+			for _, part := range heldErrors {
+				opts.Tap(part)
 			}
-			if x.ToolName == "todo" && x.Err == nil {
-				r.persistTodos(emit)
-			}
-		case provider.ErrorPart:
-			streamErr = p.Err
-		case ai.RunFinish:
-			total := ToUsage(p.Usage)
-			sawFinish = true
-			mu.Lock()
-			last := lastStepUsage
-			mu.Unlock()
-			emit("finish", FinishEvent{Usage: &total, LastStepUsage: last})
 		}
+		break
 	}
-	final, finalErr := res.Final()
 
 	aborted := ctx.Err() != nil
 	mu.Lock()
@@ -363,7 +453,78 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 		emit("error", PlainError(persistErr))
 		return final, persistErr
 	}
+	if source == session.SourceTurn {
+		r.scheduleIdleCompact(model, system, toolset, last, emit)
+	}
 	return final, nil
+}
+
+// scheduleIdleCompact is loop's idle compaction (idlecompact.go): a big
+// conversation is summarized just before its prompt cache lapses, if nobody
+// sends anything first. The request is this turn's own — same system
+// prompt, same tools (never called), same caching — with one message
+// appended, so the provider reads the conversation from cache.
+func (r *Run) scheduleIdleCompact(model provider.LanguageModel, system string, toolset []ai.Tool,
+	last *session.Usage, emit Emitter) {
+	delay, ok := IdleCompactDelay(r.Config)
+	settings := config.LoadSettings()
+	if !ok || !settings.IdleCompactOn() {
+		return
+	}
+	info, ok := config.ModelInfo(r.Config.Provider, r.Config.ModelID)
+	if !ok || info.Context <= 0 {
+		return
+	}
+	minPercent := settings.IdleCompactMinPercent
+	if minPercent <= 0 {
+		minPercent = DefaultIdleCompactMinPercent
+	}
+	used := ContextTokensFromUsage(last)
+	if used == 0 {
+		used = int64(EstimateTokens(r.Session.Chars()))
+	}
+	if float64(used) < float64(info.Context)*float64(minPercent)/100 {
+		return
+	}
+	ScheduleIdleCompact(r.Session.ID, delay, func(ctx context.Context) {
+		emit("compact-start", CompactStartEvent{Reason: "idle"})
+		res, err := Compact(ctx, r, CompactOptions{Trigger: "idle", Summarize: func(ctx context.Context) (string, *session.Usage, provider.FinishReasonKind, error) {
+			r.Session.RLock()
+			conversation := append(r.Session.ModelMessages(), ai.UserText(IdleSummaryInstructions))
+			r.Session.RUnlock()
+			out, err := ai.StreamText(ctx, cachedOptions(ai.Options{
+				Model:      model,
+				System:     system,
+				Messages:   conversation,
+				Tools:      toolset,
+				ToolChoice: &provider.ToolChoice{Type: provider.ToolChoiceNone},
+				MaxSteps:   1,
+				Reasoning:  r.Config.Reasoning,
+			}, r.Config, r.Session.ID))
+			if err != nil {
+				return "", nil, "", err
+			}
+			for range out.Stream {
+			}
+			final, err := out.Final()
+			if final == nil {
+				return "", nil, "", err
+			}
+			u := ToUsage(final.Usage)
+			return final.Text, &u, final.FinishReason.Unified, err
+		}})
+		end := CompactEndEvent{Summary: res.Summary, CutAt: res.CutAt, TokensBefore: res.TokensBefore, TokensAfter: res.TokensAfter}
+		switch {
+		case ctx.Err() != nil:
+			// Cancelled because the user came back: not news.
+			end = CompactEndEvent{TokensBefore: int(used), Aborted: true}
+		case errors.Is(err, ErrNothingToCompact):
+			// The kept window is the whole conversation: an empty result.
+		case err != nil:
+			end = CompactEndEvent{TokensBefore: int(used), Error: err.Error()}
+		}
+		emit("compact-end", end)
+	})
 }
 
 func firstErr(errs ...error) error {

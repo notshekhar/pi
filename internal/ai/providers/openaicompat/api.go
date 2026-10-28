@@ -47,6 +47,10 @@ type apiMessage struct {
 	// only carries tool calls, because some gateways reject a null content.
 	Content any `json:"content,omitempty"`
 
+	// ReasoningContent replays an assistant turn's reasoning. A pointer, so
+	// a model that requires the field gets it even when empty.
+	ReasoningContent *string `json:"reasoning_content,omitempty"`
+
 	// ToolCalls is set on assistant messages.
 	ToolCalls []apiToolCall `json:"tool_calls,omitempty"`
 
@@ -65,6 +69,15 @@ type contentPart struct {
 
 	ImageURL *imageURL `json:"image_url,omitempty"`
 	File     *fileData `json:"file,omitempty"`
+
+	// CacheControl marks a prompt-cache breakpoint after this part.
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+// cacheControl is Anthropic's breakpoint, as gateways relay it.
+type cacheControl struct {
+	Type string `json:"type"`
+	TTL  string `json:"ttl,omitempty"`
 }
 
 // imageURL holds an image as a URL or a data: URI.
@@ -159,9 +172,7 @@ type apiUsage struct {
 	CompletionTokens int64 `json:"completion_tokens"`
 	TotalTokens      int64 `json:"total_tokens"`
 
-	PromptTokensDetails *struct {
-		CachedTokens int64 `json:"cached_tokens"`
-	} `json:"prompt_tokens_details"`
+	PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details"`
 
 	CompletionTokensDetails *struct {
 		ReasoningTokens int64 `json:"reasoning_tokens"`
@@ -175,6 +186,14 @@ type apiUsage struct {
 	// CachedTokens is Moonshot/Kimi's top-level spelling of the same
 	// figure. OpenAI nests it under prompt_tokens_details instead.
 	CachedTokens *int64 `json:"cached_tokens"`
+}
+
+// promptTokensDetails breaks prompt_tokens down.
+type promptTokensDetails struct {
+	CachedTokens int64 `json:"cached_tokens"`
+	// CacheWriteTokens is OpenRouter's count of tokens written to an
+	// explicit (Anthropic) cache, billed at the write price.
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
 }
 
 // cachedInputTokens returns the cache-read count from whichever field the

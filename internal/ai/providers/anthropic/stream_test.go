@@ -852,3 +852,60 @@ func TestStreamToleratesResponseCitations(t *testing.T) {
 			*in.Total, *in.CacheRead, *in.CacheWrite, *in.NoCache)
 	}
 }
+
+// message_delta usage merges field by field: a delta repeating input_tokens
+// without the cache fields keeps message_start's cache counts.
+func TestStreamUsageMergesFieldByField(t *testing.T) {
+	stream := strings.Replace(textStream,
+		`"usage":{"input_tokens":0,"output_tokens":7}`,
+		`"usage":{"input_tokens":10,"output_tokens":7,"output_tokens_details":{"thinking_tokens":3}}`, 1)
+	p, _, _ := newTestProvider(t, sseHandler(stream))
+	res, err := p.LanguageModel("claude-opus-5").DoStream(context.Background(), provider.CallOptions{
+		Prompt: provider.Prompt{provider.UserMessage{Content: []provider.UserPart{provider.TextPart{Text: "hi"}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finish *provider.Finish
+	for _, part := range collect(t, res) {
+		if v, ok := part.(provider.Finish); ok {
+			finish = &v
+		}
+	}
+	in, out := finish.Usage.InputTokens, finish.Usage.OutputTokens
+	if *in.CacheRead != 5 || *in.CacheWrite != 2 || *in.NoCache != 10 || *in.Total != 17 {
+		t.Errorf("input = %d (read %d, write %d, fresh %d), want 17 (5, 2, 10)",
+			*in.Total, *in.CacheRead, *in.CacheWrite, *in.NoCache)
+	}
+	if *out.Total != 7 || *out.Reasoning != 3 {
+		t.Errorf("output = %d (reasoning %d), want 7 (3)", *out.Total, *out.Reasoning)
+	}
+}
+
+// A stream cut off before message_stop is interrupted, even after
+// message_delta named a stop reason; the usage seen so far is kept.
+func TestStreamCutBeforeMessageStop(t *testing.T) {
+	cut := textStream[:strings.Index(textStream, "event: message_stop")]
+	p, _, _ := newTestProvider(t, sseHandler(cut))
+	res, err := p.LanguageModel("claude-opus-5").DoStream(context.Background(), provider.CallOptions{
+		Prompt: provider.Prompt{provider.UserMessage{Content: []provider.UserPart{provider.TextPart{Text: "hi"}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finish *provider.Finish
+	for _, part := range collect(t, res) {
+		switch v := part.(type) {
+		case provider.ErrorPart:
+			t.Fatalf("unexpected error: %v", v.Err)
+		case provider.Finish:
+			finish = &v
+		}
+	}
+	if finish == nil || finish.FinishReason.Unified != provider.FinishInterrupted {
+		t.Fatalf("finish = %+v, want interrupted", finish)
+	}
+	if *finish.Usage.InputTokens.CacheRead != 5 || *finish.Usage.OutputTokens.Total != 7 {
+		t.Errorf("usage lost: %+v", finish.Usage)
+	}
+}

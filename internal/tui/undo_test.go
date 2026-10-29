@@ -13,17 +13,29 @@ func press(e *Editor, kind KeyKind) {
 	e.Handle(Key{Kind: kind}, "")
 }
 
-// A run of typing undoes as one unit. Undoing a keystroke at a time is
-// technically correct and useless.
+func undo(e *Editor) { press(e, KeyCtrlMinus) }
+
+// A typed word undoes as one unit (loop's fish-style coalescing).
 func TestUndoCoalescesTyping(t *testing.T) {
 	e := NewEditor()
 	typeText(e, "hello")
-	if e.Value() != "hello" {
-		t.Fatalf("value = %q", e.Value())
-	}
-	press(e, KeyCtrlZ)
+	undo(e)
 	if e.Value() != "" {
-		t.Errorf("one undo left %q, want the whole run gone", e.Value())
+		t.Errorf("one undo left %q, want the whole word gone", e.Value())
+	}
+}
+
+// Each space opens a new unit that takes the following word with it.
+func TestUndoTakesASpaceWithTheWordAfterIt(t *testing.T) {
+	e := NewEditor()
+	typeText(e, "hello world")
+	undo(e)
+	if e.Value() != "hello" {
+		t.Errorf("after one undo = %q, want %q", e.Value(), "hello")
+	}
+	undo(e)
+	if e.Value() != "" {
+		t.Errorf("after two undos = %q", e.Value())
 	}
 }
 
@@ -31,48 +43,32 @@ func TestUndoCoalescesTyping(t *testing.T) {
 func TestUndoBreaksOnStructuralEdits(t *testing.T) {
 	e := NewEditor()
 	typeText(e, "first")
-	e.Handle(Key{Kind: KeyEnter, Alt: true}, "")
+	e.Handle(Key{Kind: KeyEnter, Shift: true}, "")
 	typeText(e, "second")
 
-	press(e, KeyCtrlZ) // the second run
+	undo(e) // the second run
 	if got := e.Value(); got != "first\n" {
 		t.Errorf("after one undo = %q, want %q", got, "first\n")
 	}
-	press(e, KeyCtrlZ) // the newline
+	undo(e) // the newline
 	if got := e.Value(); got != "first" {
 		t.Errorf("after two undos = %q, want %q", got, "first")
 	}
 }
 
-func TestRedo(t *testing.T) {
+// cmd+z under the kitty protocol is undo too.
+func TestSuperZUndoes(t *testing.T) {
 	e := NewEditor()
 	typeText(e, "hello")
-	press(e, KeyCtrlZ)
+	e.Handle(Key{Kind: KeyRune, Rune: 'z', Super: true}, "")
 	if e.Value() != "" {
-		t.Fatalf("undo failed: %q", e.Value())
-	}
-	press(e, KeyCtrlY)
-	if e.Value() != "hello" {
-		t.Errorf("redo = %q, want hello", e.Value())
-	}
-}
-
-// A new edit abandons the redo branch, as in every other editor.
-func TestNewEditDropsRedo(t *testing.T) {
-	e := NewEditor()
-	typeText(e, "hello")
-	press(e, KeyCtrlZ)
-	typeText(e, "world")
-	press(e, KeyCtrlY)
-	if e.Value() != "world" {
-		t.Errorf("redo resurrected a dead branch: %q", e.Value())
+		t.Errorf("cmd+z left %q", e.Value())
 	}
 }
 
 func TestUndoOnEmptyStackIsHarmless(t *testing.T) {
 	e := NewEditor()
-	press(e, KeyCtrlZ)
-	press(e, KeyCtrlY)
+	undo(e)
 	if e.Value() != "" {
 		t.Errorf("value = %q", e.Value())
 	}
@@ -83,10 +79,10 @@ func TestUndoOnEmptyStackIsHarmless(t *testing.T) {
 func TestSubmitResetsUndo(t *testing.T) {
 	e := NewEditor()
 	typeText(e, "sent")
-	if submit, _, _ := e.Handle(Key{Kind: KeyEnter}, ""); submit != "sent" {
+	if submit, _ := e.Handle(Key{Kind: KeyEnter}, ""); submit != "sent" {
 		t.Fatalf("submit = %q", submit)
 	}
-	press(e, KeyCtrlZ)
+	undo(e)
 	if e.Value() != "" {
 		t.Errorf("undo resurrected a submitted prompt: %q", e.Value())
 	}
@@ -95,9 +91,7 @@ func TestSubmitResetsUndo(t *testing.T) {
 func TestUndoRestoresCursor(t *testing.T) {
 	e := NewEditor()
 	typeText(e, "hello")
-	press(e, KeyCtrlZ)
-	// After undoing to an empty buffer the cursor must be inside it, or the
-	// next keystroke indexes out of range.
+	undo(e)
 	if e.row != 0 || e.col != 0 {
 		t.Errorf("cursor at %d,%d", e.row, e.col)
 	}
@@ -107,6 +101,7 @@ func TestUndoRestoresCursor(t *testing.T) {
 	}
 }
 
+// Every backspace is its own unit, as in loop.
 func TestBackspaceIsUndoable(t *testing.T) {
 	e := NewEditor()
 	typeText(e, "hello")
@@ -115,9 +110,9 @@ func TestBackspaceIsUndoable(t *testing.T) {
 	if e.Value() != "hel" {
 		t.Fatalf("value = %q", e.Value())
 	}
-	press(e, KeyCtrlZ)
-	if e.Value() != "hello" {
-		t.Errorf("undo after backspace = %q, want hello", e.Value())
+	undo(e)
+	if e.Value() != "hell" {
+		t.Errorf("undo after backspace = %q, want hell", e.Value())
 	}
 }
 
@@ -125,7 +120,7 @@ func TestBackspaceIsUndoable(t *testing.T) {
 func TestUndoStackIsBounded(t *testing.T) {
 	var u undoStack
 	for i := 0; i < maxUndo*3; i++ {
-		u.record(editState{}, kindNone)
+		u.push(editState{})
 	}
 	if len(u.past) > maxUndo {
 		t.Errorf("stack grew to %d, cap is %d", len(u.past), maxUndo)

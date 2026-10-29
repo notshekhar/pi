@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -334,6 +336,47 @@ func (t *repl) paste(rest string) {
 		return
 	}
 	t.do(func() { t.app.InsertDraft(text) })
+}
+
+// clipboardPaste is ctrl+v (loop's input handler): an image on the clipboard
+// attaches; otherwise its text goes in at the cursor, and an empty clipboard
+// says so rather than doing nothing. imageOnly is the empty bracketed paste a
+// terminal sends for cmd+v over an image, which never falls back to text.
+func (t *repl) clipboardPaste(imageOnly bool) {
+	if img, err := clipboardImage(); err == nil && img != "" {
+		t.attach(img)
+		return
+	}
+	if imageOnly {
+		return
+	}
+	if text, err := clipboardRead(); err == nil && text != "" {
+		t.do(func() { t.app.InsertText(text) })
+		return
+	}
+	if runtime.GOOS == "darwin" {
+		t.dim("clipboard is empty — copy an image (screenshot, or Cmd+C in Preview/Finder) or some text, or press Ctrl+I to pick a file.")
+	} else {
+		t.dim("clipboard is empty, and reading images from it is macOS-only for now — use Ctrl+I to pick a file, or `/attach <path>`.")
+	}
+}
+
+// pickImageFile asks for an image in the macOS file picker; "" when
+// cancelled or on any other platform.
+func pickImageFile() string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	out, err := exec.Command("osascript", "-e", `try
+  set theFile to choose file of type {"public.image"} with prompt "Attach image"
+  return POSIX path of theFile
+on error
+  return ""
+end try`).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // importSession reads a JSONL conversation into a new session.

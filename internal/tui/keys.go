@@ -17,8 +17,12 @@ type Key struct {
 	// happens under the kitty keyboard protocol. It is what separates a real
 	// ctrl+e from a terminal macro sending the same byte — see kitty.go.
 	Unambiguous bool
-	// Ctrl is set for a modified navigation key (ctrl+up, ctrl+left).
+	// Ctrl is set for a modified navigation key (ctrl+up, ctrl+left), and
+	// on KeyEnter for ctrl+j, the bare LF loop reads as a newline.
 	Ctrl bool
+	// Super is cmd on a mac, which only reaches the app under the kitty
+	// protocol (cmd+← as `1;9D`, cmd+z as `122;9u`).
+	Super bool
 	// Mouse is the report for a KeyMouse event.
 	Mouse MouseEvent
 }
@@ -58,6 +62,15 @@ const (
 	KeyCtrlT
 	KeyCtrlO
 	KeyCtrlS
+	KeyCtrlB
+	KeyCtrlF
+	KeyCtrlV
+	// KeyCtrlI only arrives under the kitty protocol: legacy ctrl+i is Tab.
+	KeyCtrlI
+	// KeyCtrlBracket is ctrl+] (with Alt, ctrl+alt+]): loop's jump-to-char.
+	KeyCtrlBracket
+	// KeyCtrlMinus is ctrl+- (legacy 0x1f): loop's undo.
+	KeyCtrlMinus
 	KeyPaste
 	// KeyMouse is any SGR mouse report: press, release, motion or wheel.
 	KeyMouse
@@ -238,6 +251,16 @@ func decodeKeyFull(b []byte) (Key, int) {
 		return Key{Kind: KeyRune, Rune: ' '}, 1 // ctrl+space
 	case 1:
 		return Key{Kind: KeyCtrlA}, 1
+	case 2:
+		return Key{Kind: KeyCtrlB}, 1
+	case 6:
+		return Key{Kind: KeyCtrlF}, 1
+	case 22:
+		return Key{Kind: KeyCtrlV}, 1
+	case 0x1d:
+		return Key{Kind: KeyCtrlBracket}, 1
+	case 0x1f:
+		return Key{Kind: KeyCtrlMinus}, 1
 	case 3:
 		return Key{Kind: KeyCtrlC}, 1
 	case 4:
@@ -268,8 +291,11 @@ func decodeKeyFull(b []byte) (Key, int) {
 		return Key{Kind: KeyCtrlZ}, 1
 	case 9:
 		return Key{Kind: KeyTab}, 1
-	case '\r', '\n':
+	case '\r':
 		return Key{Kind: KeyEnter}, 1
+	case '\n':
+		// ctrl+j, or Ghostty's shift+enter mapping: a newline, never submit.
+		return Key{Kind: KeyEnter, Ctrl: true}, 1
 	case 127, 8:
 		return Key{Kind: KeyBackspace}, 1
 	case 0x1b:
@@ -301,6 +327,12 @@ func decodeEscape(b []byte) (Key, int) {
 			return Key{Kind: KeyEnd}, 3
 		}
 		return Key{Kind: KeyEsc}, 1
+	case 0x7f, 0x08:
+		return Key{Kind: KeyBackspace, Alt: true}, 2
+	case 0x1d:
+		return Key{Kind: KeyCtrlBracket, Alt: true}, 2
+	case 0x1f:
+		return Key{Kind: KeyCtrlMinus, Alt: true}, 2
 	default:
 		if len(b) >= 2 && b[1] >= 32 && b[1] != 127 {
 			r, n := utf8.DecodeRune(b[1:])
@@ -337,16 +369,17 @@ func decodeCSI(b []byte) (Key, int) {
 	if params == "" && final == 'O' {
 		return Key{Kind: KeyFocusOut}, n
 	}
-	shift, alt, ctrl := false, false, false
+	shift, alt, ctrl, super := false, false, false, false
 	// The modifier is the second param, 1 + a bitmask: 1 shift, 2 alt,
 	// 4 ctrl, 8 super. ctrl+up is `1;5A`.
 	if j := strings.IndexByte(params, ';'); j >= 0 {
-		if m, err := strconv.Atoi(params[j+1:]); err == nil && m > 0 {
+		mod, _, _ := strings.Cut(params[j+1:], ";")
+		if m, err := strconv.Atoi(mod); err == nil && m > 0 {
 			bits := m - 1
-			shift, alt, ctrl = bits&1 != 0, bits&2 != 0, bits&4 != 0
+			shift, alt, ctrl, super = bits&1 != 0, bits&2 != 0, bits&4 != 0, bits&8 != 0
 		}
 	}
-	key := func(k KeyKind) Key { return Key{Kind: k, Shift: shift, Alt: alt, Ctrl: ctrl} }
+	key := func(k KeyKind) Key { return Key{Kind: k, Shift: shift, Alt: alt, Ctrl: ctrl, Super: super} }
 	switch final {
 	case 'A':
 		return key(KeyUp), n
@@ -371,13 +404,18 @@ func decodeCSI(b []byte) (Key, int) {
 		// sequence would close whatever the user had open.
 		return Key{}, n
 	case '~':
+		// shift+enter: `13;2~`, or xterm's modifyOtherKeys `27;2;13~`.
+		if params == "13;2" || params == "27;2;13" {
+			return Key{Kind: KeyEnter, Shift: true}, n
+		}
+		if params == "3" || strings.HasPrefix(params, "3;") {
+			return key(KeyDelete), n
+		}
 		switch params {
 		case "1", "7":
 			return key(KeyHome), n
 		case "4", "8":
 			return key(KeyEnd), n
-		case "3", "3;2", "3;3", "3;5":
-			return key(KeyDelete), n
 		case "5", "5;5":
 			return key(KeyPageUp), n
 		case "6", "6;5":

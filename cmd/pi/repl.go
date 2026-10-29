@@ -392,6 +392,14 @@ func (t *repl) pump(parent context.Context) {
 			t.submit(parent, "continue")
 		case tui.EvClearScreen:
 			t.clearScreen()
+		case tui.EvClipboardPaste:
+			go t.clipboardPaste(ev.Text == "image")
+		case tui.EvPickImage:
+			go func() {
+				if path := pickImageFile(); path != "" {
+					t.attach(path)
+				}
+			}()
 		case tui.EvCycleModel:
 			t.cycleModel()
 		case tui.EvSwitcher:

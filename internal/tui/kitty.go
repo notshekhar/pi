@@ -115,8 +115,20 @@ func decodeKittyKey(params string) (Key, bool) {
 		}
 	}
 	bits := mod - 1
-	ctrl, shift, alt := bits&4 != 0, bits&1 != 0, bits&2 != 0
+	ctrl, shift, alt, super := bits&4 != 0, bits&1 != 0, bits&2 != 0, bits&8 != 0
 
+	switch cp {
+	case 13:
+		return Key{Kind: KeyEnter, Shift: shift, Alt: alt, Ctrl: ctrl, Super: super}, true
+	case 127:
+		return Key{Kind: KeyBackspace, Shift: shift, Alt: alt, Ctrl: ctrl, Super: super}, true
+	}
+	if super {
+		if cp >= 32 {
+			return Key{Kind: KeyRune, Rune: rune(cp), Super: true, Shift: shift, Alt: alt, Ctrl: ctrl}, true
+		}
+		return Key{}, false
+	}
 	if ctrl {
 		// The one that matters, and the reason this file exists.
 		if cp == 'e' {
@@ -124,13 +136,12 @@ func decodeKittyKey(params string) (Key, bool) {
 		}
 		if k, ok := ctrlRuneKey(rune(cp)); ok {
 			k.Shift = shift
+			k.Alt = k.Alt || alt
 			return k, true
 		}
 		return Key{}, false
 	}
 	switch cp {
-	case 13:
-		return Key{Kind: KeyEnter, Shift: shift, Alt: alt}, true
 	case 27:
 		return Key{Kind: KeyEsc}, true
 	case 9:
@@ -138,8 +149,6 @@ func decodeKittyKey(params string) (Key, bool) {
 			return Key{Kind: KeyBacktab}, true
 		}
 		return Key{Kind: KeyTab}, true
-	case 127:
-		return Key{Kind: KeyBackspace}, true
 	}
 	if cp >= 32 && cp != 127 {
 		return Key{Kind: KeyRune, Rune: rune(cp), Alt: alt, Shift: shift}, true
@@ -153,6 +162,20 @@ func ctrlRuneKey(r rune) (Key, bool) {
 	switch r {
 	case 'a':
 		return Key{Kind: KeyCtrlA}, true
+	case 'b':
+		return Key{Kind: KeyCtrlB}, true
+	case 'f':
+		return Key{Kind: KeyCtrlF}, true
+	case 'v':
+		return Key{Kind: KeyCtrlV}, true
+	case 'i':
+		return Key{Kind: KeyCtrlI}, true
+	case 'j':
+		return Key{Kind: KeyEnter, Ctrl: true}, true
+	case ']':
+		return Key{Kind: KeyCtrlBracket}, true
+	case '-':
+		return Key{Kind: KeyCtrlMinus}, true
 	case 'c':
 		return Key{Kind: KeyCtrlC}, true
 	case 'd':

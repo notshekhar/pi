@@ -15,7 +15,8 @@ func composerLine(t *testing.T, text string) string {
 	if len(lines) < 2 {
 		t.Fatalf("composer rendered %d rows", len(lines))
 	}
-	return lines[1]
+	// The drawn cursor cell is not part of the tint.
+	return strings.Replace(lines[1], "\x1b[7m \x1b[0m", " ", 1)
 }
 
 // The leading command token is tinted as it is typed. It is the fastest
@@ -40,18 +41,10 @@ func TestComposerTintsTheCommandToken(t *testing.T) {
 	}
 }
 
-// A bang runs the rest of the line as a shell command, so only the marker is
-// the token — the command itself is the user's text, not ours to colour.
-func TestComposerTintsOnlyTheBang(t *testing.T) {
-	line := composerLine(t, "!ls -la")
-	if !strings.Contains(line, "\x1b[") {
-		t.Fatalf("no styling on a bash line: %q", line)
-	}
-	if strings.Contains(line, "\x1b[39mls") {
-		return // marker closed before "ls" — correct
-	}
-	if !strings.Contains(stripANSI(line), "!ls -la") {
-		t.Errorf("text mangled: %q", stripANSI(line))
+// loop tints only a leading `/command`; a bang line is left as typed.
+func TestComposerLeavesABangAlone(t *testing.T) {
+	if line := composerLine(t, "!ls -la"); strings.Contains(line, "\x1b[38") {
+		t.Errorf("tinted a bash line: %q", line)
 	}
 }
 

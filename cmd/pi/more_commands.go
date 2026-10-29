@@ -188,27 +188,32 @@ func (t *repl) hotkeys() {
 	// The rows also name the terminal-dependent chords honestly. A binding
 	// that only works under the kitty protocol says so, rather than looking
 	// broken on a terminal that cannot send it.
+	// loop's showHotkeys, less its transcript search, which pi does not have.
 	bindings := [][2]string{
 		{"Enter", "submit"},
-		{"Alt+Enter", "newline"},
+		{"Shift+Enter", "newline"},
 		{"Tab", "completion (slash commands, @ files)"},
 		{"Shift+Tab", "cycle agent"},
 		{"@ / #", "file completion while typing"},
 		{"Up / Down", "history (Up on first line, like a shell)"},
-		{"Ctrl+A / Ctrl+E", "line start / line end"},
-		{"Ctrl+W / Ctrl+U", "delete word · delete line"},
-		{"Ctrl+K", "delete to end of line"},
-		{"Ctrl+Z / Ctrl+Y", "undo · redo"},
+		{"Cmd+Backspace", "delete to line start (kitty-protocol terminals)"},
+		{"Cmd+←/→ ↑/↓", "line start/end · input start/end"},
+		{"Cmd+Z / Ctrl+-", "undo"},
 		{"Opt+←/→", "word jump · Opt+Backspace delete word"},
+		{"Ctrl+V", "attach image from clipboard (Cmd+V is the terminal's)"},
+		{"Ctrl+I", "attach image from a file picker"},
 		{"Esc", "abort current turn"},
 		{"Ctrl+C", "abort, twice to quit"},
 		{"Ctrl+D", "quit (empty)"},
 		{"Ctrl+G", `send "continue" (resume interrupted work)`},
 		{"Ctrl+L", "clear screen"},
 		{"Ctrl+P", "cycle scoped models"},
-		{"PgUp / PgDn", "scroll the transcript"},
-		{"Ctrl+E", "navigate transcript;"},
-		{"", "inside: arrows select, e expand all, Esc exit"},
+		{"Ctrl+E", "give the keyboard to the transcript;"},
+		{"", "inside: arrows or a click select, →/← open/fold, e expand all,"},
+		{"", "d density, y copy, Esc back to the prompt"},
+		{"PgUp / PgDn", "scroll the conversation · Home / End top / bottom"},
+		{"Ctrl+↑/↓", "jump to the previous / next prompt"},
+		{"Mouse", "wheel scrolls, drag selects text (click selects an entry in Ctrl+E)"},
 	}
 
 	// One column width for the whole table, sized to the widest key. A fixed

@@ -88,7 +88,7 @@ func TestPrefixMatchesRankFirst(t *testing.T) {
 func TestEnterRunsTheSelectedCommand(t *testing.T) {
 	e := newComposer(testCommands(), nil)
 	typeText(e, "/comp")
-	submit, _, _ := e.Handle(Key{Kind: KeyEnter}, "")
+	submit, _ := e.Handle(Key{Kind: KeyEnter}, "")
 	if submit != "/compact" {
 		t.Errorf("submitted %q, want /compact", submit)
 	}
@@ -105,12 +105,13 @@ func TestEnterRunsTheSelectedCommand(t *testing.T) {
 func TestTabAcceptsWithoutRunning(t *testing.T) {
 	e := newComposer(testCommands(), nil)
 	typeText(e, "/comp")
-	submit, _, _ := e.Handle(Key{Kind: KeyTab}, "")
+	submit, _ := e.Handle(Key{Kind: KeyTab}, "")
 	if submit != "" {
 		t.Errorf("tab submitted %q; it must only complete", submit)
 	}
-	if e.Value() != "/compact" {
-		t.Errorf("draft = %q, want /compact", e.Value())
+	// loop's applyCompletion leaves a space for the arguments.
+	if e.Value() != "/compact " {
+		t.Errorf("draft = %q, want %q", e.Value(), "/compact ")
 	}
 }
 
@@ -118,7 +119,7 @@ func TestArrowsMoveTheSelectionWithoutTyping(t *testing.T) {
 	e := newComposer(testCommands(), nil)
 	typeText(e, "/co")
 	press(e, KeyDown)
-	submit, _, _ := e.Handle(Key{Kind: KeyEnter}, "")
+	submit, _ := e.Handle(Key{Kind: KeyEnter}, "")
 	if submit != "/context" {
 		t.Errorf("submitted %q, want the second match", submit)
 	}
@@ -130,7 +131,7 @@ func TestEnterOnAFileCompletionDoesNotSubmit(t *testing.T) {
 	files := func(string) []Item { return []Item{{Value: "@main.go", Label: "main.go"}} }
 	e := newComposer(testCommands(), files)
 	typeText(e, "look at @mai")
-	submit, _, _ := e.Handle(Key{Kind: KeyEnter}, "")
+	submit, _ := e.Handle(Key{Kind: KeyEnter}, "")
 	if submit != "" {
 		t.Errorf("a file completion submitted %q", submit)
 	}
@@ -212,10 +213,13 @@ func TestComposerCursorSitsAfterTheText(t *testing.T) {
 	if curRow != 1 {
 		t.Errorf("curRow = %d, want 1 (under the top rule)", curRow)
 	}
-	drafted := stripANSI(lines[curRow])
-	// One column of padding, then the text, then the cursor.
+	drafted := strings.TrimRight(stripANSI(lines[curRow]), " ")
+	// One column of padding, then the text, then the cursor cell.
 	if drafted != " hello" {
 		t.Errorf("draft line = %q, want %q", drafted, " hello")
+	}
+	if !strings.Contains(lines[curRow], "\x1b[7m \x1b[0m") {
+		t.Errorf("no drawn cursor cell after the text: %q", lines[curRow])
 	}
 	if curCol != len(" hello") {
 		t.Errorf("curCol = %d, want %d (just past the text)", curCol, len(" hello"))

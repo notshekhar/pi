@@ -305,6 +305,9 @@ type App struct {
 	// liveVariant is loop's live look applied outside navigation: runs of
 	// finished tool calls stay folded into one row while you are typing.
 	liveVariant bool
+	// lastCtrlC is when ctrl+c was last pressed idle: a second press inside
+	// a second quits.
+	lastCtrlC time.Time
 	// hooks report what the app is doing to whoever is watching the pane.
 	hooks StatusHooks
 	// needsPaint is the frame the loop owes: set by anything that changes
@@ -344,6 +347,12 @@ const (
 	EvAbort
 	// EvSwitcher is ctrl+s: the live-session switcher.
 	EvSwitcher
+	// EvClipboardPaste is ctrl+v, or an empty bracketed paste (cmd+v with
+	// an image on the clipboard): attach the image, else paste the text.
+	// Text is "image" for the empty paste, which never falls back to text.
+	EvClipboardPaste
+	// EvPickImage is ctrl+i: attach an image chosen in a file picker.
+	EvPickImage
 )
 
 // NewApp boots the terminal: alt screen, raw mode, bracketed paste, canvas.
@@ -474,28 +483,37 @@ func (a *App) SetSources(commands []Item, files func(string) []Item) {
 	a.files = files
 }
 
-// complete supplies candidates for the word under the cursor.
-//
-// The word carries its own trigger, so this switches on the word's first
-// character rather than on what precedes it.
-func (a *App) complete(word string) []Item {
-	switch {
-	case strings.HasPrefix(word, "/"):
-		// A slash command is only a command at the very start of the draft;
-		// anywhere else a slash is just a path separator.
-		if a.editor.row != 0 || a.editor.col != len([]rune(word)) {
-			return nil
+// complete is loop's CombinedAutocompleteProvider.getSuggestions: an `@`
+// token completes files, a leading `/` completes commands, and anything else
+// completes a path only when it looks like one — or always, on a forced Tab.
+func (a *App) complete(before string, force bool) ([]Item, string) {
+	tokenStart := strings.LastIndexAny(before, " \t\"'=") + 1
+	token := before[tokenStart:]
+	if strings.HasPrefix(token, "@") {
+		if a.files == nil {
+			return nil, ""
 		}
-		return matchCommands(a.commands, strings.TrimPrefix(word, "/"))
-
-	// Both triggers, because both are habits people arrive with: `@` from
-	// chat clients, `#` from issue trackers and from Claude Code.
-	case strings.HasPrefix(word, "@"), strings.HasPrefix(word, "#"):
-		if a.files != nil {
-			return a.files(word[1:])
-		}
+		return a.files(token[1:]), token
 	}
-	return nil
+	if !force && strings.HasPrefix(before, "/") {
+		if strings.Contains(before, " ") {
+			// No command here completes its arguments.
+			return nil, ""
+		}
+		return matchCommands(a.commands, before[1:]), before
+	}
+	if !force && !strings.Contains(token, "/") && !strings.HasPrefix(token, ".") && !strings.HasPrefix(token, "~/") &&
+		!(token == "" && strings.HasSuffix(before, " ")) {
+		return nil, ""
+	}
+	if a.files == nil {
+		return nil, ""
+	}
+	items := a.files(token)
+	for i := range items {
+		items[i].Value = strings.TrimPrefix(items[i].Value, "@")
+	}
+	return items, token
 }
 
 // Close restores the terminal.
@@ -1463,24 +1481,12 @@ func (a *App) onKey(k Key) {
 		// Not the chord — it is a macro's `\x05`, which means end-of-line.
 		// Fall through to the editor.
 	}
-	// During a turn the editor still accepts keys, but Esc interrupts
-	// instead of clearing — and ctrl+c interrupts AND empties the queue.
-	if a.loader != nil && k.Kind == KeyEsc {
-		a.Events <- Event{Kind: EvInterrupt}
-		return
-	}
-	if a.loader != nil && k.Kind == KeyCtrlC {
-		a.Events <- Event{Kind: EvAbort}
-		return
-	}
-	// The chords the composer does not own. Handled before the editor so a
-	// binding can never be swallowed by a completion menu or a draft.
+	// The chords the composer does not own, in loop's input-handler order.
+	// Handled before the editor so a binding can never be swallowed by a
+	// completion menu or a draft.
 	switch k.Kind {
 	case KeyBacktab:
 		a.Events <- Event{Kind: EvCycleAgent}
-		return
-	case KeyCtrlG:
-		a.Events <- Event{Kind: EvContinue}
 		return
 	case KeyCtrlL:
 		a.Events <- Event{Kind: EvClearScreen}
@@ -1488,28 +1494,62 @@ func (a *App) onKey(k Key) {
 	case KeyCtrlP:
 		a.Events <- Event{Kind: EvCycleModel}
 		return
+	case KeyCtrlV:
+		// Ctrl+V is the paste chord a raw-mode terminal reliably delivers:
+		// an image on the clipboard attaches, text goes into the draft.
+		a.Events <- Event{Kind: EvClipboardPaste}
+		return
+	case KeyCtrlI:
+		a.Events <- Event{Kind: EvPickImage}
+		return
+	case KeyCtrlG:
+		if a.loader == nil {
+			a.Events <- Event{Kind: EvContinue}
+			return
+		}
 	case KeyCtrlS:
 		a.Events <- Event{Kind: EvSwitcher}
 		return
+	case KeyCtrlD:
+		// Quit when idle, whatever is typed; mid-turn it deletes forward.
+		if a.loader == nil {
+			a.Events <- Event{Kind: EvQuit}
+			return
+		}
+	case KeyCtrlC:
+		if a.loader != nil {
+			a.Events <- Event{Kind: EvAbort}
+			return
+		}
+		// Twice within a second quits; once says so, and leaves the draft.
+		now := time.Now()
+		if now.Sub(a.lastCtrlC) < time.Second {
+			a.Events <- Event{Kind: EvQuit}
+			return
+		}
+		a.lastCtrlC = now
+		a.Print(a.theme.Fg(SlotDim, "Press Ctrl+C again to quit."))
+		return
+	case KeyEsc:
+		// Esc interrupts a turn; idle it is the editor's (closing a list)
+		// and otherwise nothing at all.
+		if a.loader != nil {
+			a.Events <- Event{Kind: EvInterrupt}
+			return
+		}
 	}
 	if k.Kind == KeyPaste {
-		// A paste may be a file path; InsertDraft decides.
-		a.InsertDraft(a.keys.PasteText())
+		a.PasteDraft(a.keys.PasteText())
 		return
 	}
 	// A keystroke for a prompt that is scrolled off brings it back.
 	a.revealPrompt()
-	submit, quit, handled := a.editor.Handle(k, a.keys.PasteText())
-	if !handled {
+	a.editor.TermRows = a.size.Rows
+	submit, submitted := a.editor.Handle(k, a.keys.PasteText())
+	if !submitted || submit == "" {
 		return
 	}
-	if quit {
-		a.Events <- Event{Kind: EvQuit}
-		return
-	}
-	if submit == "" {
-		return
-	}
+	a.editor.PushHistory(submit)
 	a.scrollTranscriptToEnd()
 	switch {
 	case strings.HasPrefix(submit, "!"):
@@ -1593,7 +1633,9 @@ func (a *App) render() {
 		a.revealSelection()
 	}
 	a.screen.TickAutoScroll()
-	a.screen.ShowCursor = !a.nav && a.confirm == nil && a.modal == nil && a.tree == nil
+	// The composer draws its own cursor cell, as loop's does; the terminal's
+	// is shown only on request, and never over a modal.
+	a.screen.ShowCursor = HardwareCursor() && !a.nav && a.confirm == nil && a.modal == nil && a.tree == nil
 	a.screen.Render()
 }
 
@@ -1892,6 +1934,27 @@ func (a *App) InsertDraft(text string) {
 		return
 	}
 	a.editor.Insert(text)
+}
+
+// InsertText types text at the cursor as one edit (loop's
+// insertTextAtCursor), with no attachment sniffing and no paste marker.
+func (a *App) InsertText(text string) { a.editor.Insert(text) }
+
+// PasteDraft is a bracketed paste: a dropped file attaches, an empty paste
+// asks for the clipboard image, and anything else is the editor's paste —
+// large pastes collapse to a marker.
+func (a *App) PasteDraft(text string) {
+	if strings.TrimSpace(text) == "" {
+		a.Events <- Event{Kind: EvClipboardPaste, Text: "image"}
+		return
+	}
+	if att, ok := DetectAttachment(text); ok {
+		a.attachments = append(a.attachments, att)
+		a.Print(a.theme.Fg(SlotDim, "attached "+att.Label()))
+		return
+	}
+	a.revealPrompt()
+	a.editor.Paste(text)
 }
 
 // AddAttachment queues an image for the next message, as a drag-drop does.

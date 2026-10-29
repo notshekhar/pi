@@ -43,12 +43,8 @@ func (p *Prompt) Handle(k Key, pasteText string) (done bool) {
 		p.Result <- ""
 		return true
 	}
-	submit, quit, _ := p.editor.Handle(k, pasteText)
-	if quit {
-		p.Result <- ""
-		return true
-	}
-	if submit != "" || k.Kind == KeyEnter {
+	submit, submitted := p.editor.Handle(k, pasteText)
+	if submitted {
 		p.Result <- strings.TrimSpace(submit)
 		return true
 	}

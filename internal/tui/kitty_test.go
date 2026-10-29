@@ -14,8 +14,8 @@ func TestCmdRightDoesNotToggleNav(t *testing.T) {
 	if n != 1 || macro.Kind != KeyCtrlE {
 		t.Fatalf("\\x05 decoded as %v (%d bytes)", macro.Kind, n)
 	}
-	if navToggle(macro) {
-		t.Error("a terminal macro's \\x05 toggled nav mode")
+	if navToggle(macro, false) {
+		t.Error("a terminal macro's \\x05 toggled nav mode over a draft")
 	}
 
 	// What the keyboard sends once the protocol is negotiated.
@@ -23,7 +23,7 @@ func TestCmdRightDoesNotToggleNav(t *testing.T) {
 	if n != 8 || real.Kind != KeyCtrlE || !real.Unambiguous {
 		t.Fatalf("ctrl+e CSI-u decoded as %+v (%d bytes)", real, n)
 	}
-	if !navToggle(real) {
+	if !navToggle(real, false) {
 		t.Error("a real ctrl+e did not toggle nav mode")
 	}
 }
@@ -33,8 +33,20 @@ func TestCmdRightDoesNotToggleNav(t *testing.T) {
 func TestBareByteStillWorksWithoutTheProtocol(t *testing.T) {
 	SetKittyForTest(false)
 	k, _ := decodeKeyFull([]byte{0x05})
-	if !navToggle(k) {
+	if !navToggle(k, false) {
 		t.Error("ctrl+e stopped working on a terminal without the kitty protocol")
+	}
+}
+
+// A terminal (a cmux tab) can negotiate the protocol and still send ctrl+e
+// bare. On an empty prompt end-of-line moves nothing, so the bare byte there
+// opens nav — otherwise nav would be unreachable in that terminal.
+func TestBareByteOpensNavOnAnEmptyPrompt(t *testing.T) {
+	SetKittyForTest(true)
+	defer SetKittyForTest(false)
+	k, _ := decodeKeyFull([]byte{0x05})
+	if !navToggle(k, true) {
+		t.Error("bare ctrl+e on an empty prompt did not open nav")
 	}
 }
 

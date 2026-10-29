@@ -1320,7 +1320,7 @@ func (a *App) navKey(k Key) bool {
 	case k.Kind == KeyCtrlE:
 		// Only a REAL ctrl+e. A terminal macro sending the same byte (Ghostty's
 		// cmd+→) is line navigation and must not drop you out of nav.
-		if !navToggle(k) {
+		if !navToggle(k, a.editor.Value() == "") {
 			return true
 		}
 		a.exitNav()
@@ -1506,7 +1506,7 @@ func (a *App) onKey(k Key) {
 	}
 	switch k.Kind {
 	case KeyCtrlE:
-		if navToggle(k) {
+		if navToggle(k, a.editor.Value() == "") {
 			a.enterNav()
 			return
 		}

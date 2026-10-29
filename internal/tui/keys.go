@@ -132,6 +132,7 @@ func (d *KeyDecoder) readLoop() {
 		// Copied: the chunk crosses a channel and buf is reused immediately.
 		chunk := make([]byte, n)
 		copy(chunk, buf[:n])
+		logKeyBytes(chunk)
 		select {
 		case d.bytes <- chunk:
 		case <-d.quit:

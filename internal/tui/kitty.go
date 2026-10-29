@@ -208,10 +208,15 @@ func ctrlRuneKey(r rune) (Key, bool) {
 
 // navToggle reports whether a key should turn nav mode on or off.
 //
-// This is the whole point of the negotiation. With the protocol active only
-// the CSI-u form counts, so Ghostty's cmd+→ — which sends the bare `\x05` —
-// moves to the end of the line and nothing else. Without it, the bare byte is
-// the only ctrl+e a terminal can send and has to be honoured.
-func navToggle(k Key) bool {
-	return k.Kind == KeyCtrlE && (k.Unambiguous || !KittyActive())
+// With the protocol active, the CSI-u form is the real ctrl+e, and Ghostty's
+// cmd+→ — which sends the bare `\x05` — moves to the end of the line instead.
+// Without it, the bare byte is the only ctrl+e a terminal can send and has
+// to be honoured.
+//
+// promptEmpty widens that: a terminal can say it speaks the protocol and
+// still deliver some keys bare — a multiplexer's tab passing ctrl+e through
+// unencoded is how nav became unreachable. End-of-line on an empty prompt
+// moves nothing, so there the bare byte can only mean nav, and is taken.
+func navToggle(k Key, promptEmpty bool) bool {
+	return k.Kind == KeyCtrlE && (k.Unambiguous || !KittyActive() || promptEmpty)
 }

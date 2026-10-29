@@ -329,6 +329,9 @@ func decodeEscape(b []byte) (Key, int) {
 		return Key{Kind: KeyEsc}, 1
 	case 0x7f, 0x08:
 		return Key{Kind: KeyBackspace, Alt: true}, 2
+	case '\r', '\n':
+		// alt+enter in a legacy terminal: a newline, never a submit.
+		return Key{Kind: KeyEnter, Alt: true}, 2
 	case 0x1d:
 		return Key{Kind: KeyCtrlBracket, Alt: true}, 2
 	case 0x1f:

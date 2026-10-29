@@ -363,3 +363,40 @@ func TestKittyChordsDecode(t *testing.T) {
 		}
 	}
 }
+
+// The byte sequences macOS terminals send for the editing chords: each must
+// edit the draft, and none may submit it or read as a lone Esc.
+func TestTerminalChordBytes(t *testing.T) {
+	cases := []struct{ name, seq, text, want string }{
+		{"alt+backspace legacy", "\x1b\x7f", "hello world", "hello "},
+		{"alt+backspace kitty", "\x1b[127;3u", "hello world", "hello "},
+		{"cmd+backspace ghostty", "\x15", "hello world", ""},
+		{"cmd+backspace kitty", "\x1b[127;9u", "hello world", ""},
+		{"shift+enter kitty", "\x1b[13;2u", "hello", "hello\n"},
+		{"shift+enter lf", "\n", "hello", "hello\n"},
+		{"shift+enter modifyOtherKeys", "\x1b[27;2;13~", "hello", "hello\n"},
+		{"alt+enter legacy", "\x1b\r", "hello", "hello\n"},
+		{"alt+enter kitty", "\x1b[13;3u", "hello", "hello\n"},
+		{"alt+left ghostty", "\x1bb", "hello world", "hello world"},
+	}
+	for _, c := range cases {
+		e := NewEditor()
+		e.SetValue(c.text)
+		for b := []byte(c.seq); len(b) > 0; {
+			k, n := decodeKeyFull(b)
+			if n == 0 {
+				t.Fatalf("%s: incomplete sequence", c.name)
+			}
+			if k.Kind == KeyEsc {
+				t.Errorf("%s: decoded a lone Esc", c.name)
+			}
+			if _, submitted := e.Handle(k, ""); submitted {
+				t.Errorf("%s: submitted the draft", c.name)
+			}
+			b = b[n:]
+		}
+		if e.Value() != c.want {
+			t.Errorf("%s: %q -> %q, want %q", c.name, c.text, e.Value(), c.want)
+		}
+	}
+}

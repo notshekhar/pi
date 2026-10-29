@@ -288,6 +288,7 @@ type App struct {
 	// revealSel asks the next frame to scroll the nav selection into view.
 	revealSel bool
 	mut       chan func()
+	title     tabTitle
 	modal     *Modal
 	tree      *TreeSelector
 	// sessionsChip is the other live sessions, on the usage row.
@@ -411,6 +412,7 @@ func NewApp(model, cwd string) (*App, error) {
 		// The conversation is printed into the normal screen on the way out,
 		// so it survives in the terminal's scrollback.
 		a.screen.Stop(true)
+		a.flushTitle()
 		ReleaseCanvas()
 		restore()
 	}
@@ -965,6 +967,7 @@ func (a *App) drain() {
 func (a *App) paint() {
 	a.needsPaint = false
 	a.paintedAt = time.Now()
+	a.flushTitle()
 	defer func() {
 		if r := recover(); r != nil {
 			a.screen.Invalidate()

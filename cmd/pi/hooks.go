@@ -12,6 +12,14 @@ import (
 
 // Hooks and skills, from the app's side.
 
+// watchHook tells the in-process watchers about an event without running
+// any hook command for it.
+func (t *repl) watchHook(hc hooks.Context) {
+	hc.CWD = t.cfg.CWD
+	hc.SessionID = t.run.Session.ID
+	hooks.Notify(hc)
+}
+
 // fireHook runs the hooks bound to an event and reports anything they said.
 //
 // Called from the turn goroutine, never the render loop: a hook is a
@@ -22,6 +30,11 @@ import (
 // has refused the call, and a caller that ignored that would leave the
 // feature looking like it worked while enforcing nothing.
 func (t *repl) fireHook(ctx context.Context, hc hooks.Context) hooks.Outcome {
+	hc.CWD = t.cfg.CWD
+	hc.SessionID = t.run.Session.ID
+	// Watchers first, and unconditionally: the common case (no command bound
+	// to the event) returns below.
+	hooks.Notify(hc)
 	cfg, err := config.LoadSettings().HookConfig()
 	if err != nil {
 		t.fail("%s", err)
@@ -30,8 +43,6 @@ func (t *repl) fireHook(ctx context.Context, hc hooks.Context) hooks.Outcome {
 	if len(cfg[hc.Event]) == 0 {
 		return hooks.Outcome{}
 	}
-	hc.CWD = t.cfg.CWD
-	hc.SessionID = t.run.Session.ID
 
 	outcome := hooks.Run(ctx, cfg, hc)
 	if len(outcome.Messages) == 0 && !outcome.Block {

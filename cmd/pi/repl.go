@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/notshekhar/pi/internal/core/cmux"
 	"github.com/notshekhar/pi/internal/core/shells"
 	"github.com/notshekhar/pi/internal/core/sound"
 	"os"
@@ -64,6 +65,8 @@ type shared struct {
 	telegram *gateway.Telegram
 	// status is what this pane is doing, for anything watching from outside.
 	status *status.Bus
+	// tab is the terminal's title: the session's name and its state.
+	tab tabTitle
 	// timerLabel is what the user typed for the running countdown, so
 	// /timer can report "45m left (of 1h)".
 	timerLabel string
@@ -193,6 +196,44 @@ func replTUI(parent context.Context, cfg config.Config, resumed *session.Session
 		},
 	})
 	defer reporter.Release()
+	// cmux (inert outside a cmux pane): every lifecycle event pi emits as a
+	// hook is mirrored into its Feed, the status chip follows the bus, and
+	// the prompts that stop the agent become actionable cards.
+	cmuxReporter := cmux.Attach(t.status, cmux.Options{
+		Disabled: !config.LoadSettings().CmuxOn(),
+		Session: func() (cmux.Session, bool) {
+			// An unsaved session is not one yet (loop's state.session is
+			// null until the first turn creates it): events wait for it.
+			s := t.run.Session
+			if s == nil || !s.Saved() {
+				return cmux.Session{}, false
+			}
+			return cmux.Session{ID: s.ID, Path: s.Path}, true
+		},
+		CWD: func() string { return t.cfg.CWD },
+	})
+	cmux.Set(cmuxReporter)
+	defer cmuxReporter.Release()
+	// Notification hook on agent-driven waits (Claude Code parity): when a
+	// prompt opens mid-turn, external watchers get the "needs attention"
+	// signal. Gated on a turn running, so user-opened menus don't ping.
+	t.status.On(func(e status.Event) {
+		if e.State != status.Blocked || !t.anyTurning() {
+			return
+		}
+		label := e.Label
+		if label == "" {
+			label = "prompt"
+		}
+		go t.fireHook(context.Background(), hooks.Context{
+			Event: hooks.Notification, Message: "Waiting for input: " + label, Title: "pi",
+		})
+	})
+	// Name the tab immediately. A resumed session carries its own title; a
+	// fresh one says which agent this pane is until its first turn earns
+	// one — either beats the stale shell command a terminal shows otherwise.
+	stopTab := t.tab.attach(t.status, app.SetTitle, tabNameFor(first))
+	defer stopTab()
 	t.mcp = mcp.NewManager()
 	defer t.mcp.Close()
 	// Language servers and anything else an extension spawned. Deferred here
@@ -324,7 +365,7 @@ func (t *repl) pump(parent context.Context) {
 			// Synchronous, and the last thing that happens: a SessionEnd hook
 			// that fired in a goroutine would routinely be killed by the exit
 			// before it did anything.
-			t.fireHook(context.Background(), hooks.Context{Event: hooks.SessionEnd})
+			t.fireHook(context.Background(), hooks.Context{Event: hooks.SessionEnd, Reason: "exit"})
 			t.app.Stop()
 			return
 		case tui.EvInterrupt:
@@ -427,6 +468,9 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 		t.firstPrompt = strings.SplitN(strings.TrimSpace(prompt), "\n", 2)[0]
 	}
 	t.setLiveStatus(t.slot, "working", "Generating")
+	// Everything the agent said this turn, across steps: the Stop payload
+	// and the session title both read it.
+	var said strings.Builder
 	go func() {
 		// loop's sound reporter: one cue per finished turn, error if anything
 		// went wrong; an interrupted turn stays silent (Esc played its own).
@@ -475,7 +519,13 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 			if t.live != nil {
 				t.live.turnEnded()
 			}
-			go t.fireHook(context.Background(), hooks.Context{Event: hooks.Stop})
+			go t.fireHook(context.Background(), hooks.Context{
+				Event: hooks.Stop, LastAssistantMessage: clipRunes(strings.TrimSpace(said.String()), 4_000),
+			})
+			// Name the session from its opening exchange, once. Detached:
+			// the prompt is already free and a title is never worth making
+			// anyone wait for.
+			go t.maybeTitleSession(prompt, said.String(), ctx.Err() != nil)
 			t.drainNext()
 		}()
 
@@ -491,8 +541,13 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 		final, err := t.run.RunTurn(ctx, agent.TurnOptions{
 			Input:   prompt,
 			Tracker: t.tracker(),
-			Tap:     func(p ai.StreamPart) { parts <- p },
-			Emit:    t.turnEvent,
+			Tap: func(p ai.StreamPart) {
+				if d, ok := p.(provider.TextDelta); ok {
+					said.WriteString(d.Delta)
+				}
+				parts <- p
+			},
+			Emit: t.turnEvent,
 		})
 		close(parts)
 		if rerr := <-rendered; rerr != nil && err == nil {
@@ -557,6 +612,11 @@ func (t *repl) part(part ai.StreamPart) error {
 		// The complete arguments have landed, so the row can show a real
 		// summary instead of whatever the partial JSON allowed.
 		t.app.ToolArgs(v.ToolCallID, decodeArgs(v.Input))
+		// With a PreToolUse hook bound, PreTool fires the event itself;
+		// without one the watchers still hear of the call.
+		if t.run.PreTool == nil {
+			t.watchHook(hooks.Context{Event: hooks.PreToolUse, ToolName: v.ToolName, ToolInput: decodeArgs(v.Input)})
+		}
 
 	case ai.ToolExecuted:
 		exec := v.Execution
@@ -571,8 +631,15 @@ func (t *repl) part(part ai.StreamPart) error {
 		}
 		// Off the render loop: a hook is a subprocess, and blocking the
 		// renderer on one would freeze the screen while it runs.
+		var out any
+		if exec.Err != nil {
+			out = exec.Err.Error()
+		} else {
+			out, _ = resultText(exec.Result)
+		}
 		go t.fireHook(context.Background(), hooks.Context{
 			Event: hooks.PostToolUse, ToolName: exec.ToolName, Success: exec.Err == nil,
+			ToolInput: decodeArgs(string(exec.Input)), ToolOut: out,
 		})
 
 	case provider.ErrorPart:
@@ -775,6 +842,9 @@ func (t *repl) newSession() {
 		t.app.ResetUsage(t.contextWindow())
 		t.redrawHeader()
 	})
+	// The tab named the session that just went away; a fresh one sits under
+	// the standing name until it earns its own.
+	t.setTabName(defaultTabName())
 	t.dim("new session")
 }
 

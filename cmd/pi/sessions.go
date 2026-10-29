@@ -171,6 +171,9 @@ func (t *repl) resume(id string) {
 	}
 	t.run.Session = loaded
 	t.run.Tools.Registry = tools.NewRegistry()
+	// The tab follows the session that is live now — the resumed one's own
+	// name if it has one, and the standing name if it never earned one.
+	t.setTabName(tabNameFor(t.slot))
 	cost := t.tracker().Format()
 	ctxTokens := int(agent.NewCostTracker().SeedFromSession(loaded))
 
@@ -297,5 +300,8 @@ func (t *repl) applySessionName(name string) {
 		t.fail("rename: %s", err)
 		return
 	}
+	// A name the user chose outranks the generated one everywhere the
+	// session is shown, the tab included.
+	t.setTabName(name)
 	t.dim("session name → %s", name)
 }

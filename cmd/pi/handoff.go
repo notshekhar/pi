@@ -131,6 +131,9 @@ func (t *repl) handoffFlow(ctx context.Context, focus string) error {
 		return err
 	}
 	t.run.Session = dest
+	if n := dest.Name(); n != "" {
+		t.setTabName(n)
+	}
 	t.run.Tools.Registry = tools.NewRegistry()
 	t.run.Tools.Todos.Clear()
 	t.lastContextTokens = 0

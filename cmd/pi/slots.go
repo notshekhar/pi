@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/notshekhar/pi/internal/core/cmux"
 	"sort"
 	"strings"
 	"sync"
@@ -246,14 +247,56 @@ func (t *repl) wireRun(s *slot) {
 			return ""
 		}
 		sound.Attention()
-		return app.AskChoice(question, options)
+		bridge := cmux.Current()
+		if !bridge.Active() {
+			return app.AskChoice(question, options)
+		}
+		// cmux's card for the same question: whichever answers first wins,
+		// and the loser is withdrawn.
+		remote := make(chan string, 1)
+		rctx, withdraw := context.WithCancel(ctx)
+		defer withdraw()
+		go func() {
+			opts := make([]cmux.Option, len(options))
+			for i, o := range options {
+				opts[i] = cmux.Option{Label: o}
+			}
+			sel := bridge.RequestQuestions(rctx, []cmux.Question{{Header: "question", Question: question, Options: opts}})
+			// No answer from cmux is not an answer: only the TUI settles it.
+			if len(sel) > 0 {
+				remote <- sel[0]
+			}
+		}()
+		return app.AskChoiceRemote(question, options, remote)
 	}
 	s.run.Ask = func(ctx context.Context, tool string, args map[string]any, reason string) bool {
 		if !p.waitForeground(s, "approve "+tool, ctx) {
 			return false
 		}
 		sound.Attention()
-		return app.Ask(tool, permissions.Subject(tool, args), reason)
+		subject := permissions.Subject(tool, args)
+		bridge := cmux.Current()
+		if !bridge.Active() {
+			return app.Ask(tool, subject, reason)
+		}
+		remote := make(chan bool, 1)
+		rctx, withdraw := context.WithCancel(ctx)
+		defer withdraw()
+		go func() {
+			kind, name := "path", "file"
+			switch tool {
+			case "bash":
+				kind, name = "bash", "bash"
+			case "read", "write", "edit", "ls", "grep", "find":
+			default:
+				name = tool
+			}
+			d := bridge.RequestApproval(rctx, cmux.ApprovalRequest{Kind: kind, ToolName: name, Body: subject, Title: reason})
+			if d != nil {
+				remote <- d.Mode != "deny"
+			}
+		}()
+		return app.AskRemote(tool, subject, reason, remote)
 	}
 	s.run.Progress = func(id, status string) {
 		p.do(func() { app.ToolStatus(id, status) })
@@ -288,6 +331,7 @@ func (t *repl) switchTo(target *slot) {
 	t.mu.Lock()
 	t.slot = target
 	t.mu.Unlock()
+	t.setTabName(tabNameFor(target))
 	done := make(chan struct{})
 	t.app.Do(func() {
 		from.draft = t.app.EditorText()

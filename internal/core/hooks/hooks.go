@@ -159,6 +159,55 @@ type Context struct {
 	Prompt string
 	// Success reports a tool's outcome on PostToolUse.
 	Success bool
+	// Message and Title are a Notification's text.
+	Message, Title string
+	// LastAssistantMessage is what the agent said, on Stop.
+	LastAssistantMessage string
+	// StopHookActive is set on a Stop that a Stop hook's own continuation
+	// produced.
+	StopHookActive bool
+	// Reason is why a session ended, on SessionEnd.
+	Reason string
+}
+
+// Watchers are in-process consumers of every dispatched event (loop's
+// hookBus): told about each one whether or not a hook command is bound to
+// it, because a sidebar mirroring the session wants all of them.
+var (
+	watchMu  sync.Mutex
+	watchers = map[int]func(Context){}
+	watchSeq int
+)
+
+// Watch subscribes f to every event and returns its unsubscribe.
+func Watch(f func(Context)) func() {
+	watchMu.Lock()
+	defer watchMu.Unlock()
+	watchSeq++
+	id := watchSeq
+	watchers[id] = f
+	return func() {
+		watchMu.Lock()
+		defer watchMu.Unlock()
+		delete(watchers, id)
+	}
+}
+
+// Notify hands an event to the watchers. A watcher that panics is its own
+// problem: it must not surface on the agent's turn.
+func Notify(hc Context) {
+	watchMu.Lock()
+	fs := make([]func(Context), 0, len(watchers))
+	for _, f := range watchers {
+		fs = append(fs, f)
+	}
+	watchMu.Unlock()
+	for _, f := range fs {
+		func() {
+			defer func() { _ = recover() }()
+			f(hc)
+		}()
+	}
 }
 
 // Outcome is what the hooks for one event decided, merged.
@@ -427,6 +476,21 @@ func payloadFor(hc Context) []byte {
 	}
 	if hc.Prompt != "" {
 		payload["prompt"] = hc.Prompt
+	}
+	if hc.Message != "" {
+		payload["message"] = hc.Message
+	}
+	if hc.Title != "" {
+		payload["title"] = hc.Title
+	}
+	if hc.Event == Stop {
+		payload["stop_hook_active"] = hc.StopHookActive
+		if hc.LastAssistantMessage != "" {
+			payload["last_assistant_message"] = hc.LastAssistantMessage
+		}
+	}
+	if hc.Reason != "" {
+		payload["reason"] = hc.Reason
 	}
 	// A payload that cannot be encoded must not stop the hook from running —
 	// the event itself is the part that matters.

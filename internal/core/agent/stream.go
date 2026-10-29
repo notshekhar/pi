@@ -140,6 +140,9 @@ func (r *Run) Toolset() []ai.Tool {
 	// assembleTurnTools), before task so a subagent fork inherits them.
 	if len(allowed) == 0 {
 		toolset = append(toolset, r.Extra...)
+		if r.ExtraTools != nil {
+			toolset = append(toolset, r.ExtraTools()...)
+		}
 		toolset = append(toolset, r.ExtensionTools...)
 	}
 	if r.Subagents && (len(allowed) == 0 || allows("task")) {

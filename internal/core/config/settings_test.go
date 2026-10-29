@@ -39,14 +39,14 @@ func writeSettings(t *testing.T, home, body string) {
 func TestLoadSettingsMissingFileGivesLoopDefaults(t *testing.T) {
 	home := withHome(t)
 	s := LoadSettings()
-	if s.Theme != "dark" || s.AutoCompact() != 0.8 || !s.WorkspaceContextOn() {
+	if s.Theme != "dark" || s.AutoCompact() != DefaultAutoCompactThreshold || !s.WorkspaceContextOn() {
 		t.Errorf("defaults = %+v", s)
 	}
 	data, err := os.ReadFile(settingsFile(t, home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n\t\"defaultModel\": null,\n\t\"theme\": \"dark\",\n\t\"maxSteps\": 0,\n\t\"autoCompactThreshold\": 0.8,\n\t\"workspaceContext\": true\n}"
+	want := "{\n\t\"defaultModel\": null,\n\t\"theme\": \"dark\",\n\t\"maxSteps\": 0,\n\t\"autoCompactThreshold\": 0.7,\n\t\"workspaceContext\": true\n}"
 	if string(data) != want {
 		t.Errorf("file =\n%s\nwant\n%s", data, want)
 	}
@@ -95,7 +95,7 @@ func TestLoadSettingsReadsLoopKeys(t *testing.T) {
 // them.
 func TestUpdateTouchesOnlyChangedKeys(t *testing.T) {
 	home := withHome(t)
-	body := "{\n\t\"defaultModel\": \"xai/grok-4\",\n\t\"theme\": \"system\",\n\t\"maxSteps\": 0,\n\t\"autoCompactThreshold\": 0.8,\n\t\"workspaceContext\": true,\n\t\"uiMode\": \"loop\",\n\t\"uiThemes\": {\n\t\t\"grok\": \"night\"\n\t},\n\t\"pinnedInput\": false\n}"
+	body := "{\n\t\"defaultModel\": \"xai/grok-4\",\n\t\"theme\": \"system\",\n\t\"maxSteps\": 0,\n\t\"autoCompactThreshold\": 0.7,\n\t\"workspaceContext\": true,\n\t\"uiMode\": \"loop\",\n\t\"uiThemes\": {\n\t\t\"grok\": \"night\"\n\t},\n\t\"pinnedInput\": false\n}"
 	writeSettings(t, home, body)
 	if err := Update(func(s *Settings) { s.Theme = "day" }); err != nil {
 		t.Fatal(err)

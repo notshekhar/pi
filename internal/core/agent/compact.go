@@ -134,10 +134,6 @@ const (
 // EstimateTokens is loop's estimateTokens: ceil(chars / 4).
 func EstimateTokens(chars int) int { return (chars + CharsPerToken - 1) / CharsPerToken }
 
-// DefaultAutoCompact is the share of the window at which a session compacts
-// itself — below the limit, since compaction is itself a call that must fit.
-const DefaultAutoCompact = 0.8
-
 // ShouldCompact reports whether `used` real input tokens crossed threshold of
 // window. A zero threshold or unknown window disables it.
 func ShouldCompact(used, window int, threshold float64) bool {
@@ -169,6 +165,36 @@ type CompactResult struct {
 	Summary                   string
 	CutAt                     int
 	TokensBefore, TokensAfter int
+	// Truncated is the error the summary failed with when the span was
+	// truncated instead (truncationRecord); Summary is that record.
+	Truncated string
+}
+
+// TruncationPreamble opens the record a compaction saves when its summary
+// could not be written (loop's TRUNCATION_PREAMBLE). It sits inside the usual
+// summary block, so it says plainly that it is not one.
+const TruncationPreamble = "The summary of the conversation before this point could not be written, so the conversation was truncated instead. What follows is a record built from the transcript — inputs and state, NOT a record of progress. Check live state (files on disk, the todo list) before continuing any work it mentions."
+
+// truncationRecord is the fallback when every summary attempt failed: drop
+// the span a summary would have replaced, keep a mechanical record of it. No
+// model call, so it cannot fail the way the summary just did — a session too
+// big to summarize still gets smaller instead of failing at every turn until
+// it no longer fits at all.
+//
+// The record is a rollover's over the dropped span alone: every user
+// message, the files touched, the commands run. An earlier summary is
+// carried whole — it is already the only memory of what came before it. The
+// todo list is re-injected on its own (compactedContext).
+func truncationRecord(dropped []session.Entry, previousBody string) string {
+	record := BuildRolloverHandoff(dropped, HandoffOptions{Limit: MaxHandoffChars})
+	if record == "" {
+		record = "(nothing in the truncated part could be carried over)"
+	}
+	text := TruncationPreamble
+	if previousBody != "" {
+		text += "\n\n## Summary from an earlier compaction\n" + previousBody
+	}
+	return text + "\n\n" + record
 }
 
 // ErrNothingToCompact is a compaction with nothing older than the kept window.
@@ -213,30 +239,6 @@ func clipMiddle(text string, head, tail int) string {
 	}
 	omitted := len(text) - head - tail
 	return fmt.Sprintf("%s\n[… %d chars omitted …]\n%s", text[:head], omitted, text[len(text)-tail:])
-}
-
-func chunkForSummary(texts []string, budget int) []string {
-	var chunks []string
-	cur := ""
-	for _, raw := range texts {
-		text := raw
-		if len(raw) > budget {
-			text = clipMiddle(raw, budget/2, budget/2)
-		}
-		if cur != "" && len(cur)+1+len(text) > budget {
-			chunks = append(chunks, cur)
-			cur = ""
-		}
-		if cur == "" {
-			cur = text
-		} else {
-			cur += "\n" + text
-		}
-	}
-	if cur != "" {
-		chunks = append(chunks, cur)
-	}
-	return chunks
 }
 
 type part struct {
@@ -467,10 +469,35 @@ func formatFileLists(f session.FileLists) string {
 	return out
 }
 
-// requestSummary is one summariser request on the session's model, every
-// attempt billed (source "compact"). An empty or cut-off summary is an error:
-// it would become the session's only memory of what it replaced.
-func (r *Run) requestSummary(ctx context.Context, prompt string, onUsage func(session.Usage)) (string, error) {
+// requestSummary is one summariser request on the session's model, at the
+// least reasoning it takes (lowestThinkingLevel), every attempt billed
+// (source "compact"). An empty or cut-off summary is an error: it would
+// become the session's only memory of what it replaced.
+//
+// A model that refuses its lowest level outright (a 400 for "reasoning
+// effort none") is asked once more at the session's own level: the settings
+// every turn already succeeds with.
+func (r *Run) requestSummary(ctx context.Context, messages []provider.Message, onUsage func(session.Usage)) (string, error) {
+	lowest := config.ThinkingToEffort(lowestThinkingLevel(r.Config.ModelID))
+	text, err := r.requestSummaryAt(ctx, messages, lowest, onUsage)
+	if err == nil || r.Config.Reasoning == lowest || !isRejectedRequest(err) {
+		return text, err
+	}
+	return r.requestSummaryAt(ctx, messages, r.Config.Reasoning, onUsage)
+}
+
+// isRejectedRequest: the provider turned the request down as malformed — the
+// shape of a model that does not accept a reasoning setting. Not an overflow
+// (too big, not wrong) and nothing worth retrying as is.
+func isRejectedRequest(err error) bool {
+	if isContextOverflow(err) || IsRetryableStreamError(err) {
+		return false
+	}
+	var apiErr *provider.APICallError
+	return errors.As(err, &apiErr) && (apiErr.StatusCode == 400 || apiErr.StatusCode == 422)
+}
+
+func (r *Run) requestSummaryAt(ctx context.Context, messages []provider.Message, effort provider.ReasoningEffort, onUsage func(session.Usage)) (string, error) {
 	model, err := config.LanguageModel(r.Config)
 	if err != nil {
 		return "", err
@@ -480,25 +507,35 @@ func (r *Run) requestSummary(ctx context.Context, prompt string, onUsage func(se
 		v := int64(min(m.MaxOut, summaryMaxOutputTokens))
 		maxOut = &v
 	}
+	opts := ai.Options{
+		Model:           model,
+		System:          summarizationSystemPrompt,
+		Messages:        messages,
+		MaxSteps:        1,
+		Reasoning:       effort,
+		MaxOutputTokens: maxOut,
+	}
+	// The span's tool calls need their tools declared; none may run.
+	if stubs := toolStubs(messages); len(stubs) > 0 {
+		opts.Tools, opts.ToolChoice = stubs, &provider.ToolChoice{Type: provider.ToolChoiceNone}
+	}
+	// The wire shape a turn at this level gets (loop's buildAgentCallConfig):
+	// anthropic thinking disabled, community toggles off, and so on.
+	applyReasoning(&opts, r.Config)
 	var lastErr error
 	for attempt := 0; attempt <= maxSummaryRetries; attempt++ {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		res, err := ai.GenerateText(ctx, ai.Options{
-			Model:           model,
-			System:          summarizationSystemPrompt,
-			Messages:        []provider.Message{ai.UserText(prompt)},
-			MaxSteps:        1,
-			Reasoning:       r.Config.Reasoning,
-			MaxOutputTokens: maxOut,
-		})
+		res, err := ai.GenerateText(ctx, opts)
 		if res != nil {
 			onUsage(ToUsage(res.Usage))
 		}
 		if err != nil {
 			lastErr = err
-			if ctx.Err() != nil || isContextOverflow(err) {
+			// Only a dropped stream or a transient 5xx/529 is tried again; a
+			// bad request fails once and says so.
+			if ctx.Err() != nil || !IsRetryableStreamError(err) {
 				return "", err
 			}
 			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
@@ -598,26 +635,19 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 	}
 	summarizeHistory := func(budget int) (string, error) {
 		running := previousBody
-		if len(history) == 0 {
+		messages := toSummaryMessages(history)
+		if len(messages) == 0 {
 			if running == "" {
 				return "No prior history.", nil
 			}
 			return running, nil
 		}
-		var texts []string
-		for _, m := range history {
-			if t := serializeMessage(m); t != "" {
-				texts = append(texts, t)
-			}
-		}
-		for _, chunk := range chunkForSummary(texts, max(summaryInputMinChars/2, budget-len(running))) {
-			prompt := "<conversation>\n" + chunk + "\n</conversation>\n\n"
-			p := summarizationPrompt
+		for _, chunk := range chunkMessages(messages, max(summaryInputMinChars/2, budget-len(running))) {
+			instructions := summarizationPrompt
 			if running != "" {
-				prompt += "<previous-summary>\n" + running + "\n</previous-summary>\n\n"
-				p = updateSummarizationPrompt
+				instructions = updateSummarizationPrompt
 			}
-			out, err := r.requestSummary(ctx, prompt+p+focus, bill)
+			out, err := r.requestSummary(ctx, summaryRequest(chunk, instructions+focus, running), bill)
 			if err != nil {
 				return "", err
 			}
@@ -625,16 +655,21 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 		}
 		return running, nil
 	}
+	summarizeTurnPrefix := func(budget int) (string, error) {
+		var span []summaryMessage
+		if chunks := chunkMessages(toSummaryMessages(turnPrefix), budget); len(chunks) > 0 {
+			span = chunks[0]
+		}
+		return r.requestSummary(ctx, summaryRequest(span, turnPrefixSummarizationPrompt+focus, ""), bill)
+	}
 
-	text := ""
+	text, truncated := "", ""
 	budget := summaryInputBudgetChars(window)
 	for retry := 0; opts.Summarize == nil; retry++ {
 		historyText, err := summarizeHistory(budget)
 		prefixText := ""
 		if err == nil && len(turnPrefix) > 0 {
-			clipped := clipMiddle(serializeConversation(turnPrefix), budget/2, budget/2)
-			prefixText, err = r.requestSummary(ctx,
-				"# Conversation\n"+clipped+"\n\n# Instructions\n"+turnPrefixSummarizationPrompt+focus, bill)
+			prefixText, err = summarizeTurnPrefix(budget)
 		}
 		if err == nil {
 			text = historyText
@@ -643,8 +678,16 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 			}
 			break
 		}
+		if ctx.Err() != nil {
+			return CompactResult{}, ctx.Err()
+		}
 		if !isContextOverflow(err) || retry >= maxOverflowRetries {
-			return CompactResult{}, err
+			// Every attempt failed: truncate instead. Idle compaction never
+			// gets here — it reports its failure, and the next turn compacts
+			// properly if it must.
+			truncated = err.Error()
+			text = truncationRecord(head, previousBody)
+			break
 		}
 		budget /= 2
 	}
@@ -682,6 +725,9 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 	if opts.Trigger != "" {
 		entry.Extra["trigger"], _ = json.Marshal(opts.Trigger)
 	}
+	if truncated != "" {
+		entry.Extra["truncated"], _ = json.Marshal(truncated)
+	}
 	if usage != nil {
 		stamped := StampUsage(modelID, *usage)
 		entry.Usage, entry.Model = &stamped, modelID
@@ -689,7 +735,7 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 	if err := s.AppendAll(entry); err != nil {
 		return CompactResult{}, err
 	}
-	return CompactResult{Summary: text, CutAt: cut, TokensBefore: tokensBefore, TokensAfter: tokensAfter}, nil
+	return CompactResult{Summary: text, CutAt: cut, TokensBefore: tokensBefore, TokensAfter: tokensAfter, Truncated: truncated}, nil
 }
 
 // sumUsage adds b into a, field by field (loop's sumUsage).

@@ -49,6 +49,9 @@ type MCPHost interface {
 	Connected() bool
 	Reconnect(ctx context.Context, cwd, name string)
 	Forget(name string)
+	// Login runs a server's browser sign-in, reporting the authorization URL
+	// through onURL, and reconnects it. It returns once the login ends.
+	Login(ctx context.Context, cwd, name string, onURL func(string)) (toolCount int, err error)
 }
 
 // ─── extensions ──────────────────────────────────────────────────────────
@@ -165,11 +168,6 @@ func transportOf(c mcp.ServerConfig) string {
 	return "stdio"
 }
 
-var serverPrefixClean = strings.NewReplacer("-", "_", ".", "_", " ", "_")
-
-// serverPrefix is how a server's tools are namespaced.
-func serverPrefix(name string) string { return "mcp__" + serverPrefixClean.Replace(name) + "__" }
-
 func (s *Server) mcpList(cwd string) map[string]any {
 	live := map[string]MCPLive{}
 	connected := false
@@ -205,7 +203,7 @@ func (s *Server) mcpList(cwd string) map[string]any {
 				scope = "global"
 			}
 		}
-		oauth := c.Auth == "oauth"
+		oauth := mcp.IsOAuthServer(name, c, status == "needs-auth")
 		row := map[string]any{"name": name, "scope": scope, "transport": transportOf(c), "status": status,
 			"enabled": enabled, "toolCount": l.ToolCount, "oauth": oauth}
 		if l.Error != "" {
@@ -217,7 +215,7 @@ func (s *Server) mcpList(cwd string) map[string]any {
 			row["url"] = c.URL
 		}
 		if oauth {
-			row["authorized"] = false
+			row["authorized"] = mcp.HasStoredTokens(name)
 		}
 		if len(l.Tools) > 0 {
 			row["tools"] = l.Tools
@@ -328,6 +326,10 @@ func (s *Server) mcpHandlers() map[string]handler {
 			}
 			if ok && s.host.MCP != nil {
 				s.host.MCP.Forget(name)
+				// Still defined in the other scope: that entry takes over.
+				if _, still := config.LoadMCPServers(cwd)[name]; still {
+					reconnect(cwd, name)
+				}
 			}
 			return map[string]any{"ok": ok}, err
 		},
@@ -345,11 +347,9 @@ func (s *Server) mcpHandlers() map[string]handler {
 				ok, err = config.SetMCPServerEnabled(name, value)
 			}
 			if ok {
-				if value {
-					reconnect(cwd, name)
-				} else if s.host.MCP != nil {
-					s.host.MCP.Forget(name)
-				}
+				// Applies either way: enabling connects it, disabling closes
+				// it and withdraws its tools.
+				reconnect(cwd, name)
 			}
 			return map[string]any{"ok": ok}, err
 		},
@@ -359,12 +359,14 @@ func (s *Server) mcpHandlers() map[string]handler {
 			return s.mcpList(cwd), nil
 		},
 		"mcp.login.start": func(p map[string]any, _ Transport) (any, error) {
-			return nil, errors.New("MCP OAuth sign-in is not available in pi yet")
+			return s.startMCPLogin(strings.TrimSpace(pstr(p, "name")), cwdOf(p))
 		},
 		"mcp.login.poll": func(p map[string]any, _ Transport) (any, error) {
-			return nil, fmt.Errorf("unknown login flow: %s", pstr(p, "flowId"))
+			cursor, _ := p["cursor"].(float64)
+			return pollMCPLogin(pstr(p, "flowId"), int(cursor))
 		},
-		"mcp.login.cancel": func(map[string]any, Transport) (any, error) {
+		"mcp.login.cancel": func(p map[string]any, _ Transport) (any, error) {
+			cancelMCPLogin(pstr(p, "flowId"))
 			return map[string]any{"ok": true}, nil
 		},
 	}

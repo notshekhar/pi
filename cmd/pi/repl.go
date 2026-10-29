@@ -236,6 +236,11 @@ func replTUI(parent context.Context, cfg config.Config, resumed *session.Session
 	defer stopTab()
 	t.mcp = mcp.NewManager()
 	defer t.mcp.Close()
+	// Every session reads the live tool set when a turn starts; sessions
+	// opened later copy this from the one they were opened from.
+	for _, s := range t.slots.all() {
+		s.run.ExtraTools = t.mcp.Tools
+	}
 	// Language servers and anything else an extension spawned. Deferred here
 	// so it runs on every exit path, including a panic.
 	defer extension.Shutdown()
@@ -734,6 +739,9 @@ func (t *repl) turnEvent(name string, data any) {
 				// Not fatal: the session is untouched and this turn may still fit.
 				t.fail("auto-compact failed: %s — /compact to retry", end.Error)
 			case end.TokensBefore > 0:
+				if end.Truncated != "" {
+					t.fail("summary failed: %s — truncated the older conversation instead", end.Truncated)
+				}
 				t.do(func() {
 					t.app.Print(t.app.Theme().Fg(tui.SlotSuccess, fmt.Sprintf(
 						"auto-compacted ~%s → ~%s tokens", commas(end.TokensBefore), commas(end.TokensAfter))))

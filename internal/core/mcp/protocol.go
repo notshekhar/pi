@@ -1,96 +1,133 @@
 // Package mcp speaks the Model Context Protocol, so tools living in another
-// process can be offered to the model alongside the built-in ones.
+// process — or behind a URL — are offered to the model alongside the
+// built-in ones. It is loop's mcp/ (on @ai-sdk/mcp) in Go: the same protocol
+// eras, transports, OAuth flow and token file, the same tool naming, and the
+// same connection manager (health probes, reconnect backoff, list_changed).
 //
-// MCP is JSON-RPC 2.0 over a transport — a subprocess's stdio, or HTTP. This
-// package implements the client half of the handshake, tool discovery, and
-// tool invocation; it does not implement prompts, resources, or sampling,
-// because a coding agent has its own answers to all three.
-//
-// The bridge into the agent (see bridge.go) is the part worth being careful
-// about: a discovered tool is a tool like any other, which means it goes
-// through the SAME permissions layer. A server that could bypass the policy
-// would make the policy decorative.
+// A bridged tool is a tool like any other, which means it goes through the
+// SAME permissions layer. A server that could bypass the policy would make
+// the policy decorative.
 package mcp
 
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 )
 
-// ProtocolVersion is the revision this client speaks. Servers that support a
-// newer one are expected to accept it or negotiate down.
-const ProtocolVersion = "2024-11-05"
-
-// request is an outgoing JSON-RPC call.
-type request struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      int64  `json:"id"`
-	Method  string `json:"method"`
-	Params  any    `json:"params,omitempty"`
-}
-
-// notification is an outgoing message with no reply.
-type notification struct {
-	JSONRPC string `json:"jsonrpc"`
-	Method  string `json:"method"`
-	Params  any    `json:"params,omitempty"`
-}
-
-// response is an incoming JSON-RPC reply.
+// Protocol revisions, as @ai-sdk/mcp names them.
 //
-// ID is a pointer so a notification from the server — which has none — is
-// distinguishable from a reply to request zero.
-type response struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      *int64          `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-	Method  string          `json:"method,omitempty"`
+// The modern era (LatestProtocolVersion) is stateless: no initialize
+// handshake and no session — the client asks `server/discover` once and then
+// stamps its version, capabilities and identity onto every request's _meta.
+// Everything older is the legacy era: initialize, then
+// notifications/initialized, then a session.
+const (
+	LatestProtocolVersion       = "2026-07-28"
+	LatestLegacyProtocolVersion = "2025-11-25"
+)
+
+// SupportedProtocolVersions are the revisions this client accepts from a
+// server, newest first.
+var SupportedProtocolVersions = []string{
+	LatestProtocolVersion,
+	LatestLegacyProtocolVersion,
+	"2025-06-18",
+	"2025-03-26",
+	"2024-11-05",
 }
 
-type rpcError struct {
+func supportedVersion(v string) bool { return slices.Contains(SupportedProtocolVersions, v) }
+
+// modernProtocolErrorCodes are the errors a modern server answers
+// server/discover with when it understood the request and refused it — not
+// a reason to fall back to the legacy handshake.
+var modernProtocolErrorCodes = []int{-32020, -32021, -32022}
+
+// discoverTimeout bounds the server/discover probe: a legacy server that
+// never answers an unknown method must not cost a slow connect.
+const discoverTimeoutMs = 1_000
+
+// Meta keys of the modern era.
+const (
+	metaProtocolVersion    = "io.modelcontextprotocol/protocolVersion"
+	metaClientCapabilities = "io.modelcontextprotocol/clientCapabilities"
+	metaClientInfo         = "io.modelcontextprotocol/clientInfo"
+	metaServerInfo         = "io.modelcontextprotocol/serverInfo"
+)
+
+// message is any JSON-RPC 2.0 message: a request (method + id), a
+// notification (method, no id) or a response (id + result or error).
+type message struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *RPCError       `json:"error,omitempty"`
+}
+
+func (m *message) isRequest() bool      { return m.Method != "" && len(m.ID) > 0 }
+func (m *message) isNotification() bool { return m.Method != "" && len(m.ID) == 0 }
+func (m *message) isResponse() bool     { return m.Method == "" && len(m.ID) > 0 }
+
+// RPCError is a JSON-RPC error object, returned as a Go error.
+type RPCError struct {
 	Code    int             `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-func (e *rpcError) Error() string {
-	if len(e.Data) > 0 {
+func (e *RPCError) Error() string {
+	if len(e.Data) > 0 && string(e.Data) != "null" {
 		return fmt.Sprintf("%s (code %d): %s", e.Message, e.Code, e.Data)
 	}
 	return fmt.Sprintf("%s (code %d)", e.Message, e.Code)
 }
 
-// initializeParams opens the session.
-type initializeParams struct {
-	ProtocolVersion string         `json:"protocolVersion"`
-	Capabilities    map[string]any `json:"capabilities"`
-	ClientInfo      clientInfo     `json:"clientInfo"`
-}
-
-type clientInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-// InitializeResult is what the server reports about itself.
-type InitializeResult struct {
-	ProtocolVersion string         `json:"protocolVersion"`
-	Capabilities    map[string]any `json:"capabilities"`
-	ServerInfo      ServerInfo     `json:"serverInfo"`
-	Instructions    string         `json:"instructions,omitempty"`
-}
+const codeMethodNotFound = -32601
 
 // ServerInfo names the server.
 type ServerInfo struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
+	Title   string `json:"title,omitempty"`
+}
+
+// Capabilities are what a server declared. Only the parts this client acts
+// on are typed; the rest is kept raw.
+type Capabilities struct {
+	Tools       *listChangedCap `json:"tools,omitempty"`
+	Resources   *listChangedCap `json:"resources,omitempty"`
+	Prompts     *listChangedCap `json:"prompts,omitempty"`
+	Logging     json.RawMessage `json:"logging,omitempty"`
+	Completions json.RawMessage `json:"completions,omitempty"`
+}
+
+type listChangedCap struct {
+	ListChanged bool `json:"listChanged,omitempty"`
+	Subscribe   bool `json:"subscribe,omitempty"`
+}
+
+type initializeResult struct {
+	ProtocolVersion string       `json:"protocolVersion"`
+	Capabilities    Capabilities `json:"capabilities"`
+	ServerInfo      ServerInfo   `json:"serverInfo"`
+	Instructions    string       `json:"instructions,omitempty"`
+}
+
+type discoverResult struct {
+	SupportedVersions []string                   `json:"supportedVersions"`
+	Capabilities      Capabilities               `json:"capabilities"`
+	Instructions      string                     `json:"instructions,omitempty"`
+	Meta              map[string]json.RawMessage `json:"_meta,omitempty"`
 }
 
 // ToolDef is a tool the server offers.
 type ToolDef struct {
 	Name        string          `json:"name"`
-	Description string          `json:"description"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
@@ -99,56 +136,29 @@ type listToolsResult struct {
 	NextCursor string    `json:"nextCursor,omitempty"`
 }
 
-type callToolParams struct {
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments,omitempty"`
-}
-
 // CallToolResult is a tool's output.
 type CallToolResult struct {
-	Content []Content `json:"content"`
-	IsError bool      `json:"isError,omitempty"`
+	Content           []Content       `json:"content"`
+	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+	IsError           bool            `json:"isError,omitempty"`
 }
 
-// Content is one piece of a result. Only text is rendered; other kinds are
-// reported by type so the model knows something came back that this client
-// cannot show it, rather than seeing an empty result.
+// Content is one piece of a tool result.
 type Content struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"` // base64, for image and audio
 	MimeType string `json:"mimeType,omitempty"`
+	// resource_link
+	URI  string `json:"uri,omitempty"`
+	Name string `json:"name,omitempty"`
+	// resource (embedded)
+	Resource *embeddedResource `json:"resource,omitempty"`
 }
 
-// Text flattens a result's content into what the model sees.
-func (r CallToolResult) Text() string {
-	var parts []string
-	for _, c := range r.Content {
-		switch c.Type {
-		case "text":
-			parts = append(parts, c.Text)
-		case "":
-			// A malformed part with no type; its text is still worth having.
-			if c.Text != "" {
-				parts = append(parts, c.Text)
-			}
-		default:
-			kind := c.Type
-			if c.MimeType != "" {
-				kind += " (" + c.MimeType + ")"
-			}
-			parts = append(parts, "["+kind+" omitted]")
-		}
-	}
-	return join(parts, "\n")
-}
-
-func join(parts []string, sep string) string {
-	out := ""
-	for i, p := range parts {
-		if i > 0 {
-			out += sep
-		}
-		out += p
-	}
-	return out
+type embeddedResource struct {
+	URI      string `json:"uri"`
+	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Blob     string `json:"blob,omitempty"`
 }

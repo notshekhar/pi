@@ -70,10 +70,14 @@ type Run struct {
 	// empty means every tool. A restricted agent keeps exactly its list: no
 	// MCP or extension tools, and `task` only when named.
 	AllowedTools []string
-	// Extra are tools contributed from outside the built-in set — MCP
-	// servers today. They are ordinary tools: same dispatch, same rows, and
-	// the same permissions policy.
+	// Extra are tools contributed from outside the built-in set. They are
+	// ordinary tools: same dispatch, same rows, and the same permissions
+	// policy.
 	Extra []ai.Tool
+	// ExtraTools, when set, is read at the start of every turn and joins
+	// Extra: the MCP manager's live tool set, which changes as servers
+	// connect, drop and re-list without anyone reassigning a slice.
+	ExtraTools func() []ai.Tool
 }
 
 // Turn streams one user prompt through the model and tools, handing the

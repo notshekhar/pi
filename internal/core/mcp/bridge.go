@@ -2,132 +2,240 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/notshekhar/pi/internal/ai"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
+	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
-// Bridging discovered tools into the agent.
+// Bridging a server's tools into the agent (loop's mcp/client.ts naming and
+// withTimeout).
 //
-// A bridged tool is an `ai.Tool` like any other, which is the whole point: it
-// is dispatched by the same runner, rendered by the same rows, and — the part
-// that matters — gated by the same permissions policy. A transport that let a
-// server's tools skip the policy would make the policy decorative, since
-// anyone who can edit a settings file could then run anything.
-//
-// Names are namespaced `server__tool`. Two servers routinely both offer
-// `search`, and a collision would silently shadow one of them.
+// Names are `mcp__<server>__<tool>`, the Claude Code convention, in the
+// charset every provider accepts and at most 64 characters: a provider
+// rejects the WHOLE request over one bad tool name, so one verbose server
+// would otherwise break every turn, not just its own tools.
 
-// NameSeparator joins a server name to a tool name.
-const NameSeparator = "__"
+const (
+	maxToolName = 64
+	// minToolChars is what a tool is guaranteed to keep, and so the longest
+	// server segment a prefix may carry: the prefix is how a server's tools
+	// are found to withdraw or attribute, and must survive any name.
+	minToolChars   = 8
+	maxServerChars = maxToolName - minToolChars - len("mcp____")
+)
+
+var unsafeNameChars = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+
+func sanitize(s string) string { return unsafeNameChars.ReplaceAllString(s, "_") }
+
+// ServerPrefix is the shared prefix of one server's tools: mcp__<server>__.
+func ServerPrefix(server string) string {
+	s := sanitize(server)
+	if len(s) > maxServerChars {
+		s = s[:maxServerChars]
+	}
+	return "mcp__" + s + "__"
+}
 
 // ToolName is the agent-facing name for a server's tool.
 func ToolName(server, tool string) string {
-	return sanitizeName(server) + NameSeparator + tool
-}
-
-// SplitToolName recovers the server and tool from a bridged name.
-func SplitToolName(name string) (server, tool string, ok bool) {
-	server, tool, ok = strings.Cut(name, NameSeparator)
-	if !ok || server == "" || tool == "" {
-		return "", "", false
+	prefix := ServerPrefix(server)
+	t := sanitize(tool)
+	if len(prefix)+len(t) <= maxToolName {
+		return prefix + t
 	}
-	return server, tool, true
+	// Shortened from the middle, keeping the tool's head and tail readable.
+	budget := maxToolName - len(prefix)
+	head := budget / 2 // ceil((budget-1)/2)
+	tail := budget - 1 - head
+	return prefix + t[:head] + "_" + t[len(t)-tail:]
 }
 
-// sanitizeName reduces a server name to what providers accept in a tool name:
-// letters, digits, underscores and dashes.
-func sanitizeName(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
+// uniqueToolName is ToolName, disambiguated against names already taken:
+// sanitizing folds get-issue and get_issue together and shortening folds
+// names that differ only in the middle, and the second must not silently
+// replace the first. The digest keeps the name stable across reconnects.
+func uniqueToolName(server, tool string, taken map[string]bool) string {
+	base := ToolName(server, tool)
+	if !taken[base] {
+		return base
+	}
+	sum := sha1.Sum([]byte(tool))
+	tag := hex.EncodeToString(sum[:])[:4]
+	for attempt := 0; ; attempt++ {
+		suffix := "_" + tag
+		if attempt > 0 {
+			suffix = fmt.Sprintf("_%s%d", tag, attempt)
+		}
+		cut := min(len(base), maxToolName-len(suffix))
+		if candidate := base[:cut] + suffix; !taken[candidate] {
+			return candidate
 		}
 	}
-	return b.String()
 }
 
-// bridgedTool adapts one server tool to the agent's Tool interface.
+// toolTimeout is the ceiling on one call: a wedged server must cost one
+// tool error the model can recover from, not a frozen turn.
+func toolTimeout() time.Duration {
+	return positiveEnvDuration("MCP_TOOL_TIMEOUT_MS", 120*time.Second)
+}
+
+// bridgedTool adapts one server tool to ai.Tool. It holds the server's
+// name, not its connection, so it keeps working across a reconnect and says
+// plainly when the server is gone.
 type bridgedTool struct {
-	client *Client
-	// remote is the name the server knows; name is what the model sees.
+	m      *Manager
+	server string
 	remote string
 	name   string
 	desc   string
 	schema *jsonschema.Schema
 }
 
-// Name implements ai.Tool.
-func (t *bridgedTool) Name() string { return t.name }
-
-// Description implements ai.Tool.
-func (t *bridgedTool) Description() string { return t.desc }
-
-// InputSchema implements ai.Tool.
+func (t *bridgedTool) Name() string                    { return t.name }
+func (t *bridgedTool) Description() string             { return t.desc }
 func (t *bridgedTool) InputSchema() *jsonschema.Schema { return t.schema }
 
-// Execute implements ai.Tool.
+// Server is the server this tool belongs to.
+func (t *bridgedTool) Server() string { return t.server }
+
 func (t *bridgedTool) Execute(ctx context.Context, input json.RawMessage) (ai.ToolResult, error) {
-	result, err := t.client.CallTool(ctx, t.remote, input)
+	client, gen := t.m.liveClient(t.server)
+	if client == nil {
+		return ai.ToolErrorf("MCP server %q is not connected — /mcp to see why", t.server), nil
+	}
+	timeout := toolTimeout()
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	result, err := client.CallTool(ctx, t.remote, input)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("MCP tool %s timed out after %s", t.name, timeout)
+		}
+		if isDisconnect(err) {
+			t.m.markDisconnected(t.server, gen, err)
+		}
 		// A transport failure is reported to the MODEL, not returned as a Go
-		// error: a flaky server should cost one tool call, not the whole run.
+		// error: a flaky server should cost one tool call, not the run.
 		return ai.ToolErrorf("%s failed: %v", t.name, err), nil
 	}
-	text := result.Text()
+	return toolResult(result), nil
+}
+
+var closedConnection = regexp.MustCompile(`(?i)connection closed|closed client|transport closed|not connected`)
+
+func isDisconnect(err error) bool { return err != nil && closedConnection.MatchString(err.Error()) }
+
+// toolResult maps an MCP result onto what the model is sent.
+func toolResult(r CallToolResult) ai.ToolResult {
+	var parts []provider.ToolContentPart
+	var texts []string
+	hasMedia := false
+	for _, c := range r.Content {
+		switch c.Type {
+		case "text", "":
+			if c.Text != "" {
+				texts = append(texts, c.Text)
+				parts = append(parts, provider.ToolContentText{Text: c.Text})
+			}
+		case "image":
+			if _, err := base64.StdEncoding.DecodeString(c.Data); err == nil && c.Data != "" {
+				hasMedia = true
+				parts = append(parts, provider.ToolContentFile{Data: provider.FileDataBytes{Base64: c.Data}, MediaType: c.MimeType})
+			}
+		case "resource":
+			if c.Resource != nil && c.Resource.Text != "" {
+				texts = append(texts, c.Resource.Text)
+				parts = append(parts, provider.ToolContentText{Text: c.Resource.Text})
+			} else if c.Resource != nil {
+				note := "[resource " + c.Resource.URI + "]"
+				texts = append(texts, note)
+				parts = append(parts, provider.ToolContentText{Text: note})
+			}
+		case "resource_link":
+			note := strings.TrimSpace("[resource link " + c.Name + " " + c.URI + "]")
+			texts = append(texts, note)
+			parts = append(parts, provider.ToolContentText{Text: note})
+		default:
+			kind := c.Type
+			if c.MimeType != "" {
+				kind += " (" + c.MimeType + ")"
+			}
+			note := "[" + kind + " omitted]"
+			texts = append(texts, note)
+			parts = append(parts, provider.ToolContentText{Text: note})
+		}
+	}
+	// A server that returns its real payload as structuredContent with no
+	// text block would otherwise hand the model nothing at all.
+	if len(texts) == 0 && len(r.StructuredContent) > 0 && string(r.StructuredContent) != "null" {
+		var v any
+		if json.Unmarshal(r.StructuredContent, &v) == nil {
+			pretty, _ := json.MarshalIndent(v, "", "  ")
+			texts = append(texts, string(pretty))
+			parts = append(parts, provider.ToolContentText{Text: string(pretty)})
+		}
+	}
+	text := strings.Join(texts, "\n")
+	if r.IsError {
+		if text == "" {
+			text = "(the tool reported an error with no message)"
+		}
+		return ai.ToolError(text)
+	}
+	if hasMedia {
+		return ai.ToolContent(parts...)
+	}
 	if strings.TrimSpace(text) == "" {
 		text = "(no output)"
 	}
-	if result.IsError {
-		return ai.ToolError(text), nil
-	}
-	return ai.ToolText(text), nil
+	return ai.ToolText(text)
 }
 
-// Tools discovers a server's tools and bridges them.
-func (c *Client) Tools(ctx context.Context) ([]ai.Tool, error) {
-	defs, err := c.ListTools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("mcp %s: %w", c.Name, err)
-	}
+// bridge wraps a server's tool list, filtered by its policy on the
+// server's OWN names (a policy is written against what the server
+// documents, not against shortened mcp__ keys).
+func (m *Manager) bridge(server string, cfg ServerConfig, defs []ToolDef) []ai.Tool {
+	taken := map[string]bool{}
 	out := make([]ai.Tool, 0, len(defs))
 	for _, def := range defs {
-		out = append(out, &bridgedTool{
-			client: c,
-			remote: def.Name,
-			name:   ToolName(c.Name, def.Name),
-			desc:   def.Description,
-			schema: parseSchema(def.InputSchema),
-		})
+		if def.Name == "" || !cfg.ToolAllowed(def.Name) {
+			continue
+		}
+		name := uniqueToolName(server, def.Name, taken)
+		taken[name] = true
+		desc := def.Description
+		if desc == "" {
+			desc = def.Title
+		}
+		out = append(out, &bridgedTool{m: m, server: server, remote: def.Name, name: name, desc: desc, schema: parseSchema(def.InputSchema)})
 	}
-	return out, nil
+	return out
 }
 
-// parseSchema decodes a server-supplied JSON schema.
-//
-// An unusable schema yields a permissive object rather than nil: nil means
-// "this tool takes no arguments", which would make the model call it wrongly
-// forever. An empty object at least lets it pass something through.
+// parseSchema decodes a server-supplied JSON schema. An unusable one yields
+// a permissive object rather than nil: nil means "takes no arguments",
+// which would make the model call it wrongly forever.
 func parseSchema(raw json.RawMessage) *jsonschema.Schema {
 	if len(raw) == 0 {
-		return emptyObjectSchema()
+		return &jsonschema.Schema{Type: jsonschema.Object}
 	}
 	var s jsonschema.Schema
 	if err := json.Unmarshal(raw, &s); err != nil {
-		return emptyObjectSchema()
+		return &jsonschema.Schema{Type: jsonschema.Object}
 	}
 	if s.Type == "" {
 		s.Type = jsonschema.Object
 	}
 	return &s
-}
-
-func emptyObjectSchema() *jsonschema.Schema {
-	return &jsonschema.Schema{Type: jsonschema.Object}
 }

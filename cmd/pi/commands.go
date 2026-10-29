@@ -337,6 +337,9 @@ func (t *repl) compact(parent context.Context, focus string) {
 			t.fail("compact: %s", err)
 			return
 		}
+		if res.Truncated != "" {
+			t.fail("summary failed: %s — truncated the older conversation instead", res.Truncated)
+		}
 		saved := 0
 		if res.TokensBefore > 0 {
 			saved = 100 * (res.TokensBefore - res.TokensAfter) / res.TokensBefore

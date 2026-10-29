@@ -331,3 +331,12 @@ func (e Entry) CompactDetails() FileLists {
 	}
 	return f
 }
+
+// TodosOf is the checklist a todo custom entry's payload carries.
+func TodosOf(payload json.RawMessage) ([]TodoItem, bool) { return todosOf(payload) }
+
+// HasActiveTodos reports whether any item is still pending or in progress.
+func HasActiveTodos(items []TodoItem) bool { return hasActiveTodos(items) }
+
+// FormatTodoList is the checklist as the model reads it: "1. [status] content".
+func FormatTodoList(items []TodoItem) string { return formatTodoList(items) }

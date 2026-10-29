@@ -13,10 +13,11 @@ import (
 	"github.com/notshekhar/pi/internal/core/mcp"
 )
 
-// DefaultAutoCompactThreshold mirrors agent.DefaultAutoCompact. It is
-// duplicated rather than imported because config sits below agent in the
-// dependency graph.
-const DefaultAutoCompactThreshold = 0.8
+// DefaultAutoCompactThreshold is the share of the context window at which
+// a session compacts on its own (loop's DEFAULT_AUTO_COMPACT_THRESHOLD).
+// 70%, not higher: compaction itself needs room — the summary request is the
+// largest one a session sends — and the turn waiting on it is the user's.
+const DefaultAutoCompactThreshold = 0.7
 
 // Settings is ~/.loop/settings.json — loop's AppSettings (settings.ts), key
 // for key. The file is loop's: every key here is spelled and typed the way

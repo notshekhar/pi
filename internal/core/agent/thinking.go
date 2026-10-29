@@ -47,6 +47,20 @@ var (
 	anthropicAdaptiveEffort      = map[string]string{"minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh"}
 )
 
+// lowestThinkingLevel is the least reasoning a model takes — what the
+// compaction summary runs at, whatever level the session itself uses. A
+// summary is reading and restating, not solving: reasoning adds nothing but
+// minutes of silence before the first word, on the largest request a session
+// ever sends. "off" wherever reasoning can be turned off; on a model that
+// always thinks "off" would fall back to the model's OWN default effort, so
+// the lowest effort is asked for instead.
+func lowestThinkingLevel(model string) string {
+	if anthropicAlwaysThinks.MatchString(model) {
+		return "minimal"
+	}
+	return "off"
+}
+
 func anthropicThinkingOptions(model, level string) provider.ProviderOptions {
 	if level == "off" {
 		if anthropicAlwaysThinks.MatchString(model) {

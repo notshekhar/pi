@@ -121,6 +121,9 @@ type CompactEndEvent struct {
 	Error        string `json:"error,omitempty"`
 	Handoff      string `json:"handoff,omitempty"`
 	Mode         string `json:"mode,omitempty"`
+	// Truncated is the error the summary failed with when the span was
+	// truncated instead; Summary is the record that replaced it.
+	Truncated string `json:"truncated,omitempty"`
 }
 
 // TodoUpdateEvent is the checklist after a todo write.
@@ -395,7 +398,7 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 				overflowRecovered = true
 				emit("compact-start", CompactStartEvent{Reason: "overflow"})
 				cres, cerr := Compact(ctx, r, CompactOptions{})
-				end := CompactEndEvent{Summary: cres.Summary, CutAt: cres.CutAt, TokensBefore: cres.TokensBefore, TokensAfter: cres.TokensAfter}
+				end := CompactEndEvent{Summary: cres.Summary, CutAt: cres.CutAt, TokensBefore: cres.TokensBefore, TokensAfter: cres.TokensAfter, Truncated: cres.Truncated}
 				if cerr != nil && !errors.Is(cerr, ErrNothingToCompact) {
 					end.Error = cerr.Error()
 				}
@@ -513,7 +516,7 @@ func (r *Run) scheduleIdleCompact(model provider.LanguageModel, system string, t
 			u := ToUsage(final.Usage)
 			return final.Text, &u, final.FinishReason.Unified, err
 		}})
-		end := CompactEndEvent{Summary: res.Summary, CutAt: res.CutAt, TokensBefore: res.TokensBefore, TokensAfter: res.TokensAfter}
+		end := CompactEndEvent{Summary: res.Summary, CutAt: res.CutAt, TokensBefore: res.TokensBefore, TokensAfter: res.TokensAfter, Truncated: res.Truncated}
 		switch {
 		case ctx.Err() != nil:
 			// Cancelled because the user came back: not news.
@@ -665,7 +668,7 @@ func (r *Run) autoCompact(ctx context.Context, tracker *CostTracker, emit Emitte
 	}
 	emit("compact-start", CompactStartEvent{Reason: "auto"})
 	res, err := Compact(ctx, r, CompactOptions{})
-	end := CompactEndEvent{Summary: res.Summary, CutAt: res.CutAt, TokensBefore: res.TokensBefore, TokensAfter: res.TokensAfter}
+	end := CompactEndEvent{Summary: res.Summary, CutAt: res.CutAt, TokensBefore: res.TokensBefore, TokensAfter: res.TokensAfter, Truncated: res.Truncated}
 	switch {
 	case errors.Is(err, context.Canceled):
 		end.Aborted = true

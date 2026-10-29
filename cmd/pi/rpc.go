@@ -16,7 +16,6 @@ import (
 	"github.com/notshekhar/pi/internal/core/extension"
 	"github.com/notshekhar/pi/internal/core/hooks"
 	"github.com/notshekhar/pi/internal/core/mcp"
-	"github.com/notshekhar/pi/internal/core/projects"
 	"github.com/notshekhar/pi/internal/core/session"
 	"github.com/notshekhar/pi/internal/core/shells"
 	"github.com/notshekhar/pi/internal/core/tools"
@@ -82,80 +81,77 @@ func (h *rpcHost) newRun(sess *session.Session, modelID string, ask tools.Asker)
 	if saved := agents.ResolveSaved(stored.Agent); saved != "" && saved != agents.DefaultAgentName && agents.Exists(saved) {
 		run.Persona = agents.Prompt(saved)
 	}
-	h.ensureMCP(cfg.CWD)
-	run.Extra = h.mgr.Tools()
+	run.ExtraTools = h.ensureMCP(cfg.CWD).Tools
 	return run, nil
 }
 
-// ensureMCP connects the servers for cwd once; a client asks mcp.reconnect
-// for anything fresher.
-func (h *rpcHost) ensureMCP(cwd string) {
+// ensureMCP connects the servers for cwd the first time it is asked; a
+// client asks mcp.reconnect for anything fresher. The manager lives as long
+// as the process, healing its own connections.
+func (h *rpcHost) ensureMCP(cwd string) *mcp.Manager {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.mgr != nil {
-		return
+	if h.mgr == nil {
+		h.mgr, h.cwd = mcp.NewManager(), cwd
+		h.mgr.Init(context.Background(), cwd, mcpSource(cwd))
 	}
-	h.mgr = mcp.NewManager()
-	if !config.LoadSettings().MCPOn() {
-		return
-	}
-	h.cwd = cwd
-	h.mgr.Connect(context.Background(), config.ConnectableMCPServers(cwd, projects.IsTrusted(cwd)), cwd)
+	return h.mgr
+}
+
+func (h *rpcHost) manager() *mcp.Manager {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.mgr
 }
 
 func (h *rpcHost) Live() []rpc.MCPLive {
-	h.mu.Lock()
-	mgr := h.mgr
-	h.mu.Unlock()
+	mgr := h.manager()
 	if mgr == nil {
 		return nil
 	}
-	tools := mgr.Tools()
 	var out []rpc.MCPLive
 	for _, s := range mgr.Status() {
-		l := rpc.MCPLive{Name: s.Name, ToolCount: s.Tools, Status: "ready"}
-		switch {
-		case s.Skipped:
-			l.Status = "disabled"
-		case s.Err != nil:
-			l.Status, l.Error = "error", s.Err.Error()
-		}
-		prefix := s.Name + mcp.NameSeparator
-		for _, t := range tools {
-			if strings.HasPrefix(t.Name(), prefix) {
-				l.Tools = append(l.Tools, t.Name())
-			}
-		}
-		out = append(out, l)
+		out = append(out, rpc.MCPLive{Name: s.Name, Status: string(s.State), ToolCount: s.Tools, Tools: s.ToolNames, Error: s.Error})
 	}
 	return out
 }
 
-func (h *rpcHost) Connected() bool {
+func (h *rpcHost) Connected() bool { return h.manager() != nil }
+
+// Reconnect re-syncs one server (or all, for name "") with its config — an
+// added, edited, enabled or disabled entry takes effect here. A different
+// cwd switches which project's servers apply.
+func (h *rpcHost) Reconnect(ctx context.Context, cwd, name string) {
+	mgr := h.ensureMCP(cwd)
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.mgr != nil
+	moved := cwd != "" && cwd != h.cwd
+	if moved {
+		h.cwd = cwd
+	}
+	h.mu.Unlock()
+	if moved {
+		mgr.SetCWD(cwd, mcpSource(cwd))
+		name = ""
+	}
+	mgr.Reconnect(ctx, name)
 }
 
-func (h *rpcHost) Reconnect(ctx context.Context, cwd, _ string) {
-	h.mu.Lock()
-	if h.mgr != nil {
-		h.mgr.Close()
+// Forget drops a deleted server and its stored sign-in.
+func (h *rpcHost) Forget(name string) {
+	if mgr := h.manager(); mgr != nil {
+		mgr.Remove(name)
+		return
 	}
-	h.mgr = mcp.NewManager()
-	mgr := h.mgr
-	h.cwd = cwd
-	h.mu.Unlock()
-	if config.LoadSettings().MCPOn() {
-		mgr.Connect(ctx, config.ConnectableMCPServers(cwd, projects.IsTrusted(cwd)), cwd)
-	}
+	_ = mcp.ClearAuth(name)
 }
 
-func (h *rpcHost) Forget(string) {
-	h.mu.Lock()
-	cwd := h.cwd
-	h.mu.Unlock()
-	h.Reconnect(context.Background(), cwd, "")
+func (h *rpcHost) Login(ctx context.Context, cwd, name string, onURL func(string)) (int, error) {
+	mgr := h.ensureMCP(cwd)
+	if err := mgr.Authorize(ctx, name, onURL); err != nil {
+		return 0, err
+	}
+	s, _ := mgr.Server(name)
+	return s.Tools, nil
 }
 
 func (h *rpcHost) close() {

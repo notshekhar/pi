@@ -57,7 +57,7 @@ func SettingsStore() *jsonstore.Store {
 			"defaultModel", nil,
 			"theme", "dark",
 			"maxSteps", 0,
-			"autoCompactThreshold", 0.8,
+			"autoCompactThreshold", DefaultAutoCompactThreshold,
 			"workspaceContext", true,
 		)
 	})

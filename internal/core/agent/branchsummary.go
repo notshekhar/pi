@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/session"
 )
@@ -151,7 +153,7 @@ func (r *Run) RunBranchSummary(ctx context.Context, o BranchSummaryOptions) (str
 	}
 	modelID := r.Config.FullID()
 	var usage *session.Usage
-	text, err := r.requestSummary(ctx, "<conversation>\n"+serializeConversation(kept)+"\n</conversation>\n\n"+instructions,
+	text, err := r.requestSummary(ctx, []provider.Message{ai.UserText("<conversation>\n" + serializeConversation(kept) + "\n</conversation>\n\n" + instructions)},
 		func(u session.Usage) {
 			usage = sumUsage(usage, u)
 			if o.Tracker != nil {

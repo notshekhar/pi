@@ -5,9 +5,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -15,143 +15,163 @@ import (
 	"time"
 )
 
-// Transports. Two are implemented: a subprocess speaking newline-delimited
-// JSON on its stdio, and HTTP POST. Between them they cover essentially every
-// server in the wild.
+// A transport moves JSON-RPC messages. Delivery is asynchronous in both
+// directions: send hands a message over, and everything the server says —
+// responses, notifications, requests of its own — arrives through onMessage.
+// The client correlates responses by id, so nothing here assumes the next
+// thing a server says is the answer to the last thing it was asked.
+type transport interface {
+	start(ctx context.Context, h transportHandlers) error
+	// send delivers one message. headers are extra HTTP headers for this
+	// request (the modern era's per-tool bindings); stdio ignores them.
+	send(ctx context.Context, m *message, headers map[string]string) error
+	close() error
+	setProtocolVersion(v string)
+	// supportsDiscovery is whether the modern era's server/discover is worth
+	// trying (@ai-sdk/mcp: streamable HTTP only).
+	supportsDiscovery() bool
+}
 
-// Transport carries one request/response exchange.
-type Transport interface {
-	// Send writes a message and returns the raw reply. A notification (no id)
-	// returns nil.
-	Send(ctx context.Context, payload []byte, wantReply bool) ([]byte, error)
-	Close() error
+type transportHandlers struct {
+	onMessage func(*message)
+	// onClose is called once, when the connection ends for any reason other
+	// than close(). err says why.
+	onClose func(err error)
+}
+
+func encode(m *message) ([]byte, error) {
+	m.JSONRPC = "2.0"
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("mcp: encoding message: %w", err)
+	}
+	return data, nil
+}
+
+// decodeMessages parses one JSON-RPC message or a batch.
+func decodeMessages(data []byte) ([]*message, error) {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
+		return nil, nil
+	}
+	if data[0] == '[' {
+		var batch []*message
+		if err := json.Unmarshal(data, &batch); err != nil {
+			return nil, err
+		}
+		return batch, nil
+	}
+	var m message
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return []*message{&m}, nil
 }
 
 // --- stdio ------------------------------------------------------------------
 
-// stdioTransport runs a server as a child process and talks over its stdio.
+// stdioTransport runs a server as a child process speaking newline-delimited
+// JSON on its stdio.
 type stdioTransport struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
+	command string
+	args    []string
+	env     []string
+	dir     string
 
-	// One exchange at a time. MCP allows interleaving by id, but a coding
-	// agent issues calls one at a time and serialising removes a whole class
-	// of correlation bugs for no practical cost.
-	mu sync.Mutex
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	writeMu sync.Mutex
+	stderr  *stderrTail
+	exited  chan struct{}
+	waitErr error
 
-	stderr *stderrTail
-	// exited closes when the child has been reaped, which is also when its
-	// stderr has finished being copied. See wrap.
-	exited   chan struct{}
-	waitOnce sync.Once
+	closeOnce sync.Once
+	closing   chan struct{}
 }
 
-// StdioConfig describes a subprocess server.
-type StdioConfig struct {
-	Command string
-	Args    []string
-	Env     []string
-	CWD     string
+func newStdioTransport(cfg ServerConfig, cwd string) *stdioTransport {
+	return &stdioTransport{command: cfg.Command, args: cfg.Args, env: cfg.envList(), dir: cwd, closing: make(chan struct{})}
 }
 
-func newStdioTransport(cfg StdioConfig) (*stdioTransport, error) {
-	cmd := exec.Command(cfg.Command, cfg.Args...)
-	cmd.Dir = cfg.CWD
+func (t *stdioTransport) supportsDiscovery() bool   { return false }
+func (t *stdioTransport) setProtocolVersion(string) {}
+
+func (t *stdioTransport) start(_ context.Context, h transportHandlers) error {
+	cmd := exec.Command(t.command, t.args...)
+	cmd.Dir = t.dir
 	// Inherit the environment: servers routinely need PATH, HOME, and their
 	// own credentials, and an empty env makes them fail in ways that look
 	// like protocol errors.
-	cmd.Env = append(os.Environ(), cfg.Env...)
-
+	cmd.Env = append(os.Environ(), t.env...)
+	// Its own process group, so closing reaches what it spawned: `npx foo`
+	// is npx plus the node server it started, and killing only npx leaves
+	// the server running with nobody to ever stop it.
+	setProcessGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// Stderr is captured rather than discarded: when a server dies during the
-	// handshake, its stderr is the only thing that says why.
-	//
-	// Guarded, because os/exec copies it on ITS OWN goroutine while this one
-	// may be reading it to build an error message.
-	stderr := &stderrTail{remaining: 8 << 10}
-	cmd.Stderr = stderr
-
+	// Captured, never written to the terminal: a server's stderr writing
+	// into the TUI desyncs the renderer, and when a server dies during the
+	// handshake its stderr is the only thing that says why.
+	t.stderr = &stderrTail{remaining: 8 << 10}
+	cmd.Stderr = t.stderr
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return err
 	}
-	return &stdioTransport{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: bufio.NewReaderSize(stdout, 1<<20),
-		stderr: stderr,
-		exited: make(chan struct{}),
-	}, nil
-}
-
-// reap waits for the child once, and only once — Close needs the exit status
-// and wrap needs the stderr that waiting flushes.
-func (t *stdioTransport) reap() {
-	t.waitOnce.Do(func() {
-		t.cmd.Wait()
-		close(t.exited)
-	})
-}
-
-func (t *stdioTransport) Send(ctx context.Context, payload []byte, wantReply bool) ([]byte, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if _, err := t.stdin.Write(append(payload, '\n')); err != nil {
-		return nil, t.wrap(err)
-	}
-	if !wantReply {
-		return nil, nil
-	}
-
-	type result struct {
-		line []byte
-		err  error
-	}
-	done := make(chan result, 1)
+	t.cmd, t.stdin, t.exited = cmd, stdin, make(chan struct{})
 	go func() {
-		line, err := t.stdout.ReadBytes('\n')
-		done <- result{line, err}
+		t.waitErr = cmd.Wait()
+		close(t.exited)
 	}()
+	go t.read(stdout, h)
+	return nil
+}
 
-	select {
-	case <-ctx.Done():
-		// The read goroutine stays blocked on a pipe that will unblock when
-		// the process is killed on Close. Abandoning it is safe precisely
-		// because Send is serialised.
-		return nil, ctx.Err()
-	case r := <-done:
-		if r.err != nil {
-			return nil, t.wrap(r.err)
+func (t *stdioTransport) read(stdout io.Reader, h transportHandlers) {
+	r := bufio.NewReaderSize(stdout, 1<<20)
+	for {
+		line, err := r.ReadBytes('\n')
+		if len(bytes.TrimSpace(line)) > 0 {
+			msgs, perr := decodeMessages(line)
+			// A line that is not JSON-RPC is a server logging to the wrong
+			// stream. It is not a reason to drop the connection, and it is
+			// certainly not the reply to anything.
+			if perr == nil {
+				for _, m := range msgs {
+					h.onMessage(m)
+				}
+			}
 		}
-		return bytes.TrimSpace(r.line), nil
+		if err != nil {
+			select {
+			case <-t.closing:
+				return // our own close: not news
+			default:
+			}
+			h.onClose(t.exitError(err))
+			return
+		}
 	}
 }
 
-// wrap adds the server's stderr to an I/O error, which is otherwise just
-// "EOF" for what is really "the server crashed on startup".
+// exitError adds the server's stderr to an I/O error, which is otherwise
+// just "EOF" for what is really "the server crashed".
 //
-// It waits for the child first, briefly. A server that dies writes its
-// complaint to stderr and exits, and those are two INDEPENDENT events from
-// this side: stdout reaching EOF says nothing about whether os/exec has
-// finished copying stderr yet. Reading immediately gets an empty string on a
-// fast machine and the useful half of the error is lost — which is exactly
-// how this surfaced, as a test that passed everywhere except CI.
-//
-// Bounded, because the error path must not hang on a server that is still
-// running: an I/O error does not always mean the process is gone.
-func (t *stdioTransport) wrap(err error) error {
-	go t.reap()
+// It waits for the child first, briefly: stdout reaching EOF and os/exec
+// finishing the copy of stderr are independent events, and reading the
+// tail straight away loses the useful half of the error on a fast machine.
+func (t *stdioTransport) exitError(err error) error {
 	select {
 	case <-t.exited:
 	case <-time.After(500 * time.Millisecond):
+	}
+	if errors.Is(err, io.EOF) {
+		err = errors.New("connection closed")
 	}
 	if msg := strings.TrimSpace(t.stderr.String()); msg != "" {
 		return fmt.Errorf("%w: %s", err, lastLines(msg, 5))
@@ -159,12 +179,47 @@ func (t *stdioTransport) wrap(err error) error {
 	return err
 }
 
-func (t *stdioTransport) Close() error {
-	t.stdin.Close()
-	if t.cmd.Process != nil {
-		t.cmd.Process.Kill()
+func (t *stdioTransport) send(_ context.Context, m *message, _ map[string]string) error {
+	data, err := encode(m)
+	if err != nil {
+		return err
 	}
-	t.reap()
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	if t.stdin == nil {
+		return errNotConnected
+	}
+	if _, err := t.stdin.Write(append(data, '\n')); err != nil {
+		return t.exitError(err)
+	}
+	return nil
+}
+
+// close is the spec's shutdown: close stdin and let the server exit, then
+// SIGTERM, then SIGKILL — each to the whole process group.
+func (t *stdioTransport) close() error {
+	t.closeOnce.Do(func() {
+		close(t.closing)
+		if t.cmd == nil {
+			return
+		}
+		t.writeMu.Lock()
+		t.stdin.Close()
+		t.writeMu.Unlock()
+		select {
+		case <-t.exited:
+		case <-time.After(2 * time.Second):
+			signalGroup(t.cmd, false)
+			select {
+			case <-t.exited:
+			case <-time.After(2 * time.Second):
+				signalGroup(t.cmd, true)
+				<-t.exited
+			}
+		}
+		// The server is gone; anything it left behind in its group is not.
+		signalGroup(t.cmd, true)
+	})
 	return nil
 }
 
@@ -204,103 +259,4 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "; ")
-}
-
-// --- http -------------------------------------------------------------------
-
-// httpTransport POSTs each message to a URL.
-type httpTransport struct {
-	url     string
-	headers map[string]string
-	client  *http.Client
-	// sessionID is issued by the server on initialize and echoed back on
-	// every later request; servers that use it reject messages without it.
-	sessionID string
-	mu        sync.Mutex
-}
-
-// HTTPConfig describes a remote server.
-type HTTPConfig struct {
-	URL     string
-	Headers map[string]string
-}
-
-func newHTTPTransport(cfg HTTPConfig) *httpTransport {
-	return &httpTransport{
-		url:     cfg.URL,
-		headers: cfg.Headers,
-		client:  &http.Client{Timeout: 120 * time.Second},
-	}
-}
-
-func (t *httpTransport) Send(ctx context.Context, payload []byte, wantReply bool) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	for k, v := range t.headers {
-		req.Header.Set(k, v)
-	}
-	t.mu.Lock()
-	if t.sessionID != "" {
-		req.Header.Set("Mcp-Session-Id", t.sessionID)
-	}
-	t.mu.Unlock()
-
-	resp, err := t.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if id := resp.Header.Get("Mcp-Session-Id"); id != "" {
-		t.mu.Lock()
-		t.sessionID = id
-		t.mu.Unlock()
-	}
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return nil, fmt.Errorf("server returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-	if !wantReply {
-		return nil, nil
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return nil, err
-	}
-	// Streamable HTTP may answer a single request as an SSE stream, so the
-	// JSON has to be dug out of the event framing.
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
-		return extractSSEData(body), nil
-	}
-	return bytes.TrimSpace(body), nil
-}
-
-// extractSSEData pulls the last `data:` payload out of an SSE response.
-func extractSSEData(body []byte) []byte {
-	var last []byte
-	for _, line := range bytes.Split(body, []byte("\n")) {
-		line = bytes.TrimSpace(line)
-		if after, ok := bytes.CutPrefix(line, []byte("data:")); ok {
-			if trimmed := bytes.TrimSpace(after); len(trimmed) > 0 {
-				last = trimmed
-			}
-		}
-	}
-	return last
-}
-
-func (t *httpTransport) Close() error { return nil }
-
-// jsonBytes marshals a message, keeping the error at the call site.
-func jsonBytes(v any) ([]byte, error) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("mcp: encoding message: %w", err)
-	}
-	return data, nil
 }

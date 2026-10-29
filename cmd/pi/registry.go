@@ -99,7 +99,7 @@ func commands() []command {
 		{"bashdeny", "Add or remove bash commands the agent is refused (denylist guardrail)", arg((*repl).bashDeny)},
 		{"permissions", "Manage allow/ask/deny permission rules (Bash(git *), Read(secrets/**), …)", arg((*repl).permissions)},
 		{"perms", "Alias for /permissions", arg((*repl).permissions)},
-		{"mcp", "List MCP servers and their tools (/mcp reconnect [name])", arg((*repl).mcpCmd)},
+		{"mcp", "Manage MCP servers (/mcp add · list · reconnect · login · logout · enable · disable · remove)", arg((*repl).mcpCmd)},
 		{"skills", "Packaged instruction sets the agent can load (/skills new to write one)", arg((*repl).skillsMenu)},
 		{"skill", "Alias for /skills", arg((*repl).skillsMenu)},
 		{"fork", "Create a new fork from a previous user message", bare((*repl).forkSession)},

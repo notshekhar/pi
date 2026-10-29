@@ -150,7 +150,7 @@ func kindIDOf(tool string) string {
 		return builtin
 	}
 	// Not ours and not registered: say where it came from and nothing more.
-	// MCP tools arrive namespaced as `server__tool`.
+	// MCP tools arrive namespaced as `mcp__server__tool`.
 	if strings.Contains(tool, "__") {
 		return kindMCP
 	}

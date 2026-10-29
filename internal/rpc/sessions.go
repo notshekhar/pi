@@ -585,6 +585,9 @@ func (s *Server) sessionHandlers() map[string]handler {
 				return nil, err
 			}
 			result := map[string]any{"summary": res.Summary, "cutAt": res.CutAt, "tokensBefore": res.TokensBefore, "tokensAfter": res.TokensAfter}
+			if res.Truncated != "" {
+				result["truncated"] = res.Truncated
+			}
 			s.broadcast(id, c, "compact-end", result)
 			c.transcript = transcriptOf(c.session, true)
 			return result, nil

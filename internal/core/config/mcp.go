@@ -140,3 +140,32 @@ func RemoveProjectMCPServer(cwd, name string) (bool, error) {
 	delete(s, name)
 	return true, writeProjectServers(cwd, s)
 }
+
+// MCPScope is the file that defines a server here: "project" when
+// <cwd>/.loop/mcp.json has it (it wins on a name), else "global".
+func MCPScope(cwd, name string) string {
+	if _, ok := ProjectMCPServers(cwd)[name]; ok {
+		return "project"
+	}
+	return "global"
+}
+
+// SetMCPEnabledHere flips a server in the file that defines it.
+func SetMCPEnabledHere(cwd, name string, on bool) (bool, error) {
+	if MCPScope(cwd, name) == "project" {
+		return SetProjectMCPServerEnabled(cwd, name, on)
+	}
+	return SetMCPServerEnabled(name, on)
+}
+
+// RemoveMCPHere deletes a server from the file that defines it, reporting
+// which one that was.
+func RemoveMCPHere(cwd, name string) (scope string, ok bool, err error) {
+	scope = MCPScope(cwd, name)
+	if scope == "project" {
+		ok, err = RemoveProjectMCPServer(cwd, name)
+	} else {
+		ok, err = RemoveMCPServer(name)
+	}
+	return scope, ok, err
+}

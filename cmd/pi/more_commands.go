@@ -339,7 +339,7 @@ func (t *repl) reload() {
 	}
 	// Loop's hard reload: every config surface re-read from disk, and models
 	// re-fetched from the network — blocking, so the count it reports is real.
-	t.do(func() { t.app.LoaderStart() })
+	t.do(func() { t.app.LoaderStart("Reloading") })
 	go func() {
 		defer t.do(t.app.LoaderStop)
 		t.applySettings()
@@ -555,7 +555,7 @@ func (t *repl) goal(parent context.Context, rest string) {
 			})
 			defer t.drainNext()
 		}()
-		t.do(func() { t.app.LoaderStart() })
+		t.do(func() { t.app.LoaderStart("Planning goal") })
 
 		// The work phase reuses the ordinary turn machinery, so it renders
 		// exactly like every other turn.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -319,8 +320,7 @@ func (t *repl) compact(parent context.Context, focus string) {
 	t.cancel = cancel
 	t.mu.Unlock()
 
-	t.dim("compacting…")
-	t.do(func() { t.app.LoaderStart() })
+	t.do(func() { t.app.LoaderStart("Compacting") })
 	go func() {
 		defer func() {
 			t.mu.Lock()
@@ -333,23 +333,17 @@ func (t *repl) compact(parent context.Context, focus string) {
 
 		t.fireHook(ctx, hooks.Context{Event: hooks.PreCompact})
 		res, err := agent.Compact(ctx, t.run, agent.CompactOptions{Manual: true, Focus: focus})
-		if err != nil {
-			t.fail("compact: %s", err)
-			return
+		switch {
+		case errors.Is(err, agent.ErrNothingToCompact):
+			t.dim("nothing to compact")
+		case ctx.Err() != nil:
+			t.dim("compact aborted")
+		case err != nil:
+			t.fail("compact failed: %s", err)
+		default:
+			t.showCompaction(compaction{summary: res.Summary, tokensBefore: res.TokensBefore,
+				tokensAfter: res.TokensAfter, truncated: res.Truncated})
 		}
-		if res.Truncated != "" {
-			t.fail("summary failed: %s — truncated the older conversation instead", res.Truncated)
-		}
-		saved := 0
-		if res.TokensBefore > 0 {
-			saved = 100 * (res.TokensBefore - res.TokensAfter) / res.TokensBefore
-		}
-		t.do(func() {
-			th := t.app.Theme()
-			t.app.Print(th.Fg(tui.SlotSuccess, fmt.Sprintf(
-				"compacted ~%s → ~%s tokens (%d%% smaller)",
-				commas(res.TokensBefore), commas(res.TokensAfter), saved)))
-		})
 	}()
 }
 

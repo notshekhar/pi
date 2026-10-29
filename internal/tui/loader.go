@@ -4,53 +4,43 @@ import (
 	"time"
 )
 
-// Loader is the animated line under the transcript while a turn runs.
+// Loader is the working line under the transcript (loop's working
+// indicator): a braille spinner in the accent colour, then what is happening
+// — "Generating", "Compacting", "Summarizing branch" — with the interrupt
+// hint.
 //
 // Braille cells rather than a spinner of ASCII slashes: they are a single
 // cell wide in every font that has them, and the eight dots give a smooth
-// rotation at a frame rate slow enough not to compete with the rails.
+// rotation.
 var loaderFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-var loaderWords = []string{
-	"thinking", "hmm", "pondering", "cooking", "reading",
-	"planning", "typing", "brewing", "forging", "scheming",
-}
+// loaderFramePeriod is how long one frame is held: loop's Loader interval.
+const loaderFramePeriod = 80 * time.Millisecond
 
-// Loader tracks the frame clock for a running turn.
+// DefaultLoaderMessage is what a running turn says (loop's "Generating").
+const DefaultLoaderMessage = "Generating"
+
+// Loader tracks the frame clock and the message of one working stretch.
 type Loader struct {
-	Word  string
-	Start time.Time
+	Message string
+	Start   time.Time
 }
 
-// NewLoader starts the clock with a word picked from the start time.
-func NewLoader() *Loader {
-	now := time.Now()
-	return &Loader{
-		Word:  loaderWords[now.UnixNano()%int64(len(loaderWords))],
-		Start: now,
+// NewLoader starts the clock.
+func NewLoader(message string) *Loader {
+	if message == "" {
+		message = DefaultLoaderMessage
 	}
+	return &Loader{Message: message, Start: time.Now()}
 }
 
 // Tick returns the styled line for the current moment.
 //
 // The frame is derived from ELAPSED TIME, not from a counter incremented on
-// every call. It used to be a counter, and the effect was that the spinner's
-// speed was the RENDER rate rather than a rate at all: the app repaints on
-// every keystroke and on every mutation, so the spinner blurred while a
-// response streamed in, jumped a frame per keypress while scrolling, and ran
-// at its intended speed only when nothing else was happening. A spinner is a
-// clock — it has to be driven by one.
+// every call: the app repaints on every keystroke and every mutation, and a
+// counter would make the spinner's speed the render rate — blurring while a
+// response streams, jumping a frame per keypress. A spinner is a clock.
 func (l *Loader) Tick(t *Theme) string {
-	elapsed := time.Since(l.Start)
-	frame := loaderFrames[int(elapsed/loaderFramePeriod)%len(loaderFrames)]
-	return t.Fg(SlotWarning, frame) + " " +
-		t.Fg(SlotDim, l.Word+" · "+fmtDuration(elapsed.Round(time.Second))+" · esc to interrupt")
+	frame := loaderFrames[int(time.Since(l.Start)/loaderFramePeriod)%len(loaderFrames)]
+	return t.Fg(SlotAccent, frame) + " " + t.Fg(SlotDim, l.Message+" (Esc to interrupt)")
 }
-
-// loaderFramePeriod is how long one braille frame is held.
-//
-// Two frame clocks slower than the render tick: at 20fps the ten dots cycle
-// twice a second, which reads as a blur rather than as rotation. This is the
-// speed the counter was NEVER actually delivering, since it advanced once per
-// paint.
-const loaderFramePeriod = AnimInterval * 2

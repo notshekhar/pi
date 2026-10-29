@@ -84,9 +84,12 @@ type slot struct {
 	// idleCompacting is an idle compaction (agent/idlecompact.go) running
 	// after this slot's turn ended; it owns its own closing message.
 	idleCompacting bool
-	cfg            config.Config
-	run            *agent.Run
-	cancel         context.CancelFunc
+	// idleShown is whether that idle compaction put its own working line up
+	// (it does not when a turn already owns the line).
+	idleShown bool
+	cfg       config.Config
+	run       *agent.Run
+	cancel    context.CancelFunc
 	// queue is input typed while a turn runs, drained FIFO (queue.go).
 	queue   []string
 	turning bool
@@ -534,7 +537,7 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 			t.drainNext()
 		}()
 
-		t.do(func() { t.app.LoaderStart() })
+		t.do(func() { t.app.LoaderStart(tui.DefaultLoaderMessage) })
 
 		// loop's runTurn: the prompt, auto-compaction BEFORE the request,
 		// each step persisted as it finishes, an interrupted turn kept. The
@@ -707,47 +710,10 @@ func (t *repl) turnEvent(name string, data any) {
 	case "compact-start":
 		t.fireHook(context.Background(), hooks.Context{Event: hooks.PreCompact})
 		start, _ := data.(agent.CompactStartEvent)
-		t.mu.Lock()
-		t.idleCompacting = start.Reason == "idle"
-		idle := t.idleCompacting
-		t.mu.Unlock()
-		if !idle {
-			t.dim("context full — compacting…")
-		}
+		t.compactStarted(start.Reason == "idle")
 	case "compact-end":
-		t.mu.Lock()
-		idle := t.idleCompacting
-		t.idleCompacting = false
-		t.mu.Unlock()
-		if end, ok := data.(agent.CompactEndEvent); ok && idle {
-			// Cancelled because the user came back: nothing to say.
-			switch {
-			case end.Error != "":
-				t.fail("idle compaction failed: %s", end.Error)
-			case !end.Aborted && end.Summary != "":
-				t.do(func() {
-					t.app.Print(t.app.Theme().Fg(tui.SlotSuccess, fmt.Sprintf(
-						"⟲ Compacted while idle, before the prompt cache expired · %s → %s tokens",
-						formatTokens(end.TokensBefore), formatTokens(end.TokensAfter))))
-				})
-			}
-		} else if ok {
-			switch {
-			case end.Aborted:
-				t.dim("compaction interrupted")
-			case end.Error != "":
-				// Not fatal: the session is untouched and this turn may still fit.
-				t.fail("auto-compact failed: %s — /compact to retry", end.Error)
-			case end.TokensBefore > 0:
-				if end.Truncated != "" {
-					t.fail("summary failed: %s — truncated the older conversation instead", end.Truncated)
-				}
-				t.do(func() {
-					t.app.Print(t.app.Theme().Fg(tui.SlotSuccess, fmt.Sprintf(
-						"auto-compacted ~%s → ~%s tokens", commas(end.TokensBefore), commas(end.TokensAfter))))
-				})
-			}
-		}
+		end, _ := data.(agent.CompactEndEvent)
+		t.compactEnded(end)
 	}
 	if t.live != nil {
 		t.live.publish(t.run.Session.ID, name, data)

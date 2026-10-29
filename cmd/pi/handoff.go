@@ -55,7 +55,7 @@ func (t *repl) handoffFlow(ctx context.Context, focus string) error {
 	cwd := t.cfg.CWD
 	sourceLeaf := source.LeafID()
 
-	t.do(t.app.LoaderStart)
+	t.do(func() { t.app.LoaderStart("Preparing handoff") })
 	status := agent.HandoffGitStatus(cwd)
 	brief, err := agent.GenerateHandoff(ctx, agent.DraftOptions{ModelID: sourceModel, CWD: cwd, SessionPub: source.ID,
 		Tracker: agent.NewCostTracker()}, branch, focus, status)

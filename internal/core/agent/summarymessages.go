@@ -187,10 +187,12 @@ func fitGroup(g []summaryMessage, budget int) []summaryMessage {
 }
 
 // summaryRequest is one summarizer request: an opening user message
-// (carrying the summary so far, when there is one), the span, then the
-// instructions. The opening message also means the request never starts on
-// an assistant turn, which some providers refuse.
-func summaryRequest(span []summaryMessage, instructions, previousSummary string) []provider.Message {
+// (carrying the summary so far, when there is one), the span, the
+// instructions, and — when the user gave any with /compact <instructions> —
+// theirs, as one more user message, the way they wrote them. The opening
+// message also means the request never starts on an assistant turn, which
+// some providers refuse.
+func summaryRequest(span []summaryMessage, instructions, previousSummary, focus string) []provider.Message {
 	opening := "The conversation to summarize follows."
 	if previousSummary != "" {
 		opening = "<previous-summary>\n" + previousSummary + "\n</previous-summary>\n\nThe conversation to fold into it follows."
@@ -201,7 +203,11 @@ func summaryRequest(span []summaryMessage, instructions, previousSummary string)
 			out = append(out, msg)
 		}
 	}
-	return append(out, ai.UserText(instructions))
+	out = append(out, ai.UserText(instructions))
+	if focus != "" {
+		out = append(out, ai.UserText("Additional instructions for this summary: "+focus))
+	}
+	return out
 }
 
 // toolStubs declares every tool the messages call. A provider refuses a

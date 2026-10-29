@@ -123,7 +123,7 @@ func (t *repl) navigateTree(id, realLeaf string) {
 			t.mu.Lock()
 			t.turning, t.cancel = true, cancel
 			t.mu.Unlock()
-			t.do(t.app.LoaderStart)
+			t.do(func() { t.app.LoaderStart("Summarizing branch") })
 			text, usage, err := t.run.RunBranchSummary(ctx, agent.BranchSummaryOptions{Entries: entries,
 				CustomInstructions: custom, Tracker: t.tracker()})
 			t.do(t.app.LoaderStop)

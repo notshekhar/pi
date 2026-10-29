@@ -133,3 +133,24 @@ func TestCompactionSendsRealMessages(t *testing.T) {
 		t.Errorf("the instructions are not last: %.200s", last)
 	}
 }
+
+// /compact <instructions> reaches the model as its own user message, after
+// the standing instructions.
+func TestCompactInstructionsAreTheirOwnMessage(t *testing.T) {
+	msgs := summaryRequest(nil, "STANDING", "", "keep the API changes")
+	last, ok := msgs[len(msgs)-1].(provider.UserMessage)
+	if !ok {
+		t.Fatalf("last message is %T", msgs[len(msgs)-1])
+	}
+	text := last.Content[0].(provider.TextPart).Text
+	if !strings.Contains(text, "keep the API changes") {
+		t.Errorf("last message = %q", text)
+	}
+	prev := msgs[len(msgs)-2].(provider.UserMessage).Content[0].(provider.TextPart).Text
+	if prev != "STANDING" {
+		t.Errorf("standing instructions = %q", prev)
+	}
+	if got := len(summaryRequest(nil, "STANDING", "", "")); got != 2 {
+		t.Errorf("no instructions should add no message, got %d", got)
+	}
+}

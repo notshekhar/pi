@@ -11,7 +11,7 @@ import (
 // is what made it blur while streaming and jump while scrolling.
 func TestLoaderFrameDependsOnTimeNotCallCount(t *testing.T) {
 	theme := NewTheme(NightPalette)
-	l := &Loader{Word: "thinking", Start: time.Now()}
+	l := &Loader{Message: "Generating", Start: time.Now()}
 
 	// A hundred paints in the same instant must all show the same frame.
 	first := frameGlyph(t, l.Tick(theme))
@@ -27,7 +27,7 @@ func TestLoaderAdvancesWithTime(t *testing.T) {
 	// Started in the past, so the frame is a pure function of the offset.
 	seen := map[string]bool{}
 	for i := 0; i < len(loaderFrames); i++ {
-		l := &Loader{Word: "thinking", Start: time.Now().Add(-time.Duration(i) * loaderFramePeriod)}
+		l := &Loader{Message: "Generating", Start: time.Now().Add(-time.Duration(i) * loaderFramePeriod)}
 		seen[frameGlyph(t, l.Tick(theme))] = true
 	}
 	if len(seen) != len(loaderFrames) {
@@ -41,8 +41,8 @@ func TestLoaderWrapsAroundTheCycle(t *testing.T) {
 	cycle := loaderFramePeriod * time.Duration(len(loaderFrames))
 	// The GLYPH only: the rest of the line carries the elapsed counter, which
 	// is supposed to differ a cycle apart.
-	a := frameGlyph(t, (&Loader{Word: "thinking", Start: time.Now()}).Tick(theme))
-	b := frameGlyph(t, (&Loader{Word: "thinking", Start: time.Now().Add(-cycle)}).Tick(theme))
+	a := frameGlyph(t, (&Loader{Message: "Generating", Start: time.Now()}).Tick(theme))
+	b := frameGlyph(t, (&Loader{Message: "Generating", Start: time.Now().Add(-cycle)}).Tick(theme))
 	if a != b {
 		t.Errorf("a full cycle did not return to the same frame: %q vs %q", a, b)
 	}

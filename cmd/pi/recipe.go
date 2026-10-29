@@ -176,7 +176,7 @@ func (t *repl) recipeFlow(ctx context.Context, raw string) (string, error) {
 		if strings.TrimSpace(focus) == "" {
 			return "", nil
 		}
-		t.do(t.app.LoaderStart)
+		t.do(func() { t.app.LoaderStart("Extracting recipe") })
 		draft, err := agent.GenerateRecipe(ctx, agent.DraftOptions{ModelID: t.cfg.FullID(), CWD: t.cfg.CWD,
 			SessionPub: sess.ID, Tracker: agent.NewCostTracker()}, sess.CurrentBranch(), name, focus)
 		t.do(t.app.LoaderStop)

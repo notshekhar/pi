@@ -629,10 +629,7 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 			usage = sumUsage(usage, u)
 		}
 	}
-	focus := ""
-	if f := strings.TrimSpace(opts.Focus); f != "" {
-		focus = "\n\nAdditional focus: " + f
-	}
+	focus := strings.TrimSpace(opts.Focus)
 	summarizeHistory := func(budget int) (string, error) {
 		running := previousBody
 		messages := toSummaryMessages(history)
@@ -647,7 +644,7 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 			if running != "" {
 				instructions = updateSummarizationPrompt
 			}
-			out, err := r.requestSummary(ctx, summaryRequest(chunk, instructions+focus, running), bill)
+			out, err := r.requestSummary(ctx, summaryRequest(chunk, instructions, running, focus), bill)
 			if err != nil {
 				return "", err
 			}
@@ -660,7 +657,7 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 		if chunks := chunkMessages(toSummaryMessages(turnPrefix), budget); len(chunks) > 0 {
 			span = chunks[0]
 		}
-		return r.requestSummary(ctx, summaryRequest(span, turnPrefixSummarizationPrompt+focus, ""), bill)
+		return r.requestSummary(ctx, summaryRequest(span, turnPrefixSummarizationPrompt, "", focus), bill)
 	}
 
 	text, truncated := "", ""

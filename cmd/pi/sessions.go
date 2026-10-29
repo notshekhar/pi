@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/agent"
 	"strconv"
 	"strings"
@@ -191,7 +192,10 @@ func (t *repl) resume(id string) {
 	})
 }
 
-// replayTranscript re-renders a loaded conversation into the transcript.
+// replayTranscript re-renders a loaded conversation into the transcript, in
+// branch order: every message, and each compaction as its [compaction] box
+// where it happened (loop's renderSessionBranch) — a compaction drops
+// entries from the model's context, not from the conversation on screen.
 //
 // Tool calls and their results are paired up so a replayed row shows the same
 // summary and output a live one did. Reasoning is not replayed: providers
@@ -199,19 +203,30 @@ func (t *repl) resume(id string) {
 // showing them would fill the screen with noise.
 func (t *repl) replayTranscript(s *session.Session) {
 	results := s.ToolResults()
-	for _, msg := range s.Messages {
-		for _, part := range session.Parts(msg) {
-			switch p := part.(type) {
-			case session.ReplayUser:
-				t.app.UserEcho(p.Text)
-			case session.ReplayAssistant:
-				t.app.AssistantDelta(p.Text)
-				t.app.AssistantEnd()
-			case session.ReplayToolCall:
-				t.app.ToolStart(p.ID, p.Name, p.Input)
-				out, isErr := results[p.ID].Text, results[p.ID].IsError
-				t.app.ToolEnd(p.ID, out, isErr)
+	for _, e := range s.CurrentBranch() {
+		switch e.Type {
+		case session.TypeMessage:
+			if msg, ok := session.DecodeContent(e.Role, e.Content); ok {
+				t.replayMessage(msg, results)
 			}
+		case session.TypeCompact:
+			t.app.AddCompaction(e.Summary, e.TokensBefore, e.Handoff)
+		}
+	}
+}
+
+func (t *repl) replayMessage(msg provider.Message, results map[string]session.ToolOutcome) {
+	for _, part := range session.Parts(msg) {
+		switch p := part.(type) {
+		case session.ReplayUser:
+			t.app.UserEcho(p.Text)
+		case session.ReplayAssistant:
+			t.app.AssistantDelta(p.Text)
+			t.app.AssistantEnd()
+		case session.ReplayToolCall:
+			t.app.ToolStart(p.ID, p.Name, p.Input)
+			out, isErr := results[p.ID].Text, results[p.ID].IsError
+			t.app.ToolEnd(p.ID, out, isErr)
 		}
 	}
 }

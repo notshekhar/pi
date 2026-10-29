@@ -28,6 +28,7 @@ const (
 	entTool
 	entSummary
 	entDraft
+	entCompaction
 )
 
 // entry is one transcript block. It owns its rendered lines and the cache
@@ -50,6 +51,10 @@ type entry struct {
 	streaming bool
 
 	tool ToolState
+
+	// compaction
+	handoff      string
+	tokensBefore int
 
 	expanded bool
 	selected bool
@@ -136,6 +141,12 @@ func (e *entry) render(t *Theme, width int, tick int64, expandAll, nav bool) []s
 
 	case entSummary:
 		out = e.lines
+
+	case entCompaction:
+		out = RenderCompaction(t, e.md, CompactionState{
+			Summary: e.text, Handoff: e.handoff, TokensBefore: e.tokensBefore,
+			Expanded: expanded, Selected: e.selected, Nav: nav,
+		}, width)
 
 	case entDraft:
 		// loop's ruled transient block: a draft (a handoff brief, a recipe)
@@ -802,12 +813,25 @@ func (a *App) TurnSummary(d time.Duration) {
 	a.push(&entry{kind: entSummary, duration: d, lines: RenderTurnSummary(a.theme, d, a.size.Cols)})
 }
 
-// LoaderStart shows the spinner line.
-func (a *App) LoaderStart() {
-	a.loader = NewLoader()
+// LoaderStart shows the working line with what is happening ("" is a
+// turn's "Generating").
+func (a *App) LoaderStart(message string) {
+	a.loader = NewLoader(message)
 	if a.hooks.Working != nil {
 		a.hooks.Working(true)
 	}
+}
+
+// LoaderMessage changes what the working line says, keeping its clock — a
+// turn that pauses to compact says so, then goes back to generating.
+func (a *App) LoaderMessage(message string) {
+	if a.loader == nil {
+		return
+	}
+	if message == "" {
+		message = DefaultLoaderMessage
+	}
+	a.loader.Message = message
 }
 
 // LoaderStop hides it.
@@ -1181,6 +1205,8 @@ func (e *entry) selectable() bool {
 		return e.text != ""
 	case entTool:
 		return e.tool.Output != "" || e.tool.StreamingContent != ""
+	case entCompaction:
+		return true
 	case entUser, entAssistant:
 		// Prose is navigable even though it does not fold: nav is how you
 		// walk back through a turn, and a transcript that skipped what was
@@ -1402,8 +1428,11 @@ func (a *App) copySelected() {
 	}
 	e := a.entries[a.sel]
 	text := e.text
-	if e.kind == entTool {
+	switch {
+	case e.kind == entTool:
 		text = e.tool.Output
+	case e.kind == entCompaction && e.handoff != "":
+		text = e.handoff
 	}
 	if text == "" {
 		return

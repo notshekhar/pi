@@ -185,7 +185,7 @@ func (t *repl) updateApp(ctx context.Context) {
 		return
 	}
 	go func() {
-		t.do(t.app.LoaderStart)
+		t.do(func() { t.app.LoaderStart("Checking for updates") })
 		latest := resolveAvailableUpdate(ctx, version)
 		t.do(t.app.LoaderStop)
 		if latest == "" {

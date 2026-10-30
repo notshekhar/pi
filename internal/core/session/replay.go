@@ -22,6 +22,10 @@ type ReplayUser struct{ Text string }
 // ReplayAssistant is prose the model produced.
 type ReplayAssistant struct{ Text string }
 
+// ReplayThinking is a reasoning block the model wrote. Its duration is the
+// entry's (Entry.ReasoningMs, one per reasoning part, in order).
+type ReplayThinking struct{ Text string }
+
 // ReplayToolCall is a tool invocation. Its result is looked up separately,
 // because the two live in different messages.
 type ReplayToolCall struct {
@@ -32,6 +36,7 @@ type ReplayToolCall struct {
 
 func (ReplayUser) isReplayPart()      {}
 func (ReplayAssistant) isReplayPart() {}
+func (ReplayThinking) isReplayPart()  {}
 func (ReplayToolCall) isReplayPart()  {}
 
 // ToolOutcome is a finished tool call's result.
@@ -40,11 +45,10 @@ type ToolOutcome struct {
 	IsError bool
 }
 
-// Parts flattens one message into drawable items.
-//
-// Reasoning is deliberately absent: providers hand back signed blobs meant
-// for the model rather than the reader, and a replayed transcript full of
-// them would be noise.
+// Parts flattens one message into drawable items, in order: prose, the
+// model's readable reasoning (as loop's replay draws it — "Thought for 4s"),
+// and tool calls. A reasoning part with no text — a provider's signed blob —
+// draws nothing.
 func Parts(msg provider.Message) []ReplayPart {
 	var out []ReplayPart
 	switch m := msg.(type) {
@@ -58,6 +62,15 @@ func Parts(msg provider.Message) []ReplayPart {
 			switch p := part.(type) {
 			case provider.TextPart:
 				prose += p.Text
+			case provider.ReasoningPart:
+				if p.Text == "" {
+					continue
+				}
+				if prose != "" {
+					out = append(out, ReplayAssistant{Text: prose})
+					prose = ""
+				}
+				out = append(out, ReplayThinking{Text: p.Text})
 			case provider.ToolCallPart:
 				// Prose before a call belongs above its row, in order.
 				if prose != "" {

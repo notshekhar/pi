@@ -342,7 +342,7 @@ func (t *repl) compact(parent context.Context, focus string) {
 			t.fail("compact failed: %s", err)
 		default:
 			t.showCompaction(compaction{summary: res.Summary, tokensBefore: res.TokensBefore,
-				tokensAfter: res.TokensAfter, truncated: res.Truncated})
+				tokensAfter: res.TokensAfter, truncated: res.Truncated, focus: res.Focus})
 		}
 	}()
 }

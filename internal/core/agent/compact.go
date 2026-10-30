@@ -168,6 +168,9 @@ type CompactResult struct {
 	// Truncated is the error the summary failed with when the span was
 	// truncated instead (truncationRecord); Summary is that record.
 	Truncated string
+	// Focus is the user's instructions for this summary (/compact <text>),
+	// kept on the entry so the transcript can show what was asked.
+	Focus string
 }
 
 // TruncationPreamble opens the record a compaction saves when its summary
@@ -725,6 +728,9 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 	if truncated != "" {
 		entry.Extra["truncated"], _ = json.Marshal(truncated)
 	}
+	if focus != "" {
+		entry.Extra["focus"], _ = json.Marshal(focus)
+	}
 	if usage != nil {
 		stamped := StampUsage(modelID, *usage)
 		entry.Usage, entry.Model = &stamped, modelID
@@ -732,7 +738,7 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 	if err := s.AppendAll(entry); err != nil {
 		return CompactResult{}, err
 	}
-	return CompactResult{Summary: text, CutAt: cut, TokensBefore: tokensBefore, TokensAfter: tokensAfter, Truncated: truncated}, nil
+	return CompactResult{Summary: text, CutAt: cut, TokensBefore: tokensBefore, TokensAfter: tokensAfter, Truncated: truncated, Focus: focus}, nil
 }
 
 // sumUsage adds b into a, field by field (loop's sumUsage).

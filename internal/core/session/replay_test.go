@@ -44,21 +44,6 @@ func TestPartsKeepsProseBeforeToolCalls(t *testing.T) {
 	}
 }
 
-// Signed reasoning blobs are for the model, not the reader.
-func TestPartsSkipsReasoning(t *testing.T) {
-	msg := provider.AssistantMessage{Content: []provider.AssistantPart{
-		provider.ReasoningPart{Text: "internal monologue"},
-		provider.TextPart{Text: "answer"},
-	}}
-	parts := Parts(msg)
-	if len(parts) != 1 {
-		t.Fatalf("got %d parts, want 1: %#v", len(parts), parts)
-	}
-	if p := parts[0].(ReplayAssistant); p.Text != "answer" {
-		t.Errorf("part = %q", p.Text)
-	}
-}
-
 func TestToolResultsIndexesByCallID(t *testing.T) {
 	s := &Session{Messages: []provider.Message{
 		toolOK("c1", "read", "file contents"),
@@ -94,5 +79,24 @@ func TestPartsToleratesNonObjectToolInput(t *testing.T) {
 	}
 	if call := parts[0].(ReplayToolCall); call.Input != nil {
 		t.Errorf("expected nil input, got %#v", call.Input)
+	}
+}
+
+// A replayed transcript shows the model's readable reasoning as its own
+// block, in order, and skips a reasoning part with no text (a signed blob).
+func TestPartsReplayReasoning(t *testing.T) {
+	parts := Parts(provider.AssistantMessage{Content: []provider.AssistantPart{
+		provider.ReasoningPart{Text: "weighing it"},
+		provider.ReasoningPart{Text: ""},
+		provider.TextPart{Text: "answer"},
+	}})
+	if len(parts) != 2 {
+		t.Fatalf("parts = %#v", parts)
+	}
+	if th, ok := parts[0].(ReplayThinking); !ok || th.Text != "weighing it" {
+		t.Errorf("first part = %#v", parts[0])
+	}
+	if a, ok := parts[1].(ReplayAssistant); !ok || a.Text != "answer" {
+		t.Errorf("second part = %#v", parts[1])
 	}
 }

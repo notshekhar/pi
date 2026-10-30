@@ -15,15 +15,23 @@ type CompactionState struct {
 	Summary      string
 	Handoff      string // a rollover's recovery record, in place of a summary
 	TokensBefore int
-	Expanded     bool
-	Selected     bool
-	Nav          bool
+	// Focus is what the user asked the summary to keep (/compact <text>).
+	Focus    string
+	Expanded bool
+	Selected bool
+	Nav      bool
+}
+
+// Compaction is one compaction as the transcript shows it.
+type Compaction struct {
+	Summary, Handoff, Focus string
+	TokensBefore            int
 }
 
 // AddCompaction records a compaction in the transcript.
-func (a *App) AddCompaction(summary string, tokensBefore int, handoff string) {
+func (a *App) AddCompaction(c Compaction) {
 	md := NewMarkdown(a.mdTheme, &DefaultTextStyle{Color: func(s string) string { return a.theme.Fg(SlotCustomMessageText, s) }})
-	a.push(&entry{kind: entCompaction, text: summary, handoff: handoff, tokensBefore: tokensBefore, md: md})
+	a.push(&entry{kind: entCompaction, text: c.Summary, handoff: c.Handoff, focus: c.Focus, tokensBefore: c.TokensBefore, md: md})
 }
 
 // RenderCompaction draws the box at width.
@@ -36,15 +44,25 @@ func RenderCompaction(t *Theme, md *Markdown, st CompactionState, width int) []s
 	}
 	inner := max(10, width-2*userPadX)
 	rows := []string{t.Fg(SlotCustomMessageLabel, t.Bold(label)), ""}
+	var instructions []string
+	if st.Focus != "" {
+		instructions = wrapPreserveBlanks("Instructions: "+st.Focus, inner)
+		for i, l := range instructions {
+			instructions[i] = t.Fg(SlotDim, l)
+		}
+	}
 	if st.Expanded {
-		md.SetText("**" + lead + "**\n\n" + body)
-		rows = append(rows, trimTrailingBlank(md.Render(inner))...)
+		rows = append(rows, t.Fg(SlotCustomMessageText, t.Bold(lead)))
+		rows = append(rows, instructions...)
+		md.SetText(body)
+		rows = append(append(rows, ""), trimTrailingBlank(md.Render(inner))...)
 	} else {
 		hint := ""
 		if st.Selected {
 			hint = t.Fg(SlotDim, " ("+expandHintFor(st.Nav)+" to expand)")
 		}
 		rows = append(rows, t.Fg(SlotCustomMessageText, lead)+hint)
+		rows = append(rows, instructions...)
 	}
 	bg := func(line string) string { return t.Bg(SlotCustomMessageBg, line) }
 	blank := applyBackgroundToLine("", width, bg)

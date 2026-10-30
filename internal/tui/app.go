@@ -55,6 +55,7 @@ type entry struct {
 	// compaction
 	handoff      string
 	tokensBefore int
+	focus        string
 
 	expanded bool
 	selected bool
@@ -144,7 +145,7 @@ func (e *entry) render(t *Theme, width int, tick int64, expandAll, nav bool) []s
 
 	case entCompaction:
 		out = RenderCompaction(t, e.md, CompactionState{
-			Summary: e.text, Handoff: e.handoff, TokensBefore: e.tokensBefore,
+			Summary: e.text, Handoff: e.handoff, TokensBefore: e.tokensBefore, Focus: e.focus,
 			Expanded: expanded, Selected: e.selected, Nav: nav,
 		}, width)
 
@@ -689,6 +690,12 @@ func (a *App) Printf(format string, args ...any) {
 // UserEcho prints the submitted prompt into the transcript.
 func (a *App) UserEcho(text string) {
 	a.push(&entry{kind: entUser, text: text, at: time.Now()})
+}
+
+// AddThinking adds a finished reasoning block (a replayed session's), with
+// how long it took when that is known.
+func (a *App) AddThinking(text string, took time.Duration) {
+	a.push(&entry{kind: entThinking, text: text, duration: took})
 }
 
 // ThinkingDelta appends reasoning, opening the block on first delta.

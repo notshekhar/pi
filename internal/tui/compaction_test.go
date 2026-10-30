@@ -51,3 +51,16 @@ func TestThousands(t *testing.T) {
 		}
 	}
 }
+
+// /compact <instructions> shows with the compaction, collapsed and open.
+func TestCompactionBoxShowsTheInstructions(t *testing.T) {
+	for _, expanded := range []bool{false, true} {
+		out := renderedCompaction(CompactionState{Summary: "SUMMARY", TokensBefore: 5, Focus: "keep the API changes", Expanded: expanded})
+		if !strings.Contains(out, "Instructions: keep the API changes") {
+			t.Errorf("expanded=%v: no instructions:\n%s", expanded, out)
+		}
+	}
+	if out := renderedCompaction(CompactionState{Summary: "S", TokensBefore: 5}); strings.Contains(out, "Instructions:") {
+		t.Errorf("instructions line without instructions:\n%s", out)
+	}
+}

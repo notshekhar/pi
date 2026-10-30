@@ -14,8 +14,8 @@ import (
 
 // compaction is one finished compaction, whatever started it.
 type compaction struct {
-	summary, handoff, truncated string
-	tokensBefore, tokensAfter   int
+	summary, handoff, truncated, focus string
+	tokensBefore, tokensAfter          int
 }
 
 // compactStarted puts compaction on the working line. A compaction inside a
@@ -84,7 +84,7 @@ func (t *repl) showCompaction(c compaction) {
 		t.fail("summary failed: %s — truncated the older conversation instead", c.truncated)
 	}
 	t.do(func() {
-		t.app.AddCompaction(c.summary, c.tokensBefore, c.handoff)
+		t.app.AddCompaction(tui.Compaction{Summary: c.summary, Handoff: c.handoff, Focus: c.focus, TokensBefore: c.tokensBefore})
 		if c.tokensAfter > 0 {
 			t.app.SetContextTokens(c.tokensAfter)
 		}

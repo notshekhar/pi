@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/agent"
@@ -192,34 +193,67 @@ func (t *repl) resume(id string) {
 	})
 }
 
-// replayTranscript re-renders a loaded conversation into the transcript, in
-// branch order: every message, and each compaction as its [compaction] box
-// where it happened (loop's renderSessionBranch) — a compaction drops
-// entries from the model's context, not from the conversation on screen.
+// replayTranscript re-renders a loaded conversation into the transcript
+// (loop's renderSessionBranch). Everything on the branch is drawn — a
+// compaction drops entries from the model's context, not from the
+// conversation — and the latest compaction's box goes where it CUT, before
+// the first message it kept: the entry itself is appended when compaction
+// runs, later than the cut it records, and drawing it there would put
+// surviving messages above their own boundary.
 //
 // Tool calls and their results are paired up so a replayed row shows the same
-// summary and output a live one did. Reasoning is not replayed: providers
-// hand back signed blobs that are meant for the model, not the reader, and
-// showing them would fill the screen with noise.
+// summary and output a live one did; reasoning comes back as its thinking
+// block, with how long it took.
 func (t *repl) replayTranscript(s *session.Session) {
+	branch := s.CurrentBranch()
 	results := s.ToolResults()
-	for _, e := range s.CurrentBranch() {
-		switch e.Type {
-		case session.TypeMessage:
-			if msg, ok := session.DecodeContent(e.Role, e.Content); ok {
-				t.replayMessage(msg, results)
-			}
-		case session.TypeCompact:
-			t.app.AddCompaction(e.Summary, e.TokensBefore, e.Handoff)
+	latest, hasCompaction := latestCompaction(branch)
+	drawn := !hasCompaction
+	index := 0
+	for _, e := range branch {
+		if e.Type != session.TypeMessage {
+			continue
 		}
+		if !drawn && index >= latest.CutAt {
+			t.app.AddCompaction(compactionOf(latest))
+			drawn = true
+		}
+		index++
+		if msg, ok := session.DecodeContent(e.Role, e.Content); ok {
+			t.replayMessage(msg, e.ReasoningMs, results)
+		}
+	}
+	if !drawn {
+		t.app.AddCompaction(compactionOf(latest))
 	}
 }
 
-func (t *repl) replayMessage(msg provider.Message, results map[string]session.ToolOutcome) {
+func latestCompaction(branch []session.Entry) (session.Entry, bool) {
+	for i := len(branch) - 1; i >= 0; i-- {
+		if branch[i].Type == session.TypeCompact {
+			return branch[i], true
+		}
+	}
+	return session.Entry{}, false
+}
+
+func compactionOf(e session.Entry) tui.Compaction {
+	var focus string
+	_ = json.Unmarshal(e.Extra["focus"], &focus)
+	return tui.Compaction{Summary: e.Summary, Handoff: e.Handoff, Focus: focus, TokensBefore: e.TokensBefore}
+}
+
+func (t *repl) replayMessage(msg provider.Message, reasoningMs []int64, results map[string]session.ToolOutcome) {
 	for _, part := range session.Parts(msg) {
 		switch p := part.(type) {
 		case session.ReplayUser:
 			t.app.UserEcho(p.Text)
+		case session.ReplayThinking:
+			var took time.Duration
+			if len(reasoningMs) > 0 {
+				took, reasoningMs = time.Duration(reasoningMs[0])*time.Millisecond, reasoningMs[1:]
+			}
+			t.app.AddThinking(p.Text, took)
 		case session.ReplayAssistant:
 			t.app.AssistantDelta(p.Text)
 			t.app.AssistantEnd()

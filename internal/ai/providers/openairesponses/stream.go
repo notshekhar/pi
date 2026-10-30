@@ -44,6 +44,7 @@ type outputItem struct {
 type responseObject struct {
 	ID                string `json:"id"`
 	Model             string `json:"model"`
+	Status            string `json:"status"`
 	IncompleteDetails *struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details"`
@@ -105,6 +106,22 @@ func convertUsage(u *apiUsage) provider.Usage {
 	return usage
 }
 
+// mapXAIFinish is @ai-sdk/xai's mapXaiResponsesFinishReason: xAI reports a
+// response's end in its status as well as its incomplete details.
+func mapXAIFinish(reason string) provider.FinishReasonKind {
+	switch reason {
+	case "stop", "completed":
+		return provider.FinishStop
+	case "length", "max_output_tokens":
+		return provider.FinishLength
+	case "tool_calls", "function_call":
+		return provider.FinishToolCalls
+	case "content_filter":
+		return provider.FinishContentFilter
+	}
+	return provider.FinishOther
+}
+
 // mapFinish is the AI SDK's mapOpenAIResponseFinishReason.
 func mapFinish(reason string, functionCall bool) provider.FinishReason {
 	unified := provider.FinishOther
@@ -145,15 +162,19 @@ type streamState struct {
 	errored      bool
 	functionCall bool
 	reasoning    map[string]*reasoningState
-	calls        map[string]outputItem // function calls by item id
-	texts        map[string]bool       // text items started
+	// calls is the function calls streaming their arguments, by output
+	// index: the AI SDK's key, since an arguments delta's item id is not one
+	// every server sends.
+	calls map[int]outputItem
+	texts map[string]bool // text items started
 	// key names the dialect's metadata ("openai" or "xai").
 	key string
+	xai bool
 }
 
-func newStreamState(ctx context.Context, out chan<- provider.StreamPart, raw bool, url, key string) *streamState {
-	return &streamState{ctx: ctx, out: out, raw: raw, url: url, key: key,
-		reasoning: map[string]*reasoningState{}, calls: map[string]outputItem{}, texts: map[string]bool{}}
+func newStreamState(ctx context.Context, out chan<- provider.StreamPart, raw bool, url, key string, xai bool) *streamState {
+	return &streamState{ctx: ctx, out: out, raw: raw, url: url, key: key, xai: xai,
+		reasoning: map[string]*reasoningState{}, calls: map[int]outputItem{}, texts: map[string]bool{}}
 }
 
 func (s *streamState) meta(fields map[string]any) provider.ProviderMetadata {
@@ -219,6 +240,9 @@ func (s *streamState) run(body io.ReadCloser) {
 		}
 		s.finish = reason
 	}
+	for _, end := range s.end.Unclosed() {
+		s.emit(end)
+	}
 	s.emit(provider.Finish{Usage: s.usage, FinishReason: s.finish})
 }
 
@@ -243,7 +267,7 @@ func (s *streamState) handle(e event) {
 			s.startReasoning(e.Item.ID, 0)
 			s.reasoning[e.Item.ID].encrypted = e.Item.EncryptedContent
 		case "function_call":
-			s.calls[e.Item.ID] = *e.Item
+			s.calls[e.OutputIndex] = *e.Item
 			s.emit(provider.ToolInputStart{ID: e.Item.CallID, ToolName: e.Item.Name})
 		}
 
@@ -271,7 +295,7 @@ func (s *streamState) handle(e event) {
 		s.emit(provider.ReasoningDelta{ID: reasoningID(e.ItemID, e.SummaryIndex), Delta: e.Delta})
 
 	case "response.function_call_arguments.delta":
-		if call, ok := s.calls[e.ItemID]; ok {
+		if call, ok := s.calls[e.OutputIndex]; ok {
 			s.emit(provider.ToolInputDelta{ID: call.CallID, Delta: e.Delta})
 		}
 
@@ -308,18 +332,17 @@ func (s *streamState) handle(e event) {
 			s.emit(provider.ToolInputEnd{ID: e.Item.CallID})
 			s.emit(provider.ToolCall{ToolCallID: e.Item.CallID, ToolName: e.Item.Name, Input: args,
 				ProviderMetadata: s.meta(map[string]any{"itemId": e.Item.ID})})
-			delete(s.calls, e.Item.ID)
+			delete(s.calls, e.OutputIndex)
 		}
 
-	case "response.completed", "response.incomplete":
+	case "response.completed", "response.incomplete", "response.done":
+		if e.Type == "response.done" && !s.xai {
+			return
+		}
 		s.completed = true
 		if r := e.Response; r != nil {
-			reason := ""
-			if r.IncompleteDetails != nil {
-				reason = r.IncompleteDetails.Reason
-			}
 			if !s.errored {
-				s.finish = mapFinish(reason, s.functionCall)
+				s.finish = s.completedFinish(e.Type == "response.incomplete", r)
 			}
 			s.usage = convertUsage(r.Usage)
 		}
@@ -352,6 +375,29 @@ func (s *streamState) handle(e event) {
 			s.emit(provider.ErrorPart{Err: s.apiError(message, code)})
 		}
 	}
+}
+
+// completedFinish is why a completed response stopped, in the dialect's
+// terms.
+func (s *streamState) completedFinish(incomplete bool, r *responseObject) provider.FinishReason {
+	reason := ""
+	if r.IncompleteDetails != nil {
+		reason = r.IncompleteDetails.Reason
+	}
+	if !s.xai {
+		return mapFinish(reason, s.functionCall)
+	}
+	switch {
+	case incomplete && reason != "":
+		return provider.FinishReason{Unified: mapXAIFinish(reason), Raw: reason}
+	case incomplete:
+		return provider.FinishReason{Unified: provider.FinishOther, Raw: "incomplete"}
+	case s.functionCall:
+		return provider.FinishReason{Unified: provider.FinishToolCalls, Raw: r.Status}
+	case r.Status != "":
+		return provider.FinishReason{Unified: mapXAIFinish(r.Status), Raw: r.Status}
+	}
+	return provider.FinishReason{Unified: provider.FinishOther}
 }
 
 // apiError is a stream error frame as an APICallError, retryable when its

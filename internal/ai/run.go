@@ -97,6 +97,33 @@ func (o *stepOutput) toolCalls() []ToolCall {
 	return calls
 }
 
+// toolExecutionAllowed is the AI SDK's isToolExecutionAllowedFinishReason: a
+// step's calls run only when the model finished it. Cut off, out of tokens,
+// filtered or failed, a call may carry arguments that never completed — and
+// running a truncated bash command is worse than not running it.
+func toolExecutionAllowed(reason provider.FinishReason) bool {
+	return reason.Unified == provider.FinishStop || reason.Unified == provider.FinishToolCalls
+}
+
+// withholdUnfinishedCalls removes the calls of a step the model did not
+// finish. They are not kept unanswered either: a tool call with no result
+// breaks the next request (loop's rule — never persist a tool call without
+// its result). Calls the provider ran itself already carry their results,
+// and stay.
+func (o *stepOutput) withholdUnfinishedCalls() {
+	if toolExecutionAllowed(o.finishReason) {
+		return
+	}
+	kept := o.content[:0:0]
+	for _, c := range o.content {
+		if call, ok := c.(provider.ToolCall); ok && !call.ProviderExecuted {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	o.content = kept
+}
+
 // assistantMessage renders the model's output as a message to replay next turn.
 //
 // Reasoning keeps its provider metadata because that is where the signature

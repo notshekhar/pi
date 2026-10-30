@@ -191,6 +191,9 @@ func (s *streamState) run(body io.ReadCloser) {
 		}
 		s.finish = reason
 	}
+	for _, end := range s.end.Unclosed() {
+		s.emit(end)
+	}
 	s.emitFinish()
 }
 

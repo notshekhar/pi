@@ -11,6 +11,7 @@ import (
 
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
+	"github.com/notshekhar/pi/internal/ai/providertest"
 )
 
 // newTestProvider serves a canned body and captures the request.
@@ -31,10 +32,15 @@ func newTestProvider(t *testing.T, body string) (*Provider, *[]byte, *string) {
 	return New(Options{APIKey: "test", BaseURL: srv.URL}), &sent, &path
 }
 
-func collect(res *provider.StreamResult) []provider.StreamPart {
+func collect(t *testing.T, res *provider.StreamResult) []provider.StreamPart {
+	t.Helper()
 	var parts []provider.StreamPart
 	for p := range res.Stream {
 		parts = append(parts, p)
+	}
+	// Every stream a test reads keeps the part contract.
+	for _, v := range providertest.Violations(parts) {
+		t.Error(v)
 	}
 	return parts
 }
@@ -65,7 +71,7 @@ func TestStreamText(t *testing.T) {
 
 	var text strings.Builder
 	var finish *provider.Finish
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		switch v := part.(type) {
 		case provider.TextDelta:
 			text.WriteString(v.Delta)
@@ -110,7 +116,7 @@ func TestFinishReasonIsToolCallsDespiteStop(t *testing.T) {
 
 	var call *provider.ToolCall
 	var finish *provider.Finish
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		switch v := part.(type) {
 		case provider.ToolCall:
 			call = &v
@@ -161,7 +167,7 @@ func TestThoughtPartsBecomeReasoning(t *testing.T) {
 	var signature string
 	var finish *provider.Finish
 
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		switch v := part.(type) {
 		case provider.ReasoningDelta:
 			reasoning.WriteString(v.Delta)
@@ -200,7 +206,7 @@ func TestGemini3UsesThinkingLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var sent generateRequest
 	if err := json.Unmarshal(*body, &sent); err != nil {
@@ -231,7 +237,7 @@ func TestGemini25UsesThinkingBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var sent generateRequest
 	if err := json.Unmarshal(*body, &sent); err != nil {
@@ -268,7 +274,7 @@ func TestToolResultsBecomeFunctionResponseUserTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var sent generateRequest
 	if err := json.Unmarshal(*body, &sent); err != nil {
@@ -306,7 +312,7 @@ func TestSystemInstructionIsSeparated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var sent generateRequest
 	if err := json.Unmarshal(*body, &sent); err != nil {
@@ -340,7 +346,7 @@ func TestToolSchemaIsConvertedToOpenAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var raw map[string]any
 	if err := json.Unmarshal(*body, &raw); err != nil {
@@ -389,7 +395,7 @@ func TestEmptyToolSchemaOmitsParameters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var raw map[string]any
 	if err := json.Unmarshal(*body, &raw); err != nil {
@@ -444,7 +450,7 @@ func TestHostedSearchRequestShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var sent struct {
 		Tools []map[string]any `json:"tools"`
@@ -496,7 +502,7 @@ func TestHostedSearchUsesLegacyShapeOnOldModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var sent struct {
 		Tools []map[string]any `json:"tools"`
@@ -522,7 +528,7 @@ func TestHostedCodeExecutionBecomesCallAndResult(t *testing.T) {
 
 	var call *provider.ToolCall
 	var result *provider.ToolResult
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		switch v := part.(type) {
 		case provider.ToolCall:
 			call = &v

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/notshekhar/pi/internal/ai/provider"
+	"github.com/notshekhar/pi/internal/ai/providertest"
 )
 
 // fixtureSSE is the first response of an AI SDK fixture (one event per line)
@@ -59,6 +60,10 @@ func parts(t *testing.T, res *provider.StreamResult) []provider.StreamPart {
 	var out []provider.StreamPart
 	for p := range res.Stream {
 		out = append(out, p)
+	}
+	// Every stream a test reads keeps the part contract.
+	for _, v := range providertest.Violations(out) {
+		t.Error(v)
 	}
 	return out
 }

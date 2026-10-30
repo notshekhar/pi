@@ -60,9 +60,10 @@ func IsRetryableStreamError(err error) bool {
 	if errors.As(err, &apiErr) && apiErr.StatusCode != 0 {
 		return apiErr.IsRetryable || retryableStatus[apiErr.StatusCode]
 	}
-	// Nothing streamed before the connection closed: a fresh attempt loses
-	// nothing.
-	if errors.Is(err, providerutil.ErrStreamEndedEarly) || errors.Is(err, io.ErrUnexpectedEOF) {
+	// Nothing streamed before the connection closed, or the stream went
+	// silent: a fresh attempt loses nothing a finished step did not keep.
+	if errors.Is(err, providerutil.ErrStreamEndedEarly) || errors.Is(err, providerutil.ErrStreamStalled) ||
+		errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
 	for _, errno := range []syscall.Errno{syscall.ECONNRESET, syscall.EPIPE, syscall.ETIMEDOUT, syscall.ECONNREFUSED, syscall.ENETUNREACH, syscall.EHOSTUNREACH} {

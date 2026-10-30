@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/notshekhar/pi/internal/ai"
 	"github.com/notshekhar/pi/internal/ai/provider"
+	"github.com/notshekhar/pi/internal/ai/providerutil"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/session"
 	"github.com/notshekhar/pi/internal/core/tools"
@@ -109,6 +111,23 @@ func TestTurnResumesAfterATransientFailureBetweenSteps(t *testing.T) {
 	}
 }
 
+// A stream that opens and then goes silent is abandoned and reopened,
+// rather than left spinning.
+func TestTurnResumesAStalledStream(t *testing.T) {
+	old := providerutil.StreamIdleTimeout
+	providerutil.StreamIdleTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { providerutil.StreamIdleTimeout = old })
+	messageStart := textStep[:strings.Index(textStep, "event: content_block_start")]
+	r, g, probe := newTurn(t, messageStart+stallMarker, textStep)
+	final, err := r.RunTurn(context.Background(), TurnOptions{Input: "go", Emit: probe.emit, Tap: probe.tap})
+	if err != nil {
+		t.Fatalf("turn failed: %v (events %v)", err, probe.events)
+	}
+	if len(g.requests()) != 2 || probe.count("stream-retry") != 1 || final.Text != "done" {
+		t.Fatalf("requests %d, events %v, text %q", len(g.requests()), probe.events, final.Text)
+	}
+}
+
 // With a step's text already on screen, a resume would make the model say
 // it twice: the failure is reported instead.
 func TestTurnDoesNotResumeAStepAlreadyStreaming(t *testing.T) {
@@ -166,6 +185,7 @@ func TestRetryClassification(t *testing.T) {
 		{&provider.APICallError{Message: "dial", Cause: context.DeadlineExceeded}, true}, // a transport timeout
 		{errString("read tcp 1.2.3.4:443: read: connection reset by peer"), true},
 		{errString("unexpected EOF"), true},
+		{fmt.Errorf("anthropic stream: %w", providerutil.ErrStreamStalled), true},
 		{errString("please reduce the length of the messages and try again"), false},
 		{context.Canceled, false},
 	} {

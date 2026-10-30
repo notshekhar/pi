@@ -102,8 +102,17 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
+	reply, stall := strings.CutSuffix(reply, stallMarker)
 	_, _ = io.WriteString(w, strings.ReplaceAll(reply, "%d", string(rune('0'+n))))
+	if stall {
+		// The provider keeps the connection open and says nothing more.
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}
 }
+
+// stallMarker ends a scripted reply that goes silent after what it sent.
+const stallMarker = "\x00STALL"
 
 // withGateway registers a custom provider "gw" speaking the given SDK at a
 // fake server, in a scratch home.

@@ -574,21 +574,51 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 	}()
 }
 
-// consume renders a stream part-by-part via app.Do.
+// maxRenderBatch caps how many parts one trip to the render loop applies, so
+// a burst never holds the loop long enough to delay a keypress.
+const maxRenderBatch = 256
+
+// consume renders a stream on the render loop, every part that has already
+// arrived in one trip. A trip per part tied the stream to the screen: each
+// delta waited for the one before it to be applied, a repaint in between
+// stalled the next, and the backlog reached back to the HTTP read — text
+// arrived in lurches, and a slow frame slowed the model.
 func (t *repl) consume(stream <-chan ai.StreamPart) error {
 	var first error
 	for part := range stream {
-		part := part
-		err := func() error {
-			done := make(chan error, 1)
-			t.do(func() { done <- t.part(part) })
-			return <-done
-		}()
-		if err != nil && first == nil {
+		batch := append([]ai.StreamPart{part}, arrived(stream, maxRenderBatch-1)...)
+		done := make(chan error, 1)
+		t.do(func() {
+			var err error
+			for _, p := range batch {
+				if perr := t.part(p); perr != nil && err == nil {
+					err = perr
+				}
+			}
+			done <- err
+		})
+		if err := <-done; err != nil && first == nil {
 			first = err
 		}
 	}
 	return first
+}
+
+// arrived is up to limit parts already waiting on stream, without blocking.
+func arrived(stream <-chan ai.StreamPart, limit int) []ai.StreamPart {
+	var out []ai.StreamPart
+	for len(out) < limit {
+		select {
+		case p, ok := <-stream:
+			if !ok {
+				return out
+			}
+			out = append(out, p)
+		default:
+			return out
+		}
+	}
+	return out
 }
 
 func (t *repl) part(part ai.StreamPart) error {

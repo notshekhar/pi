@@ -28,6 +28,7 @@ func GenerateText(ctx context.Context, opts Options) (*Result, error) {
 			return nil, err
 		}
 
+		out.withholdUnfinishedCalls()
 		calls, err := r.repairCalls(ctx, plan, out.toolCalls())
 		if err != nil {
 			return nil, err

@@ -9,6 +9,7 @@ import (
 
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
+	"github.com/notshekhar/pi/internal/ai/providertest"
 )
 
 func eventStreamHandler(frames ...[]byte) http.HandlerFunc {
@@ -34,6 +35,10 @@ func collect(t *testing.T, res *provider.StreamResult) []provider.StreamPart {
 	var parts []provider.StreamPart
 	for p := range res.Stream {
 		parts = append(parts, p)
+	}
+	// Every stream a test reads keeps the part contract.
+	for _, v := range providertest.Violations(parts) {
+		t.Error(v)
 	}
 	return parts
 }

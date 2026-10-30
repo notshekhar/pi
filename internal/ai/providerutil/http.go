@@ -33,7 +33,7 @@ type Client struct {
 	// once at construction.
 	Headers func(ctx context.Context) (provider.Headers, error)
 
-	// HTTPClient defaults to http.DefaultClient.
+	// HTTPClient defaults to DefaultHTTPClient.
 	//
 	// Streaming calls need a client with no overall timeout: a Timeout on
 	// http.Client covers reading the body too, so it cuts long generations
@@ -46,7 +46,7 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return http.DefaultClient
+	return DefaultHTTPClient
 }
 
 // PostJSON sends body as JSON to path and returns the raw response.
@@ -76,7 +76,7 @@ func (c *Client) PostJSON(
 		return nil, err
 	}
 
-	resp, err := c.httpClient().Do(req)
+	resp, err := Send(c.httpClient(), req)
 	if err != nil {
 		// The request never completed, so there is no status to judge
 		// retryability by. Treat transport failures as retryable: the common

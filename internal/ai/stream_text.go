@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"sync"
 
@@ -101,6 +100,7 @@ func (r *runner) streamRun(ctx context.Context, out chan<- StreamPart) error {
 			return err
 		}
 
+		stepOut.withholdUnfinishedCalls()
 		calls, err := r.repairCalls(ctx, plan, stepOut.toolCalls())
 		if err != nil {
 			emit(provider.ErrorPart{Err: err})
@@ -203,32 +203,41 @@ func (r *runner) streamStep(ctx context.Context, plan stepPlan, emit func(Stream
 	return acc.output(), nil
 }
 
-// streamAccumulator rebuilds a step's completed content from its stream parts.
+// streamAccumulator rebuilds a step's completed content from its stream
+// parts, the AI SDK's way (stream-language-model-call's upsertTextContentPart):
+// content keeps the order the parts arrived in, and a text or reasoning block
+// is found by its kind and id only while it is open.
 //
-// Text and reasoning arrive as deltas keyed by block id, and blocks can
-// interleave, so deltas are collected per id and assembled in the order the
-// blocks opened.
+// Order is what the next request replays. A step that reasoned, called a
+// tool, reasoned again and called another must go back exactly so: the
+// Responses API refuses a function call separated from the reasoning item
+// before it, and Anthropic's interleaved thinking loses its sequence.
 type streamAccumulator struct {
-	blocks []*accumulatedBlock
-	byID   map[string]*accumulatedBlock
+	parts []accumulatedPart
+	open  map[blockKey]*accumulatedBlock
 
-	content      []provider.Content
 	finishReason provider.FinishReason
 	usage        provider.Usage
 	warnings     []provider.Warning
 	err          error
 }
 
-// accumulatedBlock is one open text or reasoning block.
+// accumulatedPart is one piece of the step's content: a text or reasoning
+// block still being filled, or a part that arrived whole.
+type accumulatedPart struct {
+	block   *accumulatedBlock
+	content provider.Content
+}
+
+// blockKey names an open block. Text and reasoning ids are separate spaces,
+// as they are in the AI SDK: a provider may number both from zero.
+type blockKey struct{ kind, id string }
+
+// accumulatedBlock is one text or reasoning block.
 type accumulatedBlock struct {
-	id   string
-	kind string
-	text strings.Builder
-	// order is the position the block opened at, used to keep interleaved
-	// blocks in the order the model produced them.
-	order    int
+	kind     string
+	text     strings.Builder
 	metadata provider.ProviderMetadata
-	closed   bool
 }
 
 // add folds one part into the accumulator.
@@ -238,27 +247,23 @@ func (a *streamAccumulator) add(part StreamPart) {
 		a.warnings = append(a.warnings, v.Warnings...)
 
 	case provider.TextStart:
-		a.open(v.ID, "text", v.ProviderMetadata)
+		a.upsert("text", v.ID, "", v.ProviderMetadata)
 	case provider.TextDelta:
-		a.appendDelta(v.ID, "text", v.Delta, v.ProviderMetadata)
+		a.upsert("text", v.ID, v.Delta, v.ProviderMetadata)
 	case provider.TextEnd:
-		a.close(v.ID, v.ProviderMetadata)
+		a.upsert("text", v.ID, "", v.ProviderMetadata)
+		a.end("text", v.ID)
 
 	case provider.ReasoningStart:
-		a.open(v.ID, "reasoning", v.ProviderMetadata)
+		a.upsert("reasoning", v.ID, "", v.ProviderMetadata)
 	case provider.ReasoningDelta:
-		a.appendDelta(v.ID, "reasoning", v.Delta, v.ProviderMetadata)
+		a.upsert("reasoning", v.ID, v.Delta, v.ProviderMetadata)
 	case provider.ReasoningEnd:
-		a.close(v.ID, v.ProviderMetadata)
+		a.upsert("reasoning", v.ID, "", v.ProviderMetadata)
+		a.end("reasoning", v.ID)
 
-	case provider.ToolCall:
-		a.content = append(a.content, v)
-	case provider.ToolResult:
-		a.content = append(a.content, v)
-	case provider.File:
-		a.content = append(a.content, v)
-	case provider.Source:
-		a.content = append(a.content, v)
+	case provider.ToolCall, provider.ToolResult, provider.File, provider.Source:
+		a.parts = append(a.parts, accumulatedPart{content: v.(provider.Content)})
 
 	case provider.Finish:
 		a.finishReason = v.FinishReason
@@ -272,40 +277,28 @@ func (a *streamAccumulator) add(part StreamPart) {
 	}
 }
 
-// open starts a block, tolerating a provider that emits deltas without a
-// matching start.
-func (a *streamAccumulator) open(id, kind string, md provider.ProviderMetadata) *accumulatedBlock {
-	if a.byID == nil {
-		a.byID = map[string]*accumulatedBlock{}
-	}
-	if b, ok := a.byID[id]; ok {
-		mergeMetadata(&b.metadata, md)
-		return b
-	}
-	b := &accumulatedBlock{id: id, kind: kind, order: len(a.blocks), metadata: md}
-	a.byID[id] = b
-	a.blocks = append(a.blocks, b)
-	return b
-}
-
-// appendDelta adds text to a block.
-func (a *streamAccumulator) appendDelta(id, kind, delta string, md provider.ProviderMetadata) {
-	b := a.open(id, kind, nil)
-	b.text.WriteString(delta)
-	// A delta can carry metadata of its own: Anthropic's reasoning signature
-	// arrives on an otherwise empty delta.
-	mergeMetadata(&b.metadata, md)
-}
-
-// close marks a block finished.
-func (a *streamAccumulator) close(id string, md provider.ProviderMetadata) {
-	b, ok := a.byID[id]
+// upsert adds delta and metadata to the open block of that kind and id,
+// opening one where the content stands now if there is none: a provider
+// that sends a delta, or only an end, without a start still keeps it.
+// A delta can carry metadata of its own — Anthropic's reasoning signature
+// arrives on an otherwise empty one.
+func (a *streamAccumulator) upsert(kind, id, delta string, md provider.ProviderMetadata) {
+	key := blockKey{kind, id}
+	b, ok := a.open[key]
 	if !ok {
-		return
+		if a.open == nil {
+			a.open = map[blockKey]*accumulatedBlock{}
+		}
+		b = &accumulatedBlock{kind: kind}
+		a.open[key] = b
+		a.parts = append(a.parts, accumulatedPart{block: b})
 	}
-	b.closed = true
+	b.text.WriteString(delta)
 	mergeMetadata(&b.metadata, md)
 }
+
+// end closes a block: its id may now name a new one.
+func (a *streamAccumulator) end(kind, id string) { delete(a.open, blockKey{kind, id}) }
 
 // mergeMetadata folds provider metadata into an accumulating map.
 func mergeMetadata(dst *provider.ProviderMetadata, src provider.ProviderMetadata) {
@@ -329,35 +322,21 @@ func mergeMetadata(dst *provider.ProviderMetadata, src provider.ProviderMetadata
 
 // output assembles the finished step content.
 func (a *streamAccumulator) output() *stepOutput {
-	blocks := make([]*accumulatedBlock, len(a.blocks))
-	copy(blocks, a.blocks)
-	sort.SliceStable(blocks, func(i, j int) bool { return blocks[i].order < blocks[j].order })
-
 	var text, reasoning strings.Builder
-
-	// Text and reasoning blocks come first in the content list, followed by
-	// the tool calls and other parts collected as they arrived. Providers
-	// finish their prose before requesting tools, so this preserves the real
-	// order without needing a global sequence number.
-	content := make([]provider.Content, 0, len(blocks)+len(a.content))
-	for _, b := range blocks {
-		switch b.kind {
-		case "text":
+	content := make([]provider.Content, 0, len(a.parts))
+	for _, p := range a.parts {
+		b := p.block
+		switch {
+		case b == nil:
+			content = append(content, p.content)
+		case b.kind == "text":
 			text.WriteString(b.text.String())
-			content = append(content, provider.Text{
-				Text:             b.text.String(),
-				ProviderMetadata: b.metadata,
-			})
-		case "reasoning":
+			content = append(content, provider.Text{Text: b.text.String(), ProviderMetadata: b.metadata})
+		default:
 			reasoning.WriteString(b.text.String())
-			content = append(content, provider.Reasoning{
-				Text:             b.text.String(),
-				ProviderMetadata: b.metadata,
-			})
+			content = append(content, provider.Reasoning{Text: b.text.String(), ProviderMetadata: b.metadata})
 		}
 	}
-	content = append(content, a.content...)
-
 	return &stepOutput{
 		content:      content,
 		text:         text.String(),

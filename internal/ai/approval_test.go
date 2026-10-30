@@ -43,6 +43,7 @@ func callTool(command string) mockTurn {
 	input, _ := json.Marshal(dangerousArgs{Command: command})
 	return mockTurn{parts: []provider.StreamPart{
 		provider.ToolCall{ToolCallID: "c1", ToolName: "shell", Input: string(input)},
+		provider.Finish{FinishReason: provider.FinishReason{Unified: provider.FinishToolCalls}},
 	}}
 }
 

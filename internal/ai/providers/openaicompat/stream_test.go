@@ -11,6 +11,7 @@ import (
 
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
+	"github.com/notshekhar/pi/internal/ai/providertest"
 )
 
 // newTestProvider serves a canned body and captures the request that produced it.
@@ -29,10 +30,15 @@ func newTestProvider(t *testing.T, body string) (*Provider, *[]byte) {
 }
 
 // collect drains a stream.
-func collect(res *provider.StreamResult) []provider.StreamPart {
+func collect(t *testing.T, res *provider.StreamResult) []provider.StreamPart {
+	t.Helper()
 	var parts []provider.StreamPart
 	for p := range res.Stream {
 		parts = append(parts, p)
+	}
+	// Every stream a test reads keeps the part contract.
+	for _, v := range providertest.Violations(parts) {
+		t.Error(v)
 	}
 	return parts
 }
@@ -68,7 +74,7 @@ func TestStreamText(t *testing.T) {
 
 	var text strings.Builder
 	var finish *provider.Finish
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		switch v := part.(type) {
 		case provider.TextDelta:
 			text.WriteString(v.Delta)
@@ -121,7 +127,7 @@ func TestStreamToolCall(t *testing.T) {
 	var call *provider.ToolCall
 	var deltas strings.Builder
 	var startName string
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		switch v := part.(type) {
 		case provider.ToolInputStart:
 			startName = v.ToolName
@@ -176,7 +182,7 @@ func TestInterleavedParallelToolCalls(t *testing.T) {
 	}
 
 	var calls []provider.ToolCall
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		if v, ok := part.(provider.ToolCall); ok {
 			calls = append(calls, v)
 		}
@@ -221,7 +227,7 @@ func TestReasoningContentBecomesReasoningParts(t *testing.T) {
 	var reasoningClosedBeforeText bool
 	var sawText bool
 
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		switch v := part.(type) {
 		case provider.ReasoningDelta:
 			reasoning.WriteString(v.Delta)
@@ -265,7 +271,7 @@ func TestToolResultsBecomeSeparateToolMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var sent chatRequest
 	if err := json.Unmarshal(*body, &sent); err != nil {
@@ -318,7 +324,7 @@ func TestMaxCompletionTokensSwitch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			collect(res)
+			collect(t, res)
 
 			var req chatRequest
 			if err := json.Unmarshal(sent, &req); err != nil {
@@ -349,7 +355,7 @@ func TestProviderExtrasAreMergedAtTopLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var raw map[string]any
 	if err := json.Unmarshal(*body, &raw); err != nil {
@@ -377,7 +383,7 @@ func TestStructuredOutputUsesJSONSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect(res)
+	collect(t, res)
 
 	var raw struct {
 		ResponseFormat struct {
@@ -435,7 +441,7 @@ func TestStructuredOutputFallsBackToPromptWhenSchemaUnsupported(t *testing.T) {
 	}
 
 	var warnings []provider.Warning
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		if start, ok := part.(provider.StreamStart); ok {
 			warnings = append(warnings, start.Warnings...)
 		}
@@ -606,7 +612,7 @@ func finishOf(t *testing.T, body string) (provider.Finish, []error) {
 	}
 	var finish provider.Finish
 	var errs []error
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		switch v := part.(type) {
 		case provider.Finish:
 			finish = v
@@ -659,7 +665,7 @@ data: [DONE]
 		t.Fatal(err)
 	}
 	var md provider.ProviderMetadata
-	for _, part := range collect(res) {
+	for _, part := range collect(t, res) {
 		if v, ok := part.(provider.ReasoningEnd); ok {
 			md = v.ProviderMetadata
 		}

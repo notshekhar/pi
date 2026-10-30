@@ -164,7 +164,7 @@ func (p *Provider) httpClient() *http.Client {
 	if p.client != nil {
 		return p.client
 	}
-	return http.DefaultClient
+	return providerutil.DefaultHTTPClient
 }
 
 // post sends a signed request and returns the raw response.
@@ -207,7 +207,7 @@ func (p *Provider) post(ctx context.Context, path string, body []byte, extra pro
 		return nil, err
 	}
 
-	resp, err := p.httpClient().Do(req)
+	resp, err := providerutil.Send(p.httpClient(), req)
 	if err != nil {
 		return nil, &providerutil.APICallError{
 			Message:     "request failed",

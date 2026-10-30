@@ -279,7 +279,7 @@ func (m *languageModel) DoStream(ctx context.Context, opts provider.CallOptions)
 	out := make(chan provider.StreamPart, 64)
 	go func() {
 		defer close(out)
-		s := newStreamState(ctx, out, opts.IncludeRawChunks, m.provider.client.BaseURL+responsesPath, m.provider.key)
+		s := newStreamState(ctx, out, opts.IncludeRawChunks, m.provider.client.BaseURL+responsesPath, m.provider.key, m.provider.xai)
 		s.emit(provider.StreamStart{Warnings: warnings})
 		s.run(resp)
 	}()

@@ -20,6 +20,14 @@ import (
 // turn. The instructions follow as one last user message. Three things are
 // still trimmed, as the text form trimmed them: reasoning is dropped, tool
 // results keep their first 2,000 characters, and media is named.
+//
+// Every kept part is rebuilt from its content alone, without the provider
+// metadata it was stored with. The summary is a new request, and a stored id
+// is a pointer into the provider's own history: the Responses API sends a
+// text part's itemId as an item_reference, and Azure refuses one whose
+// reasoning item is not in the request ("Item 'msg_…' of type 'message' was
+// provided without its required 'reasoning' item") — which, with reasoning
+// dropped, is every reply that followed some thinking.
 
 // summaryMessage is one stored message, filtered for the summarizer and
 // still in stored form, so its size can be measured and it can be clipped
@@ -65,23 +73,23 @@ func summaryPart(role string, p map[string]any) (map[string]any, bool) {
 	switch {
 	case typ == "text":
 		text, _ := p["text"].(string)
-		return p, text != ""
+		return map[string]any{"type": "text", "text": text}, text != ""
 	case role == "user" && (typ == "image" || typ == "file"):
 		return map[string]any{"type": "text", "text": "[" + typ + "]"}, true
 	case role == "assistant" && typ == "tool-call":
-		return p, true
+		return map[string]any{"type": "tool-call", "toolCallId": p["toolCallId"], "toolName": p["toolName"], "input": p["input"]}, true
 	case role == "tool" && typ == "tool-result":
 		raw, _ := json.Marshal(p["output"])
 		kind := "text"
 		if out, _ := p["output"].(map[string]any); out["type"] == "error-text" || out["type"] == "error-json" {
 			kind = "error-text"
 		}
-		capped := map[string]any{}
-		for k, v := range p {
-			capped[k] = v
-		}
-		capped["output"] = map[string]any{"type": kind, "value": truncateForSummary(toolOutputText(raw), toolResultMaxChars)}
-		return capped, true
+		return map[string]any{
+			"type":       "tool-result",
+			"toolCallId": p["toolCallId"],
+			"toolName":   p["toolName"],
+			"output":     map[string]any{"type": kind, "value": truncateForSummary(toolOutputText(raw), toolResultMaxChars)},
+		}, true
 	}
 	return nil, false
 }

@@ -3,10 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/notshekhar/pi/internal/ai/provider"
+	"github.com/notshekhar/pi/internal/ai/providers/openairesponses"
 	"github.com/notshekhar/pi/internal/core/session"
 )
 
@@ -152,5 +156,71 @@ func TestCompactInstructionsAreTheirOwnMessage(t *testing.T) {
 	}
 	if got := len(summaryRequest(nil, "STANDING", "", "")); got != 2 {
 		t.Errorf("no instructions should add no message, got %d", got)
+	}
+}
+
+// A reply that followed reasoning, stored as the Responses API returned it.
+func storedReplyAfterReasoning(t *testing.T) []session.Entry {
+	t.Helper()
+	ids := func(id string) provider.ProviderOptions { return provider.ProviderOptions{"openai": {"itemId": id}} }
+	return []session.Entry{
+		storedEntry(t, userSays("fix it")),
+		storedEntry(t, provider.AssistantMessage{Content: []provider.AssistantPart{
+			provider.ReasoningPart{Text: "", ProviderOptions: provider.ProviderOptions{"openai": {"itemId": "rs_1", "reasoningEncryptedContent": "ENC"}}},
+			provider.TextPart{Text: "Looking.", ProviderOptions: ids("msg_1")},
+			provider.ToolCallPart{ToolCallID: "c1", ToolName: "read", Input: map[string]any{"path": "a.ts"}, ProviderOptions: ids("fc_1")},
+		}}),
+		storedEntry(t, readResult("c1", "contents")),
+		storedEntry(t, provider.AssistantMessage{Content: []provider.AssistantPart{
+			provider.TextPart{Text: "Done.", ProviderOptions: ids("msg_2")},
+		}}),
+	}
+}
+
+func TestSummaryMessagesDropStoredProviderIDs(t *testing.T) {
+	msgs := toSummaryMessages(storedReplyAfterReasoning(t))
+	raw, _ := json.Marshal(func() [][]map[string]any {
+		var all [][]map[string]any
+		for _, m := range msgs {
+			all = append(all, m.parts)
+		}
+		return all
+	}())
+	if strings.Contains(string(raw), "providerOptions") || strings.Contains(string(raw), "msg_1") {
+		t.Errorf("stored provider metadata reached the summarizer: %s", raw)
+	}
+	if !strings.Contains(string(raw), "Looking.") || !strings.Contains(string(raw), `"toolCallId":"c1"`) {
+		t.Errorf("content lost: %s", raw)
+	}
+}
+
+// Azure refuses an item_reference whose reasoning item is not in the
+// request, and the summary drops reasoning: the Responses request must carry
+// the replies themselves.
+func TestSummaryRequestSendsRepliesNotItemReferences(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n")
+	}))
+	defer srv.Close()
+
+	prompt := summaryRequest(toSummaryMessages(storedReplyAfterReasoning(t)), "Summarize.", "", "")
+	model := openairesponses.New(openairesponses.Options{APIKey: "k", BaseURL: srv.URL}).LanguageModel("gpt-test")
+	res, err := model.DoStream(context.Background(), provider.CallOptions{Prompt: provider.Prompt(prompt)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range res.Stream {
+	}
+	if strings.Contains(body, "item_reference") {
+		t.Errorf("the summary request references stored items: %s", body)
+	}
+	for _, want := range []string{"Looking.", "Done."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the request lacks %q: %s", want, body)
+		}
 	}
 }

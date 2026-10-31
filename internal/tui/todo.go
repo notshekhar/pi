@@ -12,12 +12,13 @@ import (
 // have to scroll back to find is a plan you stop reading, which defeats the
 // point of the agent writing one down.
 //
-// The look is loop's `TodoPanel` and it is deliberately a checklist rather
-// than a status display: a ruled header carrying the count, then one bracket
-// per item — `[ ]`, `[>]`, `[x]`, `[-]` — which is the notation anyone who
-// has written a markdown checklist already reads without a legend. Geometric
-// status glyphs were the earlier version here and they are worse for exactly
-// that reason: ○ ◐ ● is a key you have to learn, and learn per-app.
+// The look is loop's `TodoPanel`: a ruled header carrying the count, then one
+// mark per item — `○` still to do, `◌` on its way, `✓` done, `·` dropped.
+// The brackets (`[ ]`, `[>]`, `[x]`, `[-]`) were the notation here for a
+// while, on the grounds that circles are a key you have to learn per app;
+// these are the same marks fx's /status uses, so it is one key across the
+// tools, and the tick is the only coloured one, so finished work reads as
+// finished at a glance.
 //
 // It is terse on purpose — one line per item, truncated to the width. The
 // panel is a glance; the transcript holds the detail.
@@ -67,17 +68,17 @@ func (a *App) Todos() []TodoItem { return a.todos }
 func todoRow(t *Theme, item TodoItem) string {
 	switch item.Status {
 	case TodoCompleted:
-		return t.Fg(SlotDim, "[x] "+item.Content)
+		return t.Fg(SlotSuccess, "✓") + " " + t.Fg(SlotDim, item.Content)
 	case TodoCancelled:
-		return t.Fg(SlotDim, t.Strike("[-] "+item.Content))
+		return t.Fg(SlotDim, t.Strike("· "+item.Content))
 	case TodoInProgress:
 		text := strings.TrimSpace(item.ActiveForm)
 		if text == "" {
 			text = item.Content
 		}
-		return t.Bold(t.Fg(SlotAccent, "[>] "+text))
+		return t.Bold(t.Fg(SlotAccent, "◌ "+text))
 	default:
-		return t.Fg(SlotDim, "[ ] "+item.Content)
+		return t.Fg(SlotDim, "○ "+item.Content)
 	}
 }
 

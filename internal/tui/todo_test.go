@@ -24,14 +24,14 @@ func TestRenderTodosIsLoopsChecklist(t *testing.T) {
 	if !strings.HasPrefix(got, "─ todos (1/4) ─") {
 		t.Errorf("header is not loop's ruled title:\n%s", got)
 	}
-	for _, want := range []string{"[x] read the file", "[>] making the change", "[ ] run the tests", "[-] rewrite the parser"} {
+	for _, want := range []string{"✓ read the file", "◌ making the change", "○ run the tests", "· rewrite the parser"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing row %q:\n%s", want, got)
 		}
 	}
 	// The in-progress row says what is HAPPENING, so its imperative form must
 	// not be what is drawn.
-	if strings.Contains(got, "[>] make the change") {
+	if strings.Contains(got, "◌ make the change") {
 		t.Errorf("in-progress row used the imperative, not the active form:\n%s", got)
 	}
 }
@@ -40,7 +40,7 @@ func TestRenderTodosIsLoopsChecklist(t *testing.T) {
 func TestInProgressFallsBackToTheContent(t *testing.T) {
 	items := []TodoItem{{Content: "make the change", Status: TodoInProgress}}
 	got := stripANSI(strings.Join(renderTodos(testTheme(), items, 60), "\n"))
-	if !strings.Contains(got, "[>] make the change") {
+	if !strings.Contains(got, "◌ make the change") {
 		t.Errorf("missing fallback row:\n%s", got)
 	}
 }

@@ -223,7 +223,7 @@ func All() []Extension {
 
 // loopOrder is the order loop registers its builtins (builtin/index.ts), so
 // every list of them reads the same in both.
-var loopOrder = []string{"lsp", "ponytail", "caveman", "wayfinder", "rtk", "relay", "statusline-themes"}
+var loopOrder = []string{"lsp", "ponytail", "caveman", "wayfinder", "anatomy", "rtk", "relay", "statusline-themes"}
 
 // Find returns a builtin by name.
 func Find(name string) (Extension, bool) {
@@ -237,8 +237,9 @@ func Find(name string) (Extension, bool) {
 
 // DefaultEnabled marks an extension that is on unless switched off.
 //
-// Nothing implements it today, which is the point: every builtin is OPT-IN,
-// so a fresh install behaves exactly as it would with no extensions at all.
+// Only a command-only builtin implements it (anatomy): every builtin that
+// changes what the model is told is OPT-IN, so a fresh install answers
+// exactly as it would with no extensions at all.
 // The rule used to be the opposite — on unless disabled, on the reasoning
 // that a builtin shipping disabled is one nobody discovers — and that is
 // wrong for anything with a persona: `caveman` on by default would silently

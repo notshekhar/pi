@@ -76,18 +76,8 @@ func (t *repl) skillCommands() []command {
 
 // runSkill submits the skill's instructions as a turn, with any argument
 // appended.
-//
-// The body goes in wrapped in a <skill> element naming its directory: a skill
-// routinely refers to files beside it ("see references/palette.md"), and
-// without the location those paths resolve against the wrong directory.
 func (t *repl) runSkill(ctx context.Context, skill skills.Skill, rest string) {
-	block := fmt.Sprintf("<skill name=%q location=%q>\nReferences are relative to %s.\n\n%s\n</skill>",
-		skill.Name, filepath.Join(skill.Dir, skills.FileName), skill.Dir, skill.Body)
-	text := block
-	if rest = strings.TrimSpace(rest); rest != "" {
-		text += "\n\n" + rest
-	}
-	t.submit(ctx, text)
+	t.submit(ctx, skill.Invocation(rest))
 }
 
 // agentCommands is loop's registerAgentCommand per agent: `/<name>

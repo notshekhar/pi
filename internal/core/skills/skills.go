@@ -191,6 +191,25 @@ func loadFile(path string, project bool) (Skill, bool) {
 		Project: project, DisableModelInvocation: fm["disable-model-invocation"] == true}, true
 }
 
+// LoadFile reads one skill file that lives outside the usual skill
+// directories — a builtin's downloaded kit, say.
+func LoadFile(path string) (Skill, bool) { return loadFile(path, false) }
+
+// Invocation is the text that runs the skill as a turn, with any argument
+// appended.
+//
+// The body goes in wrapped in a <skill> element naming its directory: a skill
+// routinely refers to files beside it ("see references/palette.md"), and
+// without the location those paths resolve against the wrong directory.
+func (s Skill) Invocation(rest string) string {
+	text := fmt.Sprintf("<skill name=%q location=%q>\nReferences are relative to %s.\n\n%s\n</skill>",
+		s.Name, filepath.Join(s.Dir, FileName), s.Dir, s.Body)
+	if rest = strings.TrimSpace(rest); rest != "" {
+		text += "\n\n" + rest
+	}
+	return text
+}
+
 var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;")
 
 // FormatForPrompt is loop's formatSkillsForPrompt; viaTool points the model

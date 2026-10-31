@@ -156,8 +156,8 @@ Subject line in the imperative, under 60 characters. Explain WHY in the
 body, never what — the diff already says what.
 ```
 
-**Extends.** Seven builtin extensions (`git`, `lsp`, `wayfinder`, `rtk`,
-`caveman`, `ponytail`, `statusline-themes`), MCP servers whose tools join the
+**Extends.** Eight builtin extensions (`git`, `lsp`, `wayfinder`, `anatomy`,
+`rtk`, `caveman`, `ponytail`, `statusline-themes`), MCP servers whose tools join the
 set, and Claude Code-compatible hooks — ten events, matchers, JSON on stdin,
 exit 2 to block a call.
 

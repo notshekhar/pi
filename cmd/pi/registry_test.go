@@ -56,15 +56,16 @@ func TestBuiltinExtensionsAreComplete(t *testing.T) {
 	}
 }
 
-// Extensions are OPT-IN. A builtin with a persona — caveman rewrites every
-// reply — must never be on until someone says so.
+// Extensions that change what the model is told are OPT-IN. A builtin with
+// a persona — caveman rewrites every reply — must never be on until someone
+// says so; only one that adds nothing but a command (anatomy) may start on.
 func TestExtensionsAreOptIn(t *testing.T) {
-	if on := extension.Enabled(nil); len(on) != 0 {
-		names := make([]string, 0, len(on))
-		for _, e := range on {
-			names = append(names, e.Name())
+	for _, e := range extension.Enabled(nil) {
+		_, prompts := e.(extension.PromptProvider)
+		_, tools := e.(extension.ToolProvider)
+		if prompts || tools {
+			t.Errorf("%s is on with no stored choice, and changes what the model is told", e.Name())
 		}
-		t.Errorf("extensions enabled with no stored choice: %v", names)
 	}
 }
 
@@ -77,15 +78,19 @@ func TestEnableAndDisable(t *testing.T) {
 		t.Skip("no extensions registered")
 	}
 	name := all[0].Name()
-
-	on := extension.Enabled(map[string]bool{name: true})
-	if len(on) != 1 || on[0].Name() != name {
-		t.Fatalf("enabling %s gave %v", name, on)
-	}
-	for _, e := range extension.Enabled(map[string]bool{name: false}) {
-		if e.Name() == name {
-			t.Fatalf("%s survived being disabled", name)
+	isOn := func(state map[string]bool) bool {
+		for _, e := range extension.Enabled(state) {
+			if e.Name() == name {
+				return true
+			}
 		}
+		return false
+	}
+	if !isOn(map[string]bool{name: true}) {
+		t.Fatalf("enabling %s did not turn it on", name)
+	}
+	if isOn(map[string]bool{name: false}) {
+		t.Fatalf("%s survived being disabled", name)
 	}
 }
 

@@ -9,4 +9,4 @@ package build
 // string, which is the kind of duplicate that is correct until the first
 // release that forgets it and then silently tells every server the wrong
 // thing for a version or two.
-const Version = "0.3.9"
+const Version = "0.3.10"

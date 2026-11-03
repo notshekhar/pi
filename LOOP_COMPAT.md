@@ -27,7 +27,8 @@ Status: **[x]** compatible · **[~]** partial · **[ ]** not yet
 | `cost_ledger` — one row per billed round-trip, with price snapshot | sessions/cost-ledger.ts | [ ] |
 | `projects` — per-dir trust, model, provider_models, bash_allow | sessions/projects.ts | [ ] |
 | `reminders` | reminders | [ ] |
-| `teams`, `team_members`, `team_messages`, `goals` | teams/, goals/ | [ ] (preserved, unused) |
+| `teams`, `team_members`, `team_messages`, `team_member_runs` | teams/store.ts | [~] never run; deleting a session leaves its team as loop's `forgetTeamSession` does (a lead dissolves its team, board kept) |
+| `goals` | goals/ | [ ] (preserved, unused) |
 
 Entry types: `session-info`, `message`, `subagent`, `model-change`, `compact`,
 `branch-summary`, `label`, `session-name`, `custom`.

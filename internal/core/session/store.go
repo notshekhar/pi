@@ -203,12 +203,25 @@ func Delete(pubID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	res, err := h.Exec("DELETE FROM sessions WHERE pub_id = ?", pubID)
+	tx, err := h.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec("DELETE FROM sessions WHERE pub_id = ?", pubID)
 	if err != nil {
 		return false, err
 	}
 	n, err := res.RowsAffected()
-	return n > 0, err
+	if err != nil || n == 0 {
+		return false, err
+	}
+	// In the same transaction: a session gone from loop's list but still in
+	// its team would be a thread loop can neither open nor drop.
+	if err := forgetTeamRows(tx, pubID); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 // UpdateCwd re-homes a session (/cd).

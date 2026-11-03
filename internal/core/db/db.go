@@ -170,6 +170,14 @@ CREATE TABLE IF NOT EXISTS team_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_team_messages_inbox ON team_messages(to_pub, delivered_at);
 CREATE INDEX IF NOT EXISTS idx_team_messages_team ON team_messages(team_id, kind);
+-- How each thread runs (agent, thinking level), as its lead started it, so
+-- every later turn runs the same way in whichever process picks it up.
+CREATE TABLE IF NOT EXISTS team_member_runs (
+    session_pub TEXT PRIMARY KEY,
+    agent       TEXT,
+    thinking    TEXT,
+    created_at  INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS goals (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,

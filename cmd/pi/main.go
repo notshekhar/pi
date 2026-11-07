@@ -50,6 +50,7 @@ Flags:
 }
 
 func main() {
+	os.Args = append(os.Args[:1], withoutScriptExtensions(os.Args[1:])...)
 	// loop's `version | -v | --version` and `help | -h | --help`, answered
 	// before the flag parser, which would reject --version as unknown.
 	if len(os.Args) > 1 {

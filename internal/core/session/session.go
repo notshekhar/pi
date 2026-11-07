@@ -281,6 +281,10 @@ func (s *Session) fillSpend() {
 	}
 }
 
+// Start saves a session that has no messages yet, so data that belongs to it
+// (its notes) has a row to belong to. A saved session is left alone.
+func (s *Session) Start() error { return s.ensureStarted() }
+
 // ensureStarted writes the row and the session-info root on first use.
 func (s *Session) ensureStarted() error {
 	if s.rowID != 0 {

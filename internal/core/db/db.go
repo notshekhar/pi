@@ -179,6 +179,17 @@ CREATE TABLE IF NOT EXISTS team_member_runs (
     created_at  INTEGER NOT NULL
 );
 
+-- Notes a session keeps for later (session/notes.go; loop's sessions/notes.ts).
+-- Per session, never global; a new table so no schema_version bump.
+CREATE TABLE IF NOT EXISTS session_notes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pub_id      TEXT NOT NULL UNIQUE,
+    session_pub TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_notes_session ON session_notes(session_pub, id);
+
 CREATE TABLE IF NOT EXISTS goals (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     pub_id              TEXT NOT NULL UNIQUE,

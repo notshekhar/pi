@@ -13,24 +13,28 @@ import (
 // turn, so they wait their turn rather than preempting it. The queue drains
 // one item at a time, after each item finishes, whatever its type.
 //
-// The exception is the commands that LEAVE this session: they never touch the
-// running turn, so making them wait would be waiting for nothing.
+// The exception is the commands that leave the running turn alone: the ones
+// that LEAVE this session, and notes, which are jotted down while the model
+// works. Making them wait would be waiting for nothing.
 
-// leavingCommands run immediately even mid-turn.
-var leavingCommands = map[string]bool{"new": true, "clear": true, "resume": true, "sessions": true}
+// unqueuedCommands run immediately even mid-turn.
+var unqueuedCommands = map[string]bool{
+	"new": true, "clear": true, "resume": true, "sessions": true,
+	"note": true, "notes": true,
+}
 
-// leavesSession reports whether a line is one of the leaving commands.
-func leavesSession(line string) bool {
+// skipsQueue reports whether a line is one of the unqueued commands.
+func skipsQueue(line string) bool {
 	if !strings.HasPrefix(line, "/") {
 		return false
 	}
 	name, _, _ := strings.Cut(strings.TrimPrefix(expandAlias(line), "/"), " ")
-	return leavingCommands[strings.TrimSpace(name)] && lookupCommand("/"+name) != nil
+	return unqueuedCommands[strings.TrimSpace(name)] && lookupCommand("/"+name) != nil
 }
 
 // enqueue queues line if a turn is running. It reports whether it did.
 func (t *repl) enqueue(line string) bool {
-	if leavesSession(line) {
+	if skipsQueue(line) {
 		return false
 	}
 	t.mu.Lock()

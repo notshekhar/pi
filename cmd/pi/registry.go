@@ -115,6 +115,8 @@ func commands() []command {
 		{"recipe", "Reusable workflows: save <name> [focus], list, show/edit/rm <name>, or <name> [inputs]", func(t *repl, ctx context.Context, rest string) { t.recipeCmd(ctx, rest) }},
 		{"handoff", "Continue in a fresh session with an editable brief and model/agent choice (optional focus)", func(t *repl, ctx context.Context, rest string) { t.handoffCmd(ctx, rest) }},
 		{"shells", "Background shells: /shells lists · /shells run <cmd> · /shells <id> shows output · /shells kill <id>|all", arg((*repl).shellsCmd)},
+		{"notes", "This session's notes: /notes opens them (submit or delete one, remove all) · /notes <text> adds one", arg((*repl).notesCmd)},
+		{"note", "Add a note to this session: /note <text>", arg((*repl).notesCmd)},
 		{"sound", "Interface chimes: /sound · /sound on|off|max", arg((*repl).soundCmd)},
 		{"trace", "Where this session's time and money went — opens in your browser (path optional)", arg((*repl).traceCmd)},
 		{"update", "Update pi to the latest release", func(t *repl, ctx context.Context, _ string) { t.updateApp(ctx) }},

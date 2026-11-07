@@ -185,6 +185,7 @@ nobody finds.
 - [x] `/steak` — token heatmap, GitHub-contributions style, built from session headers
 - [x] `/attach` — image by path or from the clipboard; `/paste` attaches an image or drafts text
 - [x] `/import` — a JSONL session, validated before anything is created
+- [x] `/notes` `/note` — per-session notes in loop's `session_notes` table; submit (queues like typed input) or delete one, remove all, usable mid-turn
 
 **Aliases loop teaches, so the name a user knows always works**
 - [x] `/effort` `/resume` `/sessions` `/name` `/rename` `/cwd` `/bg` `/reminders`

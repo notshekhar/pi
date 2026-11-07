@@ -195,9 +195,9 @@ func SetArchived(pubID string, archived bool) (bool, error) {
 	return n > 0, err
 }
 
-// Delete removes a session and its entries; false when there was no such id.
-// The cost ledger keeps its rows (ON DELETE SET NULL, session_pub retained):
-// deleting a conversation never rewrites what was spent.
+// Delete removes a session, its entries and its notes; false when there was
+// no such id. The cost ledger keeps its rows (ON DELETE SET NULL, session_pub
+// retained): deleting a conversation never rewrites what was spent.
 func Delete(pubID string) (bool, error) {
 	h, err := db.Open()
 	if err != nil {
@@ -219,6 +219,9 @@ func Delete(pubID string) (bool, error) {
 	// In the same transaction: a session gone from loop's list but still in
 	// its team would be a thread loop can neither open nor drop.
 	if err := forgetTeamRows(tx, pubID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec("DELETE FROM session_notes WHERE session_pub = ?", pubID); err != nil {
 		return false, err
 	}
 	return true, tx.Commit()

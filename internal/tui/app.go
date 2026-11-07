@@ -212,9 +212,13 @@ type Conversation struct {
 	thinking *entry
 	tools    map[string]*entry
 
-	model   string
-	statIn  int64
-	statOut int64
+	model string
+	// welcome is this conversation's masthead entry and what it reports,
+	// kept so a model switched after it is on screen can repaint its row.
+	welcome     *entry
+	welcomeInfo WelcomeInfo
+	statIn      int64
+	statOut     int64
 	// statCached is cache-read input tokens. Tracked separately from statIn
 	// because the interesting number is the RATIO — a status-line layout
 	// showing "hit 87%" is showing how much of the input was free.
@@ -533,8 +537,15 @@ func (a *App) complete(before string, force bool) ([]Item, string) {
 // Close restores the terminal.
 func (a *App) Close() { a.closeFn() }
 
-// SetModel updates the status bar identity.
-func (a *App) SetModel(id string) { a.model = id }
+// SetModel updates the status bar identity and the masthead's model row.
+func (a *App) SetModel(id string) {
+	a.model = id
+	if a.welcome != nil {
+		a.welcomeInfo.Model = id
+		a.welcome.lines = Welcome(a.theme, a.welcomeInfo, a.size.Cols)
+		a.welcome.dirty = true
+	}
+}
 
 // SetModelReasoning records whether the current model reasons, which is what
 // decides if the thinking level belongs in the status line.
@@ -1893,6 +1904,7 @@ func (a *App) SetPlanning(on bool) { a.planning = on }
 // on screen, not what the model remembers.
 func (a *App) Clear() {
 	a.entries = nil
+	a.welcome = nil
 	a.stream, a.thinking = nil, nil
 	a.tools = map[string]*entry{}
 	a.groupsOpen = map[int]bool{}
@@ -1929,7 +1941,8 @@ func (a *App) SetSession(id string) { a.session = id }
 
 // ShowWelcome prints the startup masthead.
 func (a *App) ShowWelcome(info WelcomeInfo) {
-	a.push(&entry{kind: entNotice, lines: Welcome(a.theme, info, a.size.Cols), preformatted: true})
+	a.welcomeInfo = info
+	a.welcome = a.push(&entry{kind: entNotice, lines: Welcome(a.theme, info, a.size.Cols), preformatted: true})
 }
 
 // AskChoice puts a question to the user and blocks until they answer,

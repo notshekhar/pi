@@ -11,8 +11,8 @@ import (
 // left edge with the product name and greeting beside it, then an aligned
 // label/value block, then the hint lines.
 //
-// Static by design — it renders once and never animates, so it costs nothing
-// once it has scrolled up into the terminal's scrollback.
+// Never animates; it repaints only when the model it reports changes, so it
+// costs nothing once it has scrolled up into the terminal's scrollback.
 
 // bar is the rule glyph. A full block, so a column of them joins into an
 // unbroken bar.

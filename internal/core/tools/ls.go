@@ -2,65 +2,89 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
 )
 
+const defaultLsLimit = 500
+
 type lsArgs struct {
-	Path  string `json:"path,omitempty" jsonschema:"description=Directory to list; defaults to the working directory"`
-	Limit *int   `json:"limit,omitempty" jsonschema:"description=Maximum entries (default 500)"`
+	Path  string `json:"path,omitempty"`
+	Limit int    `json:"limit,omitempty"`
 }
 
 // Ls returns the ls tool.
 func Ls(t *Context) ai.Tool {
-	return ai.NewTool("ls",
-		"List directory contents, sorted alphabetically. Directories end with /. Includes dotfiles.",
-		func(ctx context.Context, a lsArgs) (ai.ToolResult, error) {
-			if aborted(ctx) {
-				return ai.ToolError("aborted"), nil
-			}
-			path := Resolve(a.Path, t.CWD)
-			info, err := os.Stat(path)
-			if err != nil {
-				return ai.ToolErrorf("path not found: %s", a.Path), nil
-			}
-			if !info.IsDir() {
-				return ai.ToolErrorf("not a directory: %s", a.Path), nil
-			}
-			entries, err := os.ReadDir(path)
-			if err != nil {
-				return ai.ToolErrorf("cannot read directory: %v", err), nil
-			}
-			sort.Slice(entries, func(i, j int) bool {
-				return strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
-			})
-			limit := 500
-			if a.Limit != nil && *a.Limit > 0 {
-				limit = *a.Limit
-			}
-			var b strings.Builder
-			n := 0
-			for _, e := range entries {
-				if n >= limit {
-					b.WriteString("\n… more entries")
-					break
-				}
-				name := e.Name()
-				if e.IsDir() {
-					name += "/"
-				}
-				if n > 0 {
-					b.WriteByte('\n')
-				}
-				b.WriteString(name)
-				n++
-			}
-			if b.Len() == 0 {
-				return ai.ToolText("(empty)"), nil
-			}
-			return ai.ToolText(b.String()), nil
-		})
+	return LoopTool("ls", func(ctx context.Context, a lsArgs) (ai.ToolResult, error) {
+		if aborted(ctx) {
+			return fail(errAborted)
+		}
+		text, err := listDirectory(Resolve(a.Path, t.CWD), a.Limit)
+		if err != nil {
+			return fail(err)
+		}
+		return ai.ToolText(text), nil
+	})
+}
+
+func listDirectory(dir string, limit int) (string, error) {
+	if limit <= 0 {
+		limit = defaultLsLimit
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", fmt.Errorf("Path not found: %s", dir)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("Not a directory: %s", dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("Cannot read directory: %v", err)
+	}
+	names := make([]string, len(entries))
+	for i, entry := range entries {
+		names[i] = entry.Name()
+	}
+	sort.Slice(names, func(i, j int) bool { return strings.ToLower(names[i]) < strings.ToLower(names[j]) })
+	limitReached := len(names) > limit
+	if limitReached {
+		names = names[:limit]
+	}
+	if len(names) == 0 {
+		return "(empty directory)", nil
+	}
+	for i, name := range names {
+		names[i] = name + entrySuffix(filepath.Join(dir, name))
+	}
+	cut := TruncateHead(strings.Join(names, "\n"), allLines, DefaultMaxBytes)
+	var notices []string
+	if limitReached {
+		notices = append(notices, fmt.Sprintf("%d entries limit reached. Use limit=%d for more", limit, limit*2))
+	}
+	if cut.Truncated {
+		notices = append(notices, FormatSize(DefaultMaxBytes)+" limit reached")
+	}
+	return withNotices(cut.Content, notices), nil
+}
+
+// entrySuffix marks a directory with "/" and a broken symlink with "@". An
+// entry that cannot be examined keeps its bare name: a name missing from the
+// listing reads as "this file does not exist".
+func entrySuffix(path string) string {
+	if info, err := os.Stat(path); err == nil {
+		if info.IsDir() {
+			return "/"
+		}
+		return ""
+	}
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "@"
+	}
+	return ""
 }

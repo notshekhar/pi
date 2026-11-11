@@ -263,8 +263,8 @@ var settingKeys = []settingKey{
 	{
 		name: "bash denylist", help: "add/remove bash commands the agent is refused (guardrail)",
 		manager: (*repl).pickBashDeny,
-		status: func(config.Settings) string {
-			return fmt.Sprintf("%d blocked", len(bashDenyPatterns()))
+		status: func(s config.Settings) string {
+			return fmt.Sprintf("%d blocked", len(s.BashDenyList()))
 		},
 	},
 	{
@@ -383,27 +383,6 @@ func (t *repl) showSettings() {
 		}
 		lines = append(lines, "", th.Fg(tui.SlotDim, config.SettingsPath()))
 		lines = append(lines, th.Fg(tui.SlotDim, "/settings <key> <value> to change one"))
-		t.app.Print(lines...)
-	})
-}
-
-// showAgents lists the subagents `task` can delegate to.
-func (t *repl) showAgents() {
-	t.do(func() {
-		th := t.app.Theme()
-		lines := make([]string, 0, len(agent.TaskAgents)+2)
-		for _, a := range agent.TaskAgents {
-			access := "read-only"
-			if !a.ReadOnly {
-				access = "can edit"
-			}
-			lines = append(lines,
-				th.Fg(tui.SlotAccent, padRight(a.Name, 12))+
-					th.Fg(tui.SlotText, padRight(a.About, 44))+
-					th.Fg(tui.SlotDim, access))
-		}
-		lines = append(lines, "",
-			th.Fg(tui.SlotDim, "the model delegates with the task tool; a subagent sees none of this conversation"))
 		t.app.Print(lines...)
 	})
 }
@@ -660,17 +639,8 @@ func (t *repl) applySettings() {
 	stored := config.LoadSettings()
 
 	t.run.Permissions = t.loadPolicy()
-	t.run.Subagents = stored.SubagentsOn()
-
-	// The tool set is REBUILT rather than patched: the switches decide which
-	// tools exist at all, and there is no way to add one back by assignment.
-	// The registry is carried across so read-before-edit does not forget
-	// which files this session has already seen.
-	registry := t.run.Tools.Registry
-	todos := t.run.Tools.Todos
-	ask := t.run.Tools.Ask
-	t.run.Tools = toolContext(t.cfg)
-	t.run.Tools.Registry, t.run.Tools.Todos, t.run.Tools.Ask = registry, todos, ask
+	// The feature switches need nothing here: every turn assembles its tools
+	// from the settings as they are then (agent.Run.Toolset).
 
 	// What the enabled extensions contribute. Recomputed here rather than at
 	// boot so toggling one in /extensions takes effect on the next turn —

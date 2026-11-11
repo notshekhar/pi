@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/notshekhar/pi/internal/core/db"
@@ -100,7 +101,33 @@ func AddLedgerRow(r LedgerRow) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err == nil && r.SessionPub != "" {
+		notifyLedgerRow(r.SessionPub)
+	}
+	return id, err
+}
+
+var (
+	ledgerMu        sync.Mutex
+	ledgerListeners []func(sessionPub string)
+)
+
+// OnLedgerRow is told the session of every row billed — how a team hears a
+// member spent money, and how its budget is enforced within one step.
+func OnLedgerRow(f func(sessionPub string)) {
+	ledgerMu.Lock()
+	defer ledgerMu.Unlock()
+	ledgerListeners = append(ledgerListeners, f)
+}
+
+func notifyLedgerRow(sessionPub string) {
+	ledgerMu.Lock()
+	fs := append([]func(string){}, ledgerListeners...)
+	ledgerMu.Unlock()
+	for _, f := range fs {
+		f(sessionPub)
+	}
 }
 
 func b2i(b bool) int {

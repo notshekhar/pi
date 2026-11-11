@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -283,74 +284,64 @@ func (t *repl) pickAlias() {
 	})
 }
 
-// pickBashDeny is `/bashdeny` with no argument: the denylist manager.
-//
-// The entries are permission rules under the hood (`deny bash(<pattern>)`),
-// which is why the pattern has to be dug back out of the rule for display —
-// showing the rule syntax here would leak a representation the user of this
-// command never has to think about.
+// pickBashDeny is `/bashdeny` with no argument: the denylist manager, over
+// loop's bashDeny setting (its seeded defaults until the user edits it).
 func (t *repl) pickBashDeny() {
 	const addPattern = "\x00add"
 	t.manage(func() (string, []tui.Item) {
-		denied := bashDenyPatterns()
+		denied := config.LoadSettings().BashDenyList()
 		items := []tui.Item{{
 			Value:       addPattern,
 			Label:       "+ add command",
 			Description: `block a command (e.g. "rm" or "git commit")`,
 		}}
-		for _, rule := range denied {
-			items = append(items, tui.Item{
-				Value:       rule.rule,
-				Label:       rule.pattern,
-				Description: "select to remove",
-			})
+		for _, pattern := range denied {
+			items = append(items, tui.Item{Value: pattern, Label: pattern, Description: "select to remove"})
 		}
 		return fmt.Sprintf("Bash denylist · %d", len(denied)), items
 	}, func(choice tui.Item) bool {
 		if choice.Value == addPattern {
-			t.addBashDeny()
+			if pattern := strings.TrimSpace(t.ask(`command to block (e.g. "rm" or "git commit")`, "")); pattern != "" {
+				t.blockBashCommand(pattern)
+			}
 			return keepPanel
 		}
 		if t.confirmRemove(choice.Label, fmt.Sprintf("stop blocking %q", choice.Label)) {
-			t.removePermissionRule(choice.Value)
+			t.editBashDeny(func(list []string) []string {
+				return slices.DeleteFunc(list, func(p string) bool { return p == choice.Value })
+			})
 			t.dim("unblocked %q", choice.Label)
 		}
 		return keepPanel
 	})
 }
 
-// denyEntry pairs a stored rule with the pattern the user typed to make it.
-type denyEntry struct{ rule, pattern string }
-
-// bashDenyPatterns is the stored denylist, rules and patterns both.
-func bashDenyPatterns() []denyEntry {
-	var out []denyEntry
-	for _, pattern := range config.LoadSettings().BashDeny {
-		out = append(out, denyEntry{rule: pattern, pattern: pattern})
+// blockBashCommand adds a command to the denylist.
+func (t *repl) blockBashCommand(pattern string) {
+	if slices.Contains(config.LoadSettings().BashDenyList(), pattern) {
+		t.dim("%q is already in the denylist", pattern)
+		return
 	}
-	return out
+	if t.editBashDeny(func(list []string) []string { return append(list, pattern) }) {
+		t.dim("blocked %q", pattern)
+	}
 }
 
-// addBashDeny asks for a command and blocks it.
-func (t *repl) addBashDeny() {
-	pattern := strings.TrimSpace(t.ask(`command to block (e.g. "rm" or "git commit")`, ""))
-	if pattern == "" {
-		return
-	}
-	for _, existing := range bashDenyPatterns() {
-		if existing.pattern == pattern {
-			t.dim("%q is already in the denylist", pattern)
-			return
-		}
-	}
+// editBashDeny rewrites the stored denylist — starting from the defaults
+// when it was never set, as loop's does — and applies it at once.
+func (t *repl) editBashDeny(edit func([]string) []string) bool {
 	if err := config.Update(func(s *config.Settings) {
-		s.BashDeny = append(append([]string{}, s.BashDeny...), pattern)
+		next := edit(s.BashDenyList())
+		if next == nil {
+			next = []string{}
+		}
+		s.BashDeny = next
 	}); err != nil {
 		t.fail("bashdeny: %s", err)
-		return
+		return false
 	}
 	t.run.Permissions = t.loadPolicy()
-	t.dim("blocked %q", pattern)
+	return true
 }
 
 // permissionActions are the three verdicts, strictest first — the order the

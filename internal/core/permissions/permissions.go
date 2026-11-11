@@ -15,6 +15,7 @@ package permissions
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -110,6 +111,21 @@ func ParseRule(s string) (Rule, error) {
 // compares equal), but it also makes `github__*` gate a whole MCP server —
 // which is the only practical way to write a rule about a server whose tool
 // names you have not seen yet.
+// matchesCall is matches with loop's bash semantics for deny and ask: they
+// fire on any command in the line, so `cd x && git push` cannot hide one.
+// Bash allow rules are judged together, by allowCovering.
+func (r Rule) matchesCall(tool, subject string) bool {
+	if tool != "bash" || r.Mode == Allow {
+		return r.matches(tool, subject)
+	}
+	for _, s := range bashSubjects(subject) {
+		if r.matches(tool, s) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r Rule) matches(tool, subject string) bool {
 	if !Glob(r.Tool, tool) {
 		return false
@@ -132,6 +148,14 @@ type Policy struct {
 	Default Mode
 	// CWD confines file writes. Empty disables the confinement check.
 	CWD string
+	// BashDeny is loop's bashDeny guardrail: commands refused outright,
+	// matched per executed command through wrappers and `sh -c`.
+	BashDeny []string
+	// BashApprove is loop's bashApprove: a bash command no rule decided asks
+	// first, unless BashGrants (remembered "always allow" patterns) cover
+	// every command in it and none is dangerous.
+	BashApprove bool
+	BashGrants  []string
 }
 
 // Default is the shipped policy: read freely, edit inside the working
@@ -161,21 +185,19 @@ var destructive = []Rule{
 	{Tool: "bash", Pattern: "*chmod -R 777 /*", Mode: Deny, Reason: "refuses to strip permissions from the filesystem"},
 }
 
-// Decide evaluates the policy for one call. The strictest matching rule wins.
+// Decide evaluates the policy for one call, in loop's order: the bash
+// denylist, then the strictest matching rule (deny > ask > allow), then the
+// fallback when no rule matched.
 func (p Policy) Decide(tool string, args map[string]any) Decision {
 	subject := Subject(tool, args)
-
-	best := Decision{Mode: p.Default}
-	if best.Mode == "" {
-		best.Mode = Allow
+	if tool == "bash" {
+		if pattern := FindDeniedCommand(subject, p.BashDeny); pattern != "" {
+			return Decision{Mode: Deny, Reason: DenyRefusal(pattern)}
+		}
 	}
-	for _, rule := range p.Rules {
-		if !rule.matches(tool, subject) {
-			continue
-		}
-		if rule.Mode.rank() > best.Mode.rank() {
-			best = Decision{Mode: rule.Mode, Rule: rule, Reason: rule.Reason}
-		}
+	best, matched := p.strictestRule(tool, subject)
+	if !matched {
+		best = p.fallback(tool, subject)
 	}
 
 	// A write outside the working directory is escalated, never silently
@@ -188,6 +210,68 @@ func (p Policy) Decide(tool string, args map[string]any) Decision {
 		}
 	}
 	return best
+}
+
+// strictestRule is the most severe rule matching the call.
+func (p Policy) strictestRule(tool, subject string) (Decision, bool) {
+	var best Decision
+	matched := false
+	for _, rule := range p.Rules {
+		if tool == "bash" && rule.Mode == Allow {
+			continue
+		}
+		if rule.matchesCall(tool, subject) && (!matched || rule.Mode.rank() > best.Mode.rank()) {
+			best, matched = Decision{Mode: rule.Mode, Rule: rule, Reason: rule.Reason}, true
+		}
+	}
+	if tool == "bash" && !matched {
+		if rule, ok := p.allowCovering(subject); ok {
+			return Decision{Mode: Allow, Rule: rule}, true
+		}
+	}
+	return best, matched
+}
+
+// allowCovering is the allow rule approving a bash line, when allow rules
+// cover EVERY command in it. A bash glob's `*` crosses `&&`, so matching the
+// whole line alone would let `bash(git *)` approve `git status && rm -rf /`.
+func (p Policy) allowCovering(command string) (Rule, bool) {
+	var allows []Rule
+	for _, rule := range p.Rules {
+		if rule.Mode == Allow && Glob(rule.Tool, "bash") {
+			if rule.Pattern == "" {
+				return rule, true
+			}
+			allows = append(allows, rule)
+		}
+	}
+	segments := splitSegments(command)
+	if len(segments) == 0 || len(allows) == 0 {
+		return Rule{}, false
+	}
+	var first Rule
+	for i, segment := range segments {
+		j := slices.IndexFunc(allows, func(r Rule) bool { return r.matches("bash", segment) })
+		if j < 0 {
+			return Rule{}, false
+		}
+		if i == 0 {
+			first = allows[j]
+		}
+	}
+	return first, true
+}
+
+// fallback decides a call no rule matched: bashApprove's prompt for an
+// unremembered bash command, else the policy's default.
+func (p Policy) fallback(tool, subject string) Decision {
+	if tool == "bash" && p.BashApprove && !(IsCommandAllowed(subject, p.BashGrants) && !IsDangerousCommand(subject)) {
+		return Decision{Mode: Ask, Reason: "bashApprove is on"}
+	}
+	if p.Default == "" {
+		return Decision{Mode: Allow}
+	}
+	return Decision{Mode: p.Default}
 }
 
 // writesOutside reports a file-modifying call targeting a path outside cwd.
@@ -224,7 +308,7 @@ func Subject(tool string, args map[string]any) string {
 		}
 	case "read", "write", "edit", "ls":
 		return pathArg(args)
-	case "grep", "glob":
+	case "grep", "find":
 		if p, ok := args["pattern"].(string); ok {
 			return p
 		}

@@ -2,60 +2,116 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
 )
 
-type editItem struct {
-	OldText string `json:"oldText" jsonschema:"description=Exact text to replace; must be unique in the original file"`
-	NewText string `json:"newText" jsonschema:"description=Replacement text"`
+// editArgs accepts the shapes models actually send: edits as an array, edits
+// as a JSON string holding that array (Opus 4.6, GLM-5.1), and the older flat
+// oldText/newText pair.
+type editArgs struct {
+	Path    string          `json:"path"`
+	Edits   json.RawMessage `json:"edits"`
+	OldText *string         `json:"oldText"`
+	NewText *string         `json:"newText"`
 }
 
-type editArgs struct {
-	Path  string     `json:"path" jsonschema:"description=Path to the file to edit"`
-	Edits []editItem `json:"edits" jsonschema:"description=Replacements matched against the original file, not incrementally"`
+func (a editArgs) replacements() ([]Replacement, error) {
+	var edits []Replacement
+	raw := a.Edits
+	var asString string
+	if json.Unmarshal(raw, &asString) == nil {
+		raw = json.RawMessage(asString)
+	}
+	// A value that is not an array of edits leaves the list empty, and the
+	// check below reports it.
+	_ = json.Unmarshal(raw, &edits)
+	if a.OldText != nil && a.NewText != nil {
+		edits = append(edits, Replacement{OldText: *a.OldText, NewText: *a.NewText})
+	}
+	if len(edits) == 0 {
+		return nil, errors.New("Edit tool input is invalid. edits must contain at least one replacement.")
+	}
+	return edits, nil
 }
 
 // Edit returns the edit tool.
 func Edit(t *Context) ai.Tool {
-	return ai.NewTool("edit",
-		"Edit a file by applying one or more targeted text replacements. Each replacement matches the ORIGINAL file (not incrementally). oldText must match uniquely. Do not emit overlapping edits. Read the file first.",
-		func(ctx context.Context, a editArgs) (ai.ToolResult, error) {
-			if aborted(ctx) {
-				return ai.ToolError("aborted"), nil
-			}
-			if len(a.Edits) == 0 {
-				return ai.ToolError("edits must contain at least one replacement"), nil
-			}
-			path := Resolve(a.Path, t.CWD)
-			if msg := t.Registry.CheckEdit(path, a.Path); msg != "" {
-				return ai.ToolError(msg), nil
-			}
+	return LoopTool("edit", func(ctx context.Context, a editArgs) (ai.ToolResult, error) {
+		if aborted(ctx) {
+			return fail(errAborted)
+		}
+		if t.planMode() {
+			return fail(errors.New(planModeRefusal))
+		}
+		edits, err := a.replacements()
+		if err != nil {
+			return fail(err)
+		}
+		path := Resolve(a.Path, t.CWD)
+		output, err := withFileLock(path, func() (string, error) { return editFile(t, path, a.Path, edits) })
+		if err != nil {
+			return fail(err)
+		}
+		return mutationResult(output), nil
+	})
+}
 
-			raw, err := os.ReadFile(path)
-			if err != nil {
-				return ai.ToolErrorf("Could not edit file: %s. %v", a.Path, err), nil
-			}
-			bom, text := stripBOM(string(raw))
-			ending := detectLineEnding(text)
-			normalized := normalizeToLF(text)
+func editFile(t *Context, path, displayPath string, edits []Replacement) (string, error) {
+	// Never modify a file the agent has not seen, or has only seen a stale
+	// version of, this session.
+	if msg := t.Registry.CheckEdit(path, displayPath); msg != "" {
+		return "", errors.New(msg)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("Could not edit file: %s. Error code: %s.", displayPath, errorCode(err))
+	}
+	bom, text := stripBOM(string(raw))
+	ending := detectLineEnding(text)
+	applied, err := applyEdits(normalizeToLF(text), edits, displayPath)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(bom+restoreLineEndings(applied.next, ending)), 0o644); err != nil {
+		return "", fmt.Errorf("Could not edit file: %s. Error code: %s.", displayPath, errorCode(err))
+	}
+	t.Registry.RecordModified(path)
+	return editSummary(len(edits), displayPath, applied), nil
+}
 
-			edits := make([]Replacement, len(a.Edits))
-			for i, e := range a.Edits {
-				edits[i] = Replacement{OldText: e.OldText, NewText: e.NewText}
-			}
-			base, next, err := applyEdits(normalized, edits, a.Path)
-			if err != nil {
-				return ai.ToolError(err.Error()), nil
-			}
+func editSummary(count int, displayPath string, applied appliedEdits) string {
+	summary := fmt.Sprintf("Successfully replaced %d block(s) in %s.", count, displayPath)
+	diff := generateDiff(applied.base, applied.next)
+	if len(applied.fuzzyIndexes) == 0 {
+		return summary + diffSeparator + diff
+	}
+	// What got replaced is not what was asked for, so the model is shown the
+	// diff: joined with single newlines, the whole result stays on the
+	// model's side of the cut.
+	which := make([]string, len(applied.fuzzyIndexes))
+	for i, index := range applied.fuzzyIndexes {
+		which[i] = fmt.Sprintf("edits[%d]", index)
+	}
+	return strings.Join([]string{
+		summary,
+		strings.Join(which, ", ") + " matched text that differs from the oldText you sent (whitespace or unicode normalization), so the file does not read exactly the way you assumed. What actually changed:",
+		diff,
+	}, "\n")
+}
 
-			final := bom + restoreLineEndings(next, ending)
-			if err := os.WriteFile(path, []byte(final), 0o644); err != nil {
-				return ai.ToolErrorf("could not write %s: %v", a.Path, err), nil
-			}
-			t.Registry.RecordModified(path)
-			diff := generateDiff(base, next, 4)
-			return ai.ToolTextf("Successfully replaced %d block(s) in %s.\n\n%s", len(edits), a.Path, diff), nil
-		})
+// errorCode names a file error the way Node does, which is what loop reports.
+func errorCode(err error) string {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "ENOENT"
+	case errors.Is(err, os.ErrPermission):
+		return "EACCES"
+	}
+	return err.Error()
 }

@@ -8,7 +8,9 @@ import (
 // Tests never chime: loop's suites set LOOP_SOUND=0 the same way.
 func TestMain(m *testing.M) {
 	_ = os.Setenv("LOOP_SOUND", "0")
-	os.Exit(m.Run())
+	code := m.Run()
+	removeBuiltPi()
+	os.Exit(code)
 }
 
 func TestSemverGt(t *testing.T) {

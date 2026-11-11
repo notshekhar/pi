@@ -291,7 +291,7 @@ func (s *streamState) startBlock(event streamEvent) {
 		block.kind = blockToolCall
 		block.toolCallID = event.ContentBlock.ID
 		block.toolName = event.ContentBlock.Name
-		s.emit(provider.ToolInputStart{ID: id, ToolName: event.ContentBlock.Name})
+		s.emit(provider.ToolInputStart{ID: block.toolCallID, ToolName: event.ContentBlock.Name})
 
 	case "server_tool_use":
 		// A hosted tool the provider runs itself. Its arguments still stream
@@ -308,7 +308,7 @@ func (s *streamState) startBlock(event streamEvent) {
 		block.toolName = call.ToolName
 		block.serverToolName = event.ContentBlock.Name
 		s.emit(provider.ToolInputStart{
-			ID:               id,
+			ID:               block.toolCallID,
 			ToolName:         call.ToolName,
 			ProviderExecuted: true,
 		})
@@ -371,7 +371,7 @@ func (s *streamState) handleDelta(event streamEvent) {
 			s.emit(provider.TextDelta{ID: id, Delta: event.Delta.PartialJSON})
 			return
 		}
-		s.emit(provider.ToolInputDelta{ID: id, Delta: event.Delta.PartialJSON})
+		s.emit(provider.ToolInputDelta{ID: block.toolCallID, Delta: event.Delta.PartialJSON})
 	}
 }
 
@@ -402,7 +402,7 @@ func (s *streamState) stopBlock(index int) {
 		})
 
 	case blockToolCall, blockHostedCall:
-		s.emit(provider.ToolInputEnd{ID: id})
+		s.emit(provider.ToolInputEnd{ID: block.toolCallID})
 
 		// Anthropic sends no input_json_delta for a tool with no arguments,
 		// so an empty accumulator means "{}", not a malformed call.

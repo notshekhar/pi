@@ -78,11 +78,21 @@ func (t *CostTracker) accumulate(modelID string, u session.Usage) float64 {
 
 // Add bills one round-trip: in-memory and a ledger row.
 func (t *CostTracker) Add(modelID string, u session.Usage, ctx BillContext) CostBreakdown {
+	total, rowID := t.AddRow(modelID, u, ctx)
+	t.mu.Lock()
+	t.lastRowID = rowID
+	t.mu.Unlock()
+	return total
+}
+
+// AddRow is Add returning the ledger row it wrote, for a caller billing in
+// parallel with the turn (a subagent), which cannot share lastRowID.
+func (t *CostTracker) AddRow(modelID string, u session.Usage, ctx BillContext) (CostBreakdown, int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.accumulate(modelID, u)
-	t.lastRowID, _ = Bill(modelID, u, ctx, false)
-	return t.session
+	rowID, _ := Bill(modelID, u, ctx, false)
+	return t.session, rowID
 }
 
 // AddEstimated bills an interrupted request's estimate (session total only).

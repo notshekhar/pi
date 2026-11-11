@@ -205,20 +205,19 @@ the session is callable without a restart. `/help` and the palette list them.
 - [—] `/artifacts` — needs a publishing target
 - [—] `/update` — needs a release pipeline this repo does not have
 
-## 9. Tools — 12 of 16
+## 9. Tools — loop's set, assembled per turn in loop's order (agent/toolset.go)
 
-- [x] `read` `write` `edit` `bash` `ls` `grep` `glob`
+- [x] `read` `write` `edit` `bash` `ls` `grep` `find` (no `glob`: loop has none)
 - [x] `todo` — task list + pinned panel above the editor, retires at turn end
-- [x] `task` — subagents with their own context window; read-only, cannot
-      recurse, cannot prompt; live status on the parent's row
-- [x] `websearch` — DuckDuckGo HTML scrape, opt-in, ad-filtered
-- [x] `memory` — per-repo markdown facts; the INDEX is injected, never bodies
-- [x] `skill` — user + project directories, project wins; index-only injection
-- [x] `plan` — presents a plan and waits for approval
-- [x] `ask` — structured user questions
-- [—] `artifact` — needs a publishing target
-- [—] `sql` / datasources — database drivers are dependencies by definition
-- [x] `find` — walks the tree, unlike glob
+- [x] `task` — loop's fork / named agent / `follow_up`, parallel gate, stall watchdog, saved runs
+- [x] `websearch` — DuckDuckGo, opt-in, loop's per-block parser
+- [x] `skill`, `plan`, `enter_plan_mode`, `exit_plan_mode`, `ask`
+- [x] `shells` — background shells, plus the pinned shells panel in the TUI
+- [x] `sql` — the datasources the data-analyst agent reads
+- [x] `artifact` — pages written to disk, behind the `artifacts` setting
+- [x] `mcp_tools` (tool-search mode) and `mcp_resource` (list/read MCP resources)
+- [x] thread teams: `spawn_threads` `send_message` `team_board` `wait_for_team` `report`
+- [—] `memory` tool — loop has none; memory is the `<memory>` block in the prompt
 
 Notes:
 - [x] read-before-edit registry — pi-agent has this, and it's the *fixed* version
@@ -857,6 +856,21 @@ down six rows. Setup queued before the loop starts is now drained into the
 first frame, which fixes the stored-theme flash for the same reason.
 
 ---
+
+## 17. The 2026-11-10/11 parity pass
+
+- [x] Tool definitions come from loop (`tools/defs/loop-tools.json`, synced by
+      `scripts/sync-loop/export.ts`), and their input is validated against the schema
+- [x] System prompt and notes keyed off the assembled tools; `<memory>` block
+- [x] Plan mode enforced inside the tools (bash runs in a read-only sandbox)
+- [x] bashDeny defaults, per-command-segment matching, allow rules cover every segment
+- [x] Thread teams: core (`internal/core/teams`), TUI host + `/team` `/lead`, RPC host + `team.get`/`team.stop`
+- [x] CLI subcommands: login, logout, whoami, models, cost, artifacts, goals, mcp,
+      extensions/enable/disable, install/link/remove, completion, man, `run --output-format`
+- [x] Shells die on SIGHUP/SIGTERM (`cmd/pi/quit_signal.go`)
+- [ ] `/hosts` — pairing and driving another machine's sessions
+- [ ] Loop's multi-question ask review screen
+- [ ] "Always" / "never" choices on the bash approval prompt
 
 ## Suggested order
 

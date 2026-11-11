@@ -160,9 +160,9 @@ func (t *repl) resume(id string) {
 		t.switchTo(live)
 		return
 	}
-	// Never replace a session mid-turn: it keeps running, and the resumed
-	// one opens beside it.
-	if t.isTurning() {
+	// Never replace a session mid-turn or with a shell running: it keeps
+	// running, and the resumed one opens beside it.
+	if t.occupied() {
 		t.openNew()
 	}
 	t.firstPrompt = ""
@@ -184,6 +184,7 @@ func (t *repl) resume(id string) {
 		t.app.SetSession(loaded.ID)
 		t.app.SetCostText(cost)
 		t.app.SetContextTokens(ctxTokens)
+		t.refreshShells()
 		th := t.app.Theme()
 		t.app.Print(
 			th.Fg(tui.SlotAccent, th.Bold("resumed"))+" "+th.Fg(tui.SlotText, loaded.Meta.Label()),

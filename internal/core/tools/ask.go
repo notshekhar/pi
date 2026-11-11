@@ -8,108 +8,95 @@ import (
 	"github.com/notshekhar/pi/internal/ai"
 )
 
-// `ask` — put a real question to the user, with the options spelled out.
-//
-// The alternative is the model guessing, or asking in prose and having the
-// answer arrive as free text it then has to interpret. A structured question
-// gets a structured answer, and — more importantly — makes the moment of
-// choice visible instead of buried in a paragraph.
-//
-// It is deliberately hard to reach for: the description tells the model to
-// use it when the answers diverge, not whenever it feels uncertain. A model
-// that asks about everything is worse than one that picks a default and says
-// which it picked.
+// `ask` — put real questions to the user, with the options spelled out.
+// The shapes are loop's ask bridge, shared by every surface that can answer:
+// the TUI, cmux's card and the RPC clients.
 
-// Asker puts a question to the user and returns the chosen option, or "" if
-// they declined to answer.
-type Asker func(ctx context.Context, question string, options []string) string
+// AskOption is one answer the user can pick.
+type AskOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+// AskQuestion is one question with its choices.
+type AskQuestion struct {
+	Question    string      `json:"question"`
+	Header      string      `json:"header"`
+	Options     []AskOption `json:"options"`
+	MultiSelect bool        `json:"multiSelect,omitempty"`
+}
+
+// AskAnswer is what the user did with one question.
+type AskAnswer struct {
+	Answers []string `json:"answers"`
+	// Custom: the answer is the user's own text, not one of the options.
+	Custom bool `json:"custom,omitempty"`
+	// Declined: the user skipped this question.
+	Declined bool `json:"declined,omitempty"`
+	// Note is free text the user attached to a picked option.
+	Note string `json:"note,omitempty"`
+}
+
+// Asker puts questions to the user and returns one answer per question.
+type Asker func(ctx context.Context, questions []AskQuestion) []AskAnswer
 
 type askArgs struct {
-	Question string   `json:"question" jsonschema:"description=The question; specific and answerable"`
-	Options  []string `json:"options" jsonschema:"description=Two to four mutually exclusive answers"`
+	Questions []AskQuestion `json:"questions"`
 }
 
 // Ask returns the ask tool.
 func Ask(t *Context) ai.Tool {
-	return ai.NewTool("ask",
-		"Ask the user to choose between options. Use it ONLY when the answers lead "+
-			"to materially different work and you cannot pick from the code or the "+
-			"request — otherwise choose the sensible default, say which you chose, "+
-			"and carry on. Never ask about something you could look up.",
-		func(ctx context.Context, a askArgs) (ai.ToolResult, error) {
-			if ctx.Err() != nil {
-				return ai.ToolError("aborted"), nil
-			}
-			question := strings.TrimSpace(a.Question)
-			if question == "" {
-				return ai.ToolError("question is empty"), nil
-			}
-			var options []string
-			for _, o := range a.Options {
-				if o = strings.TrimSpace(o); o != "" {
-					options = append(options, o)
-				}
-			}
-			if len(options) < 2 {
-				return ai.ToolError("give at least two options"), nil
-			}
-			if t.Ask == nil {
-				// Nobody to ask: say so rather than inventing an answer, so
-				// the model falls back to choosing and explaining.
-				return ai.ToolError(
-					"there is nobody to ask here — choose the best option and say which you chose"), nil
-			}
-
-			answer := t.Ask(ctx, question, options)
-			if answer == "" {
-				return ai.ToolText("the user did not answer; choose the best option and say which you chose"), nil
-			}
-			return ai.ToolTextf("the user chose: %s", answer), nil
-		})
+	return LoopTool("ask", func(ctx context.Context, a askArgs) (ai.ToolResult, error) {
+		if aborted(ctx) {
+			return fail(errAborted)
+		}
+		if t.Ask == nil {
+			return ai.ToolText("The ask tool is not available in this session (no interactive UI). Proceed without asking."), nil
+		}
+		answers := t.Ask(ctx, a.Questions)
+		if aborted(ctx) {
+			return fail(errAborted)
+		}
+		return ai.ToolText(FormatAskAnswers(a.Questions, answers)), nil
+	})
 }
 
-// Plan returns the plan tool.
-func Plan(t *Context) ai.Tool {
-	return ai.NewTool("plan",
-		"Present a plan for a multi-step change and wait for approval before "+
-			"starting. Use it when the work is large enough that doing the wrong "+
-			"thing would waste real effort. Write it as the user would want to read "+
-			"it: what changes, in which files, and what you are unsure about.",
-		func(ctx context.Context, a planArgs) (ai.ToolResult, error) {
-			if ctx.Err() != nil {
-				return ai.ToolError("aborted"), nil
-			}
-			plan := strings.TrimSpace(a.Plan)
-			if plan == "" {
-				return ai.ToolError("plan is empty"), nil
-			}
-			if t.Ask == nil {
-				return ai.ToolText("no reviewer here — proceeding is on you; state the plan and carry on"), nil
-			}
-			switch t.Ask(ctx, planHeadline(plan), []string{"Approve", "Revise"}) {
-			case "Approve":
-				return ai.ToolText("approved — carry it out"), nil
-			case "Revise":
-				return ai.ToolText("the user wants changes; ask what to alter before proceeding"), nil
-			}
-			return ai.ToolText("no answer; treat the plan as not yet approved"), nil
-		})
-}
-
-type planArgs struct {
-	Plan string `json:"plan" jsonschema:"description=The plan, as markdown"`
-}
-
-// planHeadline is the plan's first heading or line, for the prompt title —
-// the whole plan belongs in the transcript, not squeezed into a dialog.
-func planHeadline(plan string) string {
-	line := strings.TrimSpace(strings.SplitN(plan, "\n", 2)[0])
-	line = strings.TrimLeft(line, "# ")
-	if line == "" {
-		line = "Proceed with this plan?"
+// FormatAskAnswers is the answers as the model reads them.
+func FormatAskAnswers(questions []AskQuestion, answers []AskAnswer) string {
+	if allDeclined(answers) {
+		return "The user declined to answer. Proceed with your best judgment."
 	}
-	if len(line) > 70 {
-		line = line[:67] + "…"
+	parts := []string{"User answers:"}
+	for i, q := range questions {
+		suffix := ""
+		if q.MultiSelect {
+			suffix = " (multi-select)"
+		}
+		parts = append(parts, fmt.Sprintf("[%s] %s%s\n%s", q.Header, q.Question, suffix, answerLine(answers, i)))
 	}
-	return fmt.Sprintf("%s — approve?", line)
+	return strings.Join(parts, "\n\n")
+}
+
+func allDeclined(answers []AskAnswer) bool {
+	for _, a := range answers {
+		if !a.Declined {
+			return false
+		}
+	}
+	return true
+}
+
+func answerLine(answers []AskAnswer, i int) string {
+	if i >= len(answers) || answers[i].Declined {
+		return "→ (no answer — user skipped this question)"
+	}
+	a := answers[i]
+	line := "→ " + strings.Join(a.Answers, ", ")
+	if a.Custom {
+		line = fmt.Sprintf("→ (custom answer) %q", strings.Join(a.Answers, "; "))
+	}
+	if a.Note != "" {
+		line += fmt.Sprintf("\n→ user note: %q", a.Note)
+	}
+	return line
 }

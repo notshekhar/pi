@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/notshekhar/pi/internal/core/shells"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -355,6 +356,13 @@ func (t *repl) isTurning() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.turning
+}
+
+// occupied reports a session that must not be replaced in place: a turn is
+// running, or a background shell is — replacing the session would strand the
+// shell where nothing lists it (loop's session-handlers).
+func (t *repl) occupied() bool {
+	return t.isTurning() || shells.RunningCount(t.run.Session.ID) > 0
 }
 
 func (t *repl) busy() bool {

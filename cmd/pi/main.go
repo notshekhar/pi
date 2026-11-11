@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/notshekhar/pi/internal/ai/provider"
@@ -20,33 +19,60 @@ import (
 	"github.com/notshekhar/pi/internal/core/db"
 	"github.com/notshekhar/pi/internal/core/session"
 	"github.com/notshekhar/pi/internal/core/tools"
-	"github.com/notshekhar/pi/internal/tui"
 )
 
 // printHelp is loop's printHelp, for pi's commands.
 func printHelp() {
-	fmt.Printf(`pi — terminal coding agent, a Go build of loop (v%s)
+	fmt.Printf(`%[1]s — terminal coding agent, a Go build of loop (v%[2]s)
 
 Usage:
-  pi                      Start interactive TUI
-  pi run <prompt>         Run a single prompt and exit
-  pi sessions [--all]     List sessions in current cwd
-  pi archive <id>         Archive a session (hides it from the lists)
-  pi unarchive <id>       Restore an archived session
-  pi rpc                  Start the JSON-RPC server on stdio (loop's desktop app)
-  pi serve [--host|--port|--no-terminal]  Web UI + WebSocket RPC (opt-in via /settings; token-locked)
-  pi upgrade [--force]    Install the latest release
-  pi version | -v         Print version
-  pi help | -h            Show this help
+  %[1]s                     Start interactive TUI
+  %[1]s run <prompt|->      Run a single prompt and exit (- reads the prompt from stdin)
+  %[1]s login [provider]    Configure provider auth
+  %[1]s logout [provider]   Remove auth
+  %[1]s sessions [--archived|--all] List sessions in current cwd
+  %[1]s archive <id>        Archive a session (hides it from the lists)
+  %[1]s unarchive <id>      Restore an archived session
+  %[1]s goals <cmd>         Manage background tasks (list, add, rm, run, tick)
+  %[1]s artifacts [export <id>] List pages the agent wrote, or save one out
+  %[1]s models              List available models
+  %[1]s whoami              Show active provider + auth status
+  %[1]s cost audit          Verify the cost ledger reconciles (self-audit)
+  %[1]s rpc                 Start the JSON-RPC server on stdio (loop's desktop app)
+  %[1]s serve [--host|--port|--no-terminal] Web UI + WebSocket RPC (opt-in via /settings; token-locked)
+  %[1]s mcp <cmd>           Manage MCP servers (add, list, remove, login…)
+  %[1]s man                 Open the manual (--install writes it to the manpath)
+  %[1]s completion <shell>  Print a tab-completion script (bash, zsh, fish)
+  %[1]s upgrade [--force]   Install the latest release
+  %[1]s version | -v        Print version
+  %[1]s help | -h           Show this help
+
+Extensions:
+  %[1]s install <path>      Build and install a Go extension (a main package speaking MCP)
+  %[1]s link <path>         Link a local extension for development (rebuilt on every connect)
+  %[1]s remove <name>       Remove an installed extension
+  %[1]s extensions          List installed extensions
+  %[1]s enable <name>       Enable an extension
+  %[1]s disable <name>      Disable an extension
 
 Flags:
-  --model <provider/id>   Override default model
-  --provider <id>         Override active provider
-  --session <id>          Resume a session
-  --cwd <dir>             Working directory
-  --reasoning <level>     none, low, medium, high, xhigh
-  --max-steps <n>         Maximum agent steps
-`, version)
+  --model <provider/id>    Override default model
+  --provider <id>          Override active provider
+  --cwd <path>             Working directory
+  --session <id>           Resume session by id
+  --reasoning <level>      none, low, medium, high, xhigh
+  --max-steps <n>          Cap agent steps in run mode (default: maxSteps setting)
+  --output-format <fmt>    run mode output: text (default), json, stream-json
+  --                       End flag parsing (a prompt may then start with -)
+
+In run mode, text puts the reply on stdout and activity on stderr; json prints
+one result object when the run ends; stream-json prints one JSON event per line
+as it happens. Both JSON formats keep stdout free of anything but JSON, and
+report the session id so a follow-up can pass --session.
+
+Unknown commands and flags are refused rather than guessed at; each command
+accepts only its own flags (%[1]s completion <shell> teaches your shell which).
+`, productName, version)
 }
 
 func main() {
@@ -83,40 +109,13 @@ func main() {
 	// which is why it sits at the top rather than inside one command.
 	defer db.Close()
 
-	// Session housekeeping needs no model.
 	if len(args) > 0 {
-		switch args[0] {
-		case "sessions":
-			sessionsCommand(workingDir(cfg.CWD), args[1:])
-			return
-		case "archive", "unarchive":
-			archiveCommand(args[1:], args[0] == "archive")
-			return
-		case "rpc":
-			rpcCommand(workingDir(cfg.CWD))
-			return
-		case "serve":
-			serveCommand(workingDir(cfg.CWD), args[1:])
-			return
-		case "upgrade":
-			upgradeCommand(args[1:])
-			return
+		code := runCLICommand(ctx, cfg, *sessionID, args)
+		db.Close() // os.Exit skips the deferred one
+		if code != 0 {
+			os.Exit(code)
 		}
-	}
-
-	// `run` takes --session after the command too, the way loop's does.
-	var prompt string
-	oneShotMode := len(args) > 0 && args[0] == "run"
-	if oneShotMode {
-		fs := flag.NewFlagSet("run", flag.ExitOnError)
-		fs.StringVar(sessionID, "session", *sessionID, "resume a session by id")
-		fs.StringVar(sessionID, "resume", *sessionID, "alias for -session")
-		_ = fs.Parse(args[1:])
-		prompt = strings.Join(fs.Args(), " ")
-		if prompt == "" {
-			fmt.Fprintf(os.Stderr, "usage: %s run [--session <id>] <prompt>\n", productName)
-			os.Exit(2)
-		}
+		return
 	}
 
 	// Stored preferences layer UNDER the flags: an explicit -model always
@@ -143,13 +142,6 @@ func main() {
 	config.ConfigureCatalog()
 	catalog.RefreshIfStale()
 
-	if oneShotMode {
-		if err := oneShot(ctx, resolved, prompt, resumed); err != nil {
-			fatal(err)
-		}
-		return
-	}
-
 	id, err := replTUI(ctx, resolved, resumed)
 	if err != nil {
 		fatal(err)
@@ -167,24 +159,6 @@ func workingDir(cwd string) string {
 		fatal(err)
 	}
 	return wd
-}
-
-func oneShot(ctx context.Context, cfg config.Config, prompt string, resumed *session.Session) error {
-	run, err := newRun(cfg, resumed)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "%s · %s\n\n", cfg.FullID(), cfg.CWD)
-	// Each step bills itself as it is saved, so a session started with `run`
-	// carries its spend into a later resume.
-	if _, err := run.TurnStream(ctx, prompt, tui.NewPrinter().Consume); err != nil {
-		return err
-	}
-	// Reported so a follow-up can pass --session.
-	if run.Session.Saved() {
-		fmt.Fprintf(os.Stderr, "\nsession %s\n", run.Session.ID)
-	}
-	return nil
 }
 
 // newRun builds a run on a fresh session, or on resumed when one was given.

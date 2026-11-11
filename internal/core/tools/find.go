@@ -1,123 +1,178 @@
 package tools
 
 import (
+	"bufio"
 	"context"
 	"fmt"
-	"io/fs"
+	"os"
+	"os/exec"
 	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
 )
 
-// `find` — locate files by name anywhere under a root.
-//
-// Distinct from `glob`, which matches a shell pattern against one directory
-// level and needs you to already know the shape of the tree. `find` walks,
-// which is what you want when the question is "where does X live?" rather
-// than "what matches this pattern here?".
+const defaultFindLimit = 1000
 
 type findArgs struct {
-	Name string `json:"name" jsonschema:"description=Substring or glob to match against file names"`
-	Path string `json:"path,omitempty" jsonschema:"description=Directory to search under; defaults to the working directory"`
-	Type string `json:"type,omitempty" jsonschema:"description=Restrict to file or dir"`
+	Pattern string `json:"pattern"`
+	Path    string `json:"path,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
-// findLimit caps results. A search that returns two thousand paths has not
-// answered the question, it has moved it.
-const findLimit = 100
-
-// Find returns the find tool.
+// Find returns the find tool: files by glob pattern.
 func Find(t *Context) ai.Tool {
-	return ai.NewTool("find",
-		"Find files by name anywhere under a directory. Use it to locate something "+
-			"whose path you do not know; use glob when you know the shape of the "+
-			"path and ls when you want one directory's contents.",
-		func(ctx context.Context, a findArgs) (ai.ToolResult, error) {
-			if ctx.Err() != nil {
-				return ai.ToolError("aborted"), nil
-			}
-			needle := strings.TrimSpace(a.Name)
-			if needle == "" {
-				return ai.ToolError("name is empty"), nil
-			}
-			root := Resolve(a.Path, t.CWD)
-
-			var hits []string
-			truncated := false
-			err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-				if err != nil {
-					// An unreadable directory is skipped, not fatal: one
-					// permission error must not abandon the whole search.
-					return nil
-				}
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if d.IsDir() && skipDir(d.Name()) && path != root {
-					return filepath.SkipDir
-				}
-				switch a.Type {
-				case "file":
-					if d.IsDir() {
-						return nil
-					}
-				case "dir":
-					if !d.IsDir() {
-						return nil
-					}
-				}
-				if !matchName(d.Name(), needle) {
-					return nil
-				}
-				if len(hits) >= findLimit {
-					truncated = true
-					return filepath.SkipAll
-				}
-				rel, relErr := filepath.Rel(t.CWD, path)
-				if relErr != nil {
-					rel = path
-				}
-				if d.IsDir() {
-					rel += "/"
-				}
-				hits = append(hits, rel)
-				return nil
-			})
-			if err != nil && ctx.Err() != nil {
-				return ai.ToolError("aborted"), nil
-			}
-			if len(hits) == 0 {
-				return ai.ToolTextf("no files matching %q under %s", needle, root), nil
-			}
-			sort.Strings(hits)
-			out := strings.Join(hits, "\n")
-			if truncated {
-				out += fmt.Sprintf("\n\n[stopped at %d matches — narrow the name]", findLimit)
-			}
-			return ai.ToolText(out), nil
-		})
+	return LoopTool("find", func(ctx context.Context, a findArgs) (ai.ToolResult, error) {
+		if aborted(ctx) {
+			return fail(errAborted)
+		}
+		root := Resolve(a.Path, t.CWD)
+		if !exists(root) {
+			return fail(fmt.Errorf("Path not found: %s", root))
+		}
+		limit := a.Limit
+		if limit <= 0 {
+			limit = defaultFindLimit
+		}
+		paths, err := findPaths(ctx, root, a.Pattern, limit)
+		if err != nil {
+			return fail(err)
+		}
+		return ai.ToolText(renderFound(paths, limit)), nil
+	})
 }
 
-// matchName accepts a glob when the needle looks like one, and a
-// case-insensitive substring otherwise — which is what people mean when they
-// type a bare word.
-func matchName(name, needle string) bool {
-	if strings.ContainsAny(needle, "*?[") {
-		ok, err := filepath.Match(needle, name)
-		return err == nil && ok
+// findPaths returns matches relative to root, with forward slashes.
+func findPaths(ctx context.Context, root, pattern string, limit int) ([]string, error) {
+	if fd, ok := searchBinary("fd", "fdfind"); ok {
+		return findWithFd(ctx, fd, root, pattern, limit)
 	}
-	return strings.Contains(strings.ToLower(name), strings.ToLower(needle))
+	return findByWalking(ctx, root, pattern, limit), nil
 }
 
-// skipDir is the set never worth walking. Searching a node_modules is how a
-// find takes thirty seconds and returns nothing anyone wanted.
-func skipDir(name string) bool {
-	switch name {
-	case ".git", "node_modules", "vendor", ".venv", "venv", "__pycache__",
-		"dist", "build", "target", ".next", ".cache", ".idea", ".loop":
+func findWithFd(ctx context.Context, fd, root, pattern string, limit int) ([]string, error) {
+	args := []string{"--glob", "--color=never", "--hidden", "--no-require-git", "--max-results", strconv.Itoa(limit)}
+	if strings.Contains(pattern, "/") {
+		args = append(args, "--full-path")
+		if !strings.HasPrefix(pattern, "/") && !strings.HasPrefix(pattern, "**/") && pattern != "**" {
+			pattern = "**/" + pattern
+		}
+	}
+	cmd := exec.CommandContext(ctx, fd, append(args, "--", pattern, root)...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		return nil, errAborted
+	}
+	if err != nil && len(out) == 0 {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return nil, fmt.Errorf("%s", msg)
+		}
+		if _, exited := err.(*exec.ExitError); !exited {
+			return nil, fmt.Errorf("Failed to run fd: %v", err)
+		}
+		return nil, fmt.Errorf("fd exited with code %d", cmd.ProcessState.ExitCode())
+	}
+	return relativeToRoot(string(out), root), nil
+}
+
+// relativeToRoot turns fd's absolute paths into paths under root, keeping the
+// trailing slash fd puts on a directory.
+func relativeToRoot(output, root string) []string {
+	var paths []string
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	scanner.Buffer(nil, 1<<20)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		rel, err := filepath.Rel(root, line)
+		if err != nil {
+			rel = line
+		}
+		if strings.HasSuffix(line, "/") && !strings.HasSuffix(rel, "/") {
+			rel += "/"
+		}
+		paths = append(paths, filepath.ToSlash(rel))
+	}
+	return paths
+}
+
+func findByWalking(ctx context.Context, root, pattern string, limit int) []string {
+	var paths []string
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil // an unreadable directory is skipped, not fatal
+		}
+		if ctx.Err() != nil || len(paths) >= limit {
+			return filepath.SkipAll
+		}
+		if entry.IsDir() {
+			if path != root && skipDir(entry.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		if rel = filepath.ToSlash(rel); matchGlob(pattern, rel) {
+			paths = append(paths, rel)
+		}
+		return nil
+	})
+	return paths
+}
+
+// matchGlob matches a relative path the way fd does: a pattern with no slash
+// is tested against the file name, one with a slash against the whole path,
+// and "**" spans any number of directories.
+func matchGlob(pattern, rel string) bool {
+	if !strings.Contains(pattern, "/") {
+		ok, _ := filepath.Match(pattern, filepath.Base(rel))
+		return ok
+	}
+	return matchSegments(strings.Split(strings.TrimPrefix(pattern, "/"), "/"), strings.Split(rel, "/"), true)
+}
+
+// matchSegments matches path segments against pattern segments. floating lets
+// the pattern start at any depth, which is how fd treats a relative pattern.
+func matchSegments(pattern, path []string, floating bool) bool {
+	if len(pattern) == 0 {
+		return len(path) == 0
+	}
+	if pattern[0] == "**" {
+		for skip := 0; skip <= len(path); skip++ {
+			if matchSegments(pattern[1:], path[skip:], false) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(path) == 0 {
+		return false
+	}
+	if ok, _ := filepath.Match(pattern[0], path[0]); ok && matchSegments(pattern[1:], path[1:], false) {
 		return true
 	}
-	return false
+	return floating && matchSegments(pattern, path[1:], true)
+}
+
+func renderFound(paths []string, limit int) string {
+	if len(paths) == 0 {
+		return "No files found matching pattern"
+	}
+	cut := TruncateHead(strings.Join(paths, "\n"), allLines, DefaultMaxBytes)
+	var notices []string
+	if len(paths) >= limit {
+		notices = append(notices, fmt.Sprintf("%d results limit reached. Use limit=%d for more, or refine pattern", limit, limit*2))
+	}
+	if cut.Truncated {
+		notices = append(notices, FormatSize(DefaultMaxBytes)+" limit reached")
+	}
+	return withNotices(cut.Content, notices)
 }

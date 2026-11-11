@@ -132,6 +132,9 @@ type typedTool[T any] struct {
 	description string
 	schema      *jsonschema.Schema
 	execute     func(ctx context.Context, args T) (ToolResult, error)
+	// validate checks arguments against the schema first: set for a
+	// hand-written schema, which can say more than T's Go types can.
+	validate bool
 }
 
 // NewTool builds a tool whose input schema is derived from T.
@@ -182,6 +185,7 @@ func NewToolWithSchema[T any](
 		description: description,
 		schema:      schema,
 		execute:     execute,
+		validate:    true,
 	}
 }
 
@@ -200,6 +204,12 @@ func (t *typedTool[T]) Execute(ctx context.Context, input json.RawMessage) (Tool
 
 	// A tool with no fields is called with no arguments, and some providers
 	// send an empty string rather than "{}" for that case.
+	if t.validate {
+		if err := validateInput(t.schema, input); err != nil {
+			// The AI SDK's InvalidToolInputError, as loop's model sees it.
+			return ToolErrorf("Invalid input for tool %s: %v", t.name, err), nil
+		}
+	}
 	if len(input) > 0 && string(input) != "null" {
 		if err := json.Unmarshal(input, &args); err != nil {
 			// Malformed arguments are the model's mistake, not the program's,
@@ -266,4 +276,16 @@ func specTools(tools []Tool, hosted []provider.ProviderTool) []provider.Tool {
 		out = append(out, t)
 	}
 	return out
+}
+
+// validateInput checks a call's arguments against a hand-written schema. No
+// arguments at all is read as an empty object, as providers send it.
+func validateInput(schema *jsonschema.Schema, input json.RawMessage) error {
+	var value any = map[string]any{}
+	if len(input) > 0 && string(input) != "null" {
+		if err := json.Unmarshal(input, &value); err != nil {
+			return err
+		}
+	}
+	return schema.Validate(value)
 }

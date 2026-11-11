@@ -3,14 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/extension"
-	"github.com/notshekhar/pi/internal/core/home"
 	"github.com/notshekhar/pi/internal/core/mcp"
 	"github.com/notshekhar/pi/internal/tui"
 )
@@ -231,60 +228,30 @@ func without(list []string, name string) []string {
 }
 
 // installExtension compiles a Go program and registers it as an external
-// extension.
-//
-// `go build` rather than anything cleverer: an external extension is an
-// ordinary Go main package that speaks MCP over stdio, so installing one is
-// compiling it and remembering where the binary went.
+// extension (ext_install.go has the how and why).
 func (t *repl) installExtension(rest string) {
 	src := strings.TrimSpace(rest)
 	if src == "" {
 		t.dim("usage: /install <path to a Go main package>")
 		return
 	}
-	if _, err := exec.LookPath("go"); err != nil {
-		t.dim("/install needs the go toolchain on PATH")
+	if err := requireGoToolchain(); err != nil {
+		t.dim("/install %s", err)
 		return
 	}
-	src = tui.UnquotePath(src)
-	if !filepath.IsAbs(src) {
-		src = filepath.Join(t.cfg.CWD, src)
-	}
-	if st, err := os.Stat(src); err != nil || !st.IsDir() {
-		t.fail("install: %s is not a directory", src)
-		return
-	}
-
-	name := filepath.Base(src)
-	dir, err := home.Ensure()
+	src, err := resolveExtensionSource(t.cfg.CWD, tui.UnquotePath(src))
 	if err != nil {
 		t.fail("install: %s", err)
 		return
 	}
-	binDir := filepath.Join(dir, "extensions")
-	if err := os.MkdirAll(binDir, 0o700); err != nil {
-		t.fail("install: %s", err)
-		return
-	}
-	out := filepath.Join(binDir, name)
-
 	// Building is slow and must not block the render loop.
 	go func() {
-		t.dim("building %s…", name)
-		cmd := exec.Command("go", "build", "-o", out, ".")
-		cmd.Dir = src
-		if combined, err := cmd.CombinedOutput(); err != nil {
-			t.fail("install: %s", strings.TrimSpace(string(combined)))
-			return
+		t.dim("building %s…", filepath.Base(src))
+		name, bin, err := buildGoExtension(src)
+		if err == nil {
+			err = registerGoExtension(name, mcp.ServerConfig{Command: bin})
 		}
-		// Registered as an MCP server, which is what an external extension
-		// IS — that is the whole reason it speaks that protocol.
-		if err := config.Update(func(s *config.Settings) {
-			if s.MCPServers == nil {
-				s.MCPServers = map[string]mcp.ServerConfig{}
-			}
-			s.MCPServers[name] = mcp.ServerConfig{Command: out}
-		}); err != nil {
+		if err != nil {
 			t.fail("install: %s", err)
 			return
 		}

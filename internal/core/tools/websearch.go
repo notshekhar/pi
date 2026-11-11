@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -28,23 +29,25 @@ import (
 
 const (
 	searchEndpoint = "https://html.duckduckgo.com/html/"
-	searchTimeout  = 15 * time.Second
+	searchTimeout  = 20 * time.Second
 	// A search result set the model has to read; more is noise it pays for.
-	maxResults = 8
+	defaultSearchResults = 8
+	maxSearchResults     = 10
 )
 
-// searchUA identifies the client. DuckDuckGo serves a stripped page to
-// clients it does not recognise as browsers, so this is required, not polite.
-const searchUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-	"(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+// searchUA names the client honestly, as loop's does.
+const searchUA = "pi-agent/1.0 (+https://github.com/notshekhar/pi)"
 
 var (
 	// The result anchor and its snippet. Written loosely on purpose: the
 	// markup shifts, and a tight pattern fails silently on the next change.
-	reResult  = regexp.MustCompile(`(?s)<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>`)
-	reSnippet = regexp.MustCompile(`(?s)<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>`)
-	reTags    = regexp.MustCompile(`<[^>]*>`)
-	reSpaces  = regexp.MustCompile(`\s+`)
+	// \b keeps result__a / results_links from splitting: only the block
+	// div's leading `result` class is followed by a non-word character.
+	reResultBlock = regexp.MustCompile(`<div[^>]+class="result\b`)
+	reResult      = regexp.MustCompile(`(?s)<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>`)
+	reSnippet     = regexp.MustCompile(`(?s)<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>`)
+	reTags        = regexp.MustCompile(`<[^>]*>`)
+	reSpaces      = regexp.MustCompile(`\s+`)
 )
 
 // SearchResult is one hit.
@@ -55,94 +58,96 @@ type SearchResult struct {
 }
 
 type searchArgs struct {
-	Query string `json:"query" jsonschema:"description=What to search for"`
+	Query string `json:"query"`
+	Limit int    `json:"limit,omitempty"`
 }
 
-// WebSearch returns the websearch tool.
+// WebSearch returns the websearch tool. Failures come back as bracketed text
+// rather than errors, like a failed page fetch: "the search failed" answers
+// the question the model asked.
 func WebSearch(t *Context) ai.Tool {
-	return ai.NewTool("websearch",
-		"Search the web and return titles, URLs, and snippets. Use it for things "+
-			"that changed after your training cutoff, for library documentation, and "+
-			"for error messages you do not recognise. Snippets are short — fetch a "+
-			"page with bash+curl when you need the detail.",
-		func(ctx context.Context, a searchArgs) (ai.ToolResult, error) {
-			if aborted(ctx) {
-				return ai.ToolError("aborted"), nil
-			}
-			query := strings.TrimSpace(a.Query)
-			if query == "" {
-				return ai.ToolError("query is empty"), nil
-			}
+	return LoopTool("websearch", func(ctx context.Context, a searchArgs) (ai.ToolResult, error) {
+		limit := a.Limit
+		if limit <= 0 {
+			limit = defaultSearchResults
+		}
+		return ai.ToolText(searchReport(ctx, a.Query, min(limit, maxSearchResults))), nil
+	})
+}
 
-			results, err := Search(ctx, query)
-			if err != nil {
-				return ai.ToolErrorf("search failed: %v", err), nil
-			}
-			if len(results) == 0 {
-				return ai.ToolText("no results"), nil
-			}
-			return ai.ToolText(formatResults(results)), nil
-		})
+func searchReport(ctx context.Context, query string, limit int) string {
+	results, err := Search(ctx, query, limit)
+	switch {
+	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded):
+		return fmt.Sprintf("[websearch timed out or aborted: %q]", query)
+	case err != nil:
+		return fmt.Sprintf("[websearch %v]", err)
+	case len(results) == 0:
+		// Zero results also covers a challenge page or changed markup, so
+		// say so instead of a bare "nothing".
+		return fmt.Sprintf("[no results for %q — either nothing matched, or DuckDuckGo rate-limited the request]", query)
+	}
+	return formatResults(results)
 }
 
 // Search runs one query against the HTML endpoint.
-func Search(ctx context.Context, query string) ([]SearchResult, error) {
+func Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
 
-	form := url.Values{"q": {query}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, searchEndpoint,
-		strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchEndpoint+"?q="+url.QueryEscape(query), nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", searchUA)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("duckduckgo returned %s", resp.Status)
+		return nil, fmt.Errorf("failed: %s", resp.Status)
 	}
 
 	// Cap the read: a scraper with no ceiling is a memory bug waiting for a
 	// bad day at the other end.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error: %w", err)
 	}
-	return parseResults(string(body)), nil
+	return parseResults(string(body), limit), nil
 }
 
-// parseResults extracts hits from the HTML.
-func parseResults(page string) []SearchResult {
-	snippets := reSnippet.FindAllStringSubmatch(page, -1)
-	matches := reResult.FindAllStringSubmatch(page, -1)
-
+// parseResults is loop's parseSearchResults: the page is cut into its
+// `<div class="result …">` blocks and each block read on its own, so a
+// snippet always belongs to its own title. Sponsored blocks (`result--ad`,
+// or a duckduckgo.com/y.js redirect) are skipped.
+func parseResults(page string, limit int) []SearchResult {
 	var out []SearchResult
-	for i, m := range matches {
-		link := resolveURL(m[1])
-		if link == "" || isAd(link) {
+	blocks := reResultBlock.Split(page, -1)
+	for _, block := range blocks[1:] {
+		if len(out) >= limit {
+			break
+		}
+		classRest, _, _ := strings.Cut(block, `"`)
+		if strings.Contains(classRest, "result--ad") {
 			continue
 		}
-		title := cleanHTML(m[2])
-		if title == "" {
+		link := reResult.FindStringSubmatch(block)
+		if link == nil {
+			continue
+		}
+		target := resolveURL(link[1])
+		title := cleanHTML(link[2])
+		if target == "" || isAd(target) || title == "" {
 			continue
 		}
 		snippet := ""
-		// Snippets and results appear in the same order, so index alignment
-		// is the best available join — and a mismatch costs a snippet, never
-		// a wrong one, because a missing index simply yields nothing.
-		if i < len(snippets) {
-			snippet = cleanHTML(snippets[i][1])
+		if m := reSnippet.FindStringSubmatch(block); m != nil {
+			snippet = cleanHTML(m[1])
 		}
-		out = append(out, SearchResult{Title: title, URL: link, Snippet: snippet})
-		if len(out) >= maxResults {
-			break
-		}
+		out = append(out, SearchResult{Title: title, URL: target, Snippet: snippet})
 	}
 	return out
 }
@@ -193,16 +198,8 @@ func formatResults(results []SearchResult) string {
 		}
 		fmt.Fprintf(&b, "%d. %s\n   %s", i+1, r.Title, r.URL)
 		if r.Snippet != "" {
-			fmt.Fprintf(&b, "\n   %s", truncateRunes(r.Snippet, 300))
+			fmt.Fprintf(&b, "\n   %s", r.Snippet)
 		}
 	}
 	return b.String()
-}
-
-func truncateRunes(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return strings.TrimSpace(string(r[:max])) + "…"
 }

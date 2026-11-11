@@ -32,6 +32,7 @@ import (
 	"github.com/notshekhar/pi/internal/core/session"
 	"github.com/notshekhar/pi/internal/core/skills"
 	"github.com/notshekhar/pi/internal/core/status"
+	"github.com/notshekhar/pi/internal/core/teams"
 	"github.com/notshekhar/pi/internal/core/tools"
 	"github.com/notshekhar/pi/internal/tui"
 )
@@ -59,6 +60,9 @@ type shared struct {
 	inPanel atomic.Bool
 	// live is the /rc server when it is on.
 	live *liveServe
+	// teamHost runs this TUI's thread-team turns (team_runtime.go); nil
+	// when another host holds the claim.
+	teamHost *tuiTeamRuntime
 
 	mcp      *mcp.Manager
 	server   *serve.Server
@@ -93,10 +97,10 @@ type slot struct {
 	// queue is input typed while a turn runs, drained FIFO (queue.go).
 	queue   []string
 	turning bool
-	// restorePersona holds the session's own agent prompt while a one-shot
+	// borrowedFrom holds the session's own agent while a one-shot
 	// `/<agent>` command borrows the slot for a single turn. nil when nothing
 	// is borrowed.
-	restorePersona *borrowedAgent
+	borrowedFrom *string
 	// planViaAgent records that plan mode was armed by SELECTING the plan
 	// agent rather than by /plan. Only then does leaving the agent turn it
 	// back off — a gate set deliberately must survive browsing the list.
@@ -132,17 +136,7 @@ type slot struct {
 // toggle in /settings actually removes the tool rather than only recording a
 // preference.
 func toolContext(cfg config.Config) *tools.Context {
-	stored := config.LoadSettings()
-	return &tools.Context{
-		CWD:       cfg.CWD,
-		Registry:  tools.NewRegistry(),
-		Todos:     &tools.TodoList{},
-		WebSearch: stored.WebSearchOn(),
-		Sandbox:   sandboxMode(stored.Sandbox),
-		NoAsk:     !stored.AskUserOn(),
-		NoMemory:  !stored.MemoryOn(),
-		NoTodos:   !stored.TodosOn(),
-	}
+	return &tools.Context{CWD: cfg.CWD, Registry: tools.NewRegistry(), Todos: &tools.TodoList{}}
 }
 
 // replTUI runs the interactive app, on resumed when given, and returns the id
@@ -239,16 +233,20 @@ func replTUI(parent context.Context, cfg config.Config, resumed *session.Session
 	defer stopTab()
 	t.mcp = mcp.NewManager()
 	defer t.mcp.Close()
+	defer t.mountShellsPanel()()
+	defer t.claimTeamRuntime(parent)()
 	// Every session reads the live tool set when a turn starts; sessions
 	// opened later copy this from the one they were opened from.
 	for _, s := range t.slots.all() {
-		s.run.ExtraTools = t.mcp.Tools
+		s.run.MCPTools = t.mcp.Tools
+		s.run.MCPResources = t.mcp
+		s.run.MCPServers = mcpServers(t.mcp)
 	}
 	// Language servers and anything else an extension spawned. Deferred here
 	// so it runs on every exit path, including a panic.
 	defer extension.Shutdown()
 	// Background shells are process-lifetime: nothing adopts them later.
-	defer shells.KillAll()
+	defer shells.KillAllBashChildren()
 	defer func() {
 		if t.live != nil {
 			t.live.h.Stop()
@@ -355,6 +353,7 @@ func replTUI(parent context.Context, cfg config.Config, resumed *session.Session
 	t.startMCP(parent)
 	go t.fireHook(parent, hooks.Context{Event: hooks.SessionStart})
 	go t.pump(parent)
+	defer quitOnSignal(parent, app)()
 	err = app.Run()
 	return t.run.Session.ID, err
 }
@@ -458,18 +457,28 @@ func (t *repl) pump(parent context.Context) {
 }
 
 func (t *repl) startTurn(parent context.Context, prompt string) {
+	if !t.startTurnWith(parent, prompt, nil) {
+		t.dim("(turn in progress — Esc to interrupt)")
+	}
+}
+
+// startTurnWith starts a turn in this slot; team is why the team started
+// it, nil for one the user typed. False when a turn is already running.
+func (t *repl) startTurnWith(parent context.Context, prompt string, team *teams.TurnMeta) bool {
 	// Pinned: the turn writes to ITS session even after a switch.
 	t = t.pinned()
 	t.mu.Lock()
 	if t.turning {
 		t.mu.Unlock()
-		t.dim("(turn in progress — Esc to interrupt)")
-		return
+		return false
 	}
 	t.turning = true
 	ctx, cancel := context.WithCancel(parent)
 	t.cancel = cancel
 	t.mu.Unlock()
+	if team != nil {
+		t.do(func() { t.echoTeamTurn(team, prompt) })
+	}
 
 	started := time.Now()
 	if t.firstPrompt == "" && !strings.HasPrefix(prompt, "/") {
@@ -499,11 +508,15 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 			t.cancel = nil
 			// A one-shot agent command borrowed the persona for this turn
 			// only; give it back now that the turn is over.
-			if t.restorePersona != nil {
-				t.run.Persona, t.run.AllowedTools = t.restorePersona.persona, t.restorePersona.tools
-				t.restorePersona = nil
+			if t.borrowedFrom != nil {
+				t.run.UseAgent(*t.borrowedFrom)
+				t.borrowedFrom = nil
 			}
 			t.mu.Unlock()
+			// A team turn queued behind this one runs now.
+			if h := t.teamHost; h != nil {
+				go h.drain()
+			}
 			elapsed := time.Since(started)
 			// The session claims its id on its first message, so the status
 			// line only learns it here — before this it correctly says
@@ -519,6 +532,9 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 				// forever waiting for a part that will never arrive.
 				t.app.InterruptOpen()
 				t.retireTodos()
+				// Finished shells leave the panel only at a turn boundary;
+				// dropping a row mid-turn would shrink the frame.
+				t.app.RetireFinishedShells()
 				// Closes every turn, including an interrupted or failed one:
 				// how long it ran is exactly what you want to know when it
 				// did not finish.
@@ -548,6 +564,7 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 		go func() { rendered <- t.consume(parts) }()
 		final, err := t.run.RunTurn(ctx, agent.TurnOptions{
 			Input:   prompt,
+			Team:    team,
 			Tracker: t.tracker(),
 			Tap: func(p ai.StreamPart) {
 				if d, ok := p.(provider.TextDelta); ok {
@@ -572,6 +589,7 @@ func (t *repl) startTurn(parent context.Context, prompt string) {
 		}
 		t.finishUsage(final)
 	}()
+	return true
 }
 
 // maxRenderBatch caps how many parts one trip to the render loop applies, so
@@ -822,10 +840,10 @@ func (t *repl) quit() { t.app.Events <- tui.Event{Kind: tui.EvQuit} }
 // screen was the confusing half: nothing about the display said the agent had
 // stopped remembering any of it.
 func (t *repl) newSession() {
-	// A turn in flight is not thrown away: it carries on in the background
-	// (Ctrl+S to go back) and the new session opens beside it. Only an idle
-	// session is replaced in place.
-	if t.isTurning() {
+	// A turn or a background shell in flight is not thrown away: it carries
+	// on in the background (Ctrl+S to go back) and the new session opens
+	// beside it. Only an idle session is replaced in place.
+	if t.occupied() {
 		t.openNew()
 		t.dim("previous session keeps running in the background · ctrl+s to switch")
 		return
@@ -837,12 +855,14 @@ func (t *repl) newSession() {
 	t.run.Tools.Todos.Clear()
 	t.lastContextTokens = 0
 	// Plan mode is a stance on a conversation, and this is a different one.
-	t.run.Planning, t.planViaAgent = false, false
+	t.planViaAgent = false
+	t.run.SetPlanning(false)
 	t.do(func() {
 		t.app.SetSession("")
 		t.app.SetCostText("")
 		t.app.SetPlanning(false)
 		t.app.SetTodos(nil)
+		t.refreshShells()
 		t.app.ResetUsage(t.contextWindow())
 		t.redrawHeader()
 	})
@@ -999,14 +1019,6 @@ func (t *repl) providerModels() []catalog.Model {
 	}
 	sort.Slice(ms, func(i, j int) bool { return ms[i].ShortID < ms[j].ShortID })
 	return ms
-}
-
-// sandboxMode maps loop's sandbox setting onto pi's sandbox.
-func sandboxMode(s *config.SandboxSetting) tools.SandboxMode {
-	if s.On() {
-		return tools.SandboxWorkspace
-	}
-	return tools.SandboxOff
 }
 
 // customModels is the set of model ids registered under a provider in
@@ -1313,10 +1325,10 @@ func (t *repl) printStartupNotices() {
 			lines = append(lines, th.Fg(tui.SlotDim, "   • "+s.Name+" — "+elide(s.Description, 80)))
 		}
 	}
-	if t.run.Tools.WebSearch {
+	if config.LoadSettings().WebSearchOn() {
 		lines = append(lines, th.Fg(tui.SlotDim, " websearch: on"))
 	}
-	if t.run.Planning {
+	if t.run.Planning() {
 		lines = append(lines, th.Fg(tui.SlotWarning, " plan mode: read-only"))
 	}
 	// No trailing blank: the two-line gap above the composer already

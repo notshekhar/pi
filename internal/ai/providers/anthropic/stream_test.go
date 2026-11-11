@@ -198,10 +198,16 @@ func TestStreamToolCall(t *testing.T) {
 	var deltas strings.Builder
 	var finish *provider.Finish
 
+	var inputIDs []string
 	for _, part := range collect(t, res) {
 		switch v := part.(type) {
+		case provider.ToolInputStart:
+			inputIDs = append(inputIDs, v.ID)
 		case provider.ToolInputDelta:
 			deltas.WriteString(v.Delta)
+			inputIDs = append(inputIDs, v.ID)
+		case provider.ToolInputEnd:
+			inputIDs = append(inputIDs, v.ID)
 		case provider.ToolCall:
 			call = &v
 		case provider.Finish:
@@ -214,6 +220,14 @@ func TestStreamToolCall(t *testing.T) {
 	}
 	if call.ToolCallID != "toolu_01" || call.ToolName != "read_file" {
 		t.Errorf("tool call = %+v", call)
+	}
+	// The input parts carry the call's id, as the AI SDK's do: a UI opens a
+	// row on the start and closes it by the call's id, and a block index
+	// there left every streamed row open until the turn ended.
+	for _, id := range inputIDs {
+		if id != call.ToolCallID {
+			t.Errorf("tool input part id = %q, want the call id %q", id, call.ToolCallID)
+		}
 	}
 	// The concatenated deltas must equal the final input exactly, or a UI
 	// rendering them live would disagree with the executed call.

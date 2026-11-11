@@ -239,35 +239,63 @@ func (t *repl) waitForeground(s *slot, label string, ctx context.Context) bool {
 
 // wireRun points a slot's run at the UI: prompts gated on its session being
 // on screen, subagent progress into its own transcript.
+// askOne puts one ask-tool question to the user — in the TUI's picker, and
+// on cmux's card when cmux is attached; whichever answers first wins. An
+// empty choice is a declined question.
+func (t *repl) askOne(ctx context.Context, s *slot, q tools.AskQuestion) tools.AskAnswer {
+	if !t.waitForeground(s, "question", ctx) {
+		return tools.AskAnswer{Declined: true}
+	}
+	sound.Attention()
+	labels := make([]string, len(q.Options))
+	for i, o := range q.Options {
+		labels[i] = o.Label
+	}
+	var choice string
+	if bridge := cmux.Current(); bridge.Active() {
+		choice = t.askOneRemote(ctx, bridge, q, labels)
+	} else {
+		choice = t.app.AskChoice(q.Question, labels)
+	}
+	if choice == "" {
+		return tools.AskAnswer{Declined: true}
+	}
+	return tools.AskAnswer{Answers: []string{choice}}
+}
+
+// askOneRemote shows the question in the TUI and on cmux's card at once; the
+// loser is withdrawn.
+func (t *repl) askOneRemote(ctx context.Context, bridge *cmux.Reporter, q tools.AskQuestion, labels []string) string {
+	remote := make(chan string, 1)
+	rctx, withdraw := context.WithCancel(ctx)
+	defer withdraw()
+	go func() {
+		opts := make([]cmux.Option, len(q.Options))
+		for i, o := range q.Options {
+			opts[i] = cmux.Option{Label: o.Label, Description: o.Description}
+		}
+		header := q.Header
+		if header == "" {
+			header = "question"
+		}
+		sel := bridge.RequestQuestions(rctx, []cmux.Question{{Header: header, Question: q.Question, Options: opts}})
+		// No answer from cmux is not an answer: only the TUI settles it.
+		if len(sel) > 0 {
+			remote <- sel[0]
+		}
+	}()
+	return t.app.AskChoiceRemote(q.Question, labels, remote)
+}
+
 func (t *repl) wireRun(s *slot) {
 	p := &repl{shared: t.shared, slot: s}
 	app := t.app
-	s.run.Tools.Ask = func(ctx context.Context, question string, options []string) string {
-		if !p.waitForeground(s, "question", ctx) {
-			return ""
+	s.run.Tools.Ask = func(ctx context.Context, questions []tools.AskQuestion) []tools.AskAnswer {
+		answers := make([]tools.AskAnswer, len(questions))
+		for i, q := range questions {
+			answers[i] = p.askOne(ctx, s, q)
 		}
-		sound.Attention()
-		bridge := cmux.Current()
-		if !bridge.Active() {
-			return app.AskChoice(question, options)
-		}
-		// cmux's card for the same question: whichever answers first wins,
-		// and the loser is withdrawn.
-		remote := make(chan string, 1)
-		rctx, withdraw := context.WithCancel(ctx)
-		defer withdraw()
-		go func() {
-			opts := make([]cmux.Option, len(options))
-			for i, o := range options {
-				opts[i] = cmux.Option{Label: o}
-			}
-			sel := bridge.RequestQuestions(rctx, []cmux.Question{{Header: "question", Question: question, Options: opts}})
-			// No answer from cmux is not an answer: only the TUI settles it.
-			if len(sel) > 0 {
-				remote <- sel[0]
-			}
-		}()
-		return app.AskChoiceRemote(question, options, remote)
+		return answers
 	}
 	s.run.Ask = func(ctx context.Context, tool string, args map[string]any, reason string) bool {
 		if !p.waitForeground(s, "approve "+tool, ctx) {
@@ -297,6 +325,13 @@ func (t *repl) wireRun(s *slot) {
 			}
 		}()
 		return app.AskRemote(tool, subject, reason, remote)
+	}
+	// The agent switches plan mode itself (enter_plan_mode, exit_plan_mode);
+	// the badge follows while this session is the one on screen.
+	s.run.OnPlanMode = func(on bool) {
+		if t.slots.isForeground(s) {
+			p.do(func() { app.SetPlanning(on) })
+		}
 	}
 	s.run.Progress = func(id, status string) {
 		p.do(func() { app.ToolStatus(id, status) })
@@ -337,6 +372,9 @@ func (t *repl) switchTo(target *slot) {
 		from.draft = t.app.EditorText()
 		t.app.ShowConversation(target.conv)
 		t.app.SetEditorText(target.draft)
+		// The plan-mode badge is the app's, not the conversation's.
+		t.app.SetPlanning(target.run.Planning())
+		t.refreshShells()
 		close(done)
 	})
 	<-done
@@ -366,13 +404,9 @@ func (t *repl) switchTo(target *slot) {
 func (t *repl) openNew() *slot {
 	from := t.slots.foreground()
 	cfg := from.cfg
-	run := *from.run
-	tc := *from.run.Tools
-	tc.Registry, tc.Todos = tools.NewRegistry(), &tools.TodoList{}
-	run.Tools = &tc
+	run := from.run.Fork()
 	run.Session = session.New(cfg.FullID(), cfg.CWD)
-	run.Planning = false
-	s := &slot{cfg: cfg, run: &run, agent: from.agent, conv: tui.NewConversation(cfg.FullID())}
+	s := &slot{cfg: cfg, run: run, agent: from.agent, conv: tui.NewConversation(cfg.FullID())}
 	t.slots.add(s)
 	t.wireRun(s)
 	p := &repl{shared: t.shared, slot: s}

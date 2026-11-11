@@ -550,6 +550,193 @@
       "additionalProperties": false
     }
   },
+  "mcp_resource": {
+    "description": "Read the resources published by connected MCP servers — documents, records and files a server offers for reading rather than as a callable tool.\n\n- list: every resource, optionally narrowed by `server` and/or a `query` substring. Also lists URI TEMPLATES, which describe resources you construct a uri for (e.g. `repo://{owner}/{name}/issues`) rather than ones listed individually.\n- read: fetch one resource's contents by `server` and `uri`.\n\nPrefer `list` first: uris are server-specific and are not guessable. Binary resources are described rather than inlined.\n\nWhen the user writes `@mcp:<server>:<uri>` they are pointing at one of these — read it with action `read`, `server` and `uri` taken from that token.",
+    "schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "list",
+            "read"
+          ],
+          "description": "What to do."
+        },
+        "server": {
+          "description": "MCP server name. Narrows `list`; required for `read`.",
+          "type": "string"
+        },
+        "uri": {
+          "description": "Resource uri, exactly as `list` reported it. Required for `read`.",
+          "type": "string"
+        },
+        "query": {
+          "description": "Substring filter over uri, name and description. `list` only.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "spawn_threads": {
+    "description": "Start threads that work in parallel on parts of the job — a team you lead. Each thread is a full session with its own context and tools, in this same folder. Returns at once with each thread's id; the threads run in the background, and their messages and reports reach you on their own. Up to 5 threads can work at once; calling it again adds threads to the same team. Threads that finished stay in the team with their context — to give one more work, message it with send_message instead of starting a new thread.\n\nGive each thread a short title (its name in every list, max 48 characters) and a brief it can act on alone: the goal, the files it owns, the contract to keep, how to verify.",
+    "schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "threads": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "Short name for the thread, e.g. 'CSV export endpoint'."
+              },
+              "brief": {
+                "type": "string",
+                "description": "The thread's full first message: what to do and how to know it is done."
+              },
+              "model": {
+                "description": "provider/model to run it on. Omit to use the same model as you.",
+                "type": "string"
+              },
+              "agent": {
+                "description": "A named agent to run it as. Omit for the default agent.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "brief"
+            ],
+            "additionalProperties": false
+          },
+          "description": "The threads to start."
+        }
+      },
+      "required": [
+        "threads"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "send_message": {
+    "description": "Send a message to a thread in your team, by its thread id, or to every thread with \"all\". Returns at once — it does not wait for a reply. To wait for the answer, call wait_for_team with until \"any\".",
+    "schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "The receiving thread's id (from the team list), or \"all\"."
+        },
+        "message": {
+          "type": "string",
+          "description": "What to say. Be specific; the receiver sees only this."
+        }
+      },
+      "required": [
+        "to",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "team_board": {
+    "description": "The team's shared notes. post adds or replaces the note under a key (an empty content removes it); read returns every note, or one key. Use it for facts the whole team needs: an API contract, decisions, who owns which files.",
+    "schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "read",
+            "post"
+          ]
+        },
+        "key": {
+          "description": "The note's name, e.g. 'api-contract'. Required to post.",
+          "type": "string"
+        },
+        "content": {
+          "description": "The note. Required to post.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "wait_for_team": {
+    "description": "Pause your turn, at no cost, until the team has something for you, then return what happened. Use it only when your next step needs the threads' results.\n\nuntil: \"all\" (default) returns once every thread has finished — or earlier if a thread sends you a message, so you can answer it; reports are collected along the way. \"any\" returns at the next message, report or finished thread, or at once if nobody is working. A list of thread ids returns once those have finished. Returns at timeoutSec (default 600) with each thread's state either way.",
+    "schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "until": {
+          "description": "\"all\", \"any\", or a list of thread ids.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "all",
+                "any"
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "timeoutSec": {
+          "description": "Give up after this many seconds (default 600, max 3600).",
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "report": {
+    "description": "Finish your job in the team: report to the lead what you did, the files you changed, and anything left open. Call it once, at the end. Your turn ends after it.",
+    "schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "What you did and the outcome, including how you verified it."
+        },
+        "files": {
+          "description": "Files you created or changed.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "open": {
+          "description": "Anything unfinished, blocked, or that the lead should decide.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "additionalProperties": false
+    }
+  },
   "task": {
     "description": "Launch a subagent to handle a self-contained task and return its final report. Use for context-heavy or parallelizable work (broad searches, analysis, multi-file changes) to keep the main context small. By default the subagent is a fork of you — same prompt and tools (minus task), fresh context window. The subagent starts blank: it sees none of this conversation, only the prompt you write. So scope it tightly — one concrete objective with a clear finish line, never a vague theme — and front-load the context you already have (exact paths, file/symbol names, findings so far, constraints, conventions to follow) so it never re-discovers what you already know. State exactly what to return. It runs autonomously and cannot ask questions. If an earlier task's report is missing a detail, don't relaunch from scratch: pass follow_up with that task call's tool call id — the subagent continues with the earlier run's context intact, so the prompt need only contain the new question. INDEPENDENT tasks can and should be launched in parallel: emit several task calls in the same step (e.g. one per area to investigate) and they run concurrently — much faster than one at a time. Keep tasks that depend on each other's results sequential, and don't mix task with other tool calls in the same step — the subagents cover the exploration themselves.",
     "schema": {

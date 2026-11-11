@@ -12,6 +12,7 @@ import (
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/session"
+	"github.com/notshekhar/pi/internal/core/teams"
 )
 
 // RunTurn is loop's runTurn contract (agent/turn.ts) over pi's engine: one
@@ -44,13 +45,18 @@ type TurnOptions struct {
 	// Tap sees every raw stream part before it becomes an event — the TUI's
 	// renderer, which draws parts rather than events.
 	Tap func(ai.StreamPart)
+	// Team is why the team started this turn (a member's brief, or mail);
+	// nil when the user typed it. It rides on the opening entry, and the
+	// turn bills as "team".
+	Team *teams.TurnMeta
 }
 
 // UserMessageEvent opens a turn.
 type UserMessageEvent struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
-	TS   int64  `json:"ts"`
+	ID   string          `json:"id"`
+	Text string          `json:"text"`
+	TS   int64           `json:"ts"`
+	Team *teams.TurnMeta `json:"team,omitempty"`
 }
 
 // ToolInputStartEvent is a tool call beginning to stream its input.
@@ -207,17 +213,26 @@ func estimateInterruptedUsage(text, reasoning string, basis *session.Usage, cont
 }
 
 // RunTurn runs one turn.
-func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error) {
+func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (final *ai.Result, err error) {
 	emit := opts.Emit
 	if emit == nil {
 		emit = func(string, any) {}
 	}
+	team := r.beginTeamTurn(opts.Team)
+	defer func() { team.end(ctx, err) }()
+	emit = team.watch(emit)
 	tracker := opts.Tracker
 	if tracker == nil {
 		tracker = NewCostTracker()
 	}
+	// Subagents bill into the same tracker, so the footer counts them.
+	r.turnTracker = tracker
+	defer func() { r.turnTracker = nil }()
 	source := opts.Source
-	if source == "" {
+	switch {
+	case source == "" && opts.Team != nil:
+		source = session.SourceTeam
+	case source == "":
 		source = session.SourceTurn
 	}
 	modelID := r.Config.FullID()
@@ -233,22 +248,19 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 	CancelIdleCompact(r.Session.ID)
 
 	// The prompt is saved first: its entry id is the turn's id everywhere.
-	r.Session.Lock()
-	err = r.Session.Add(ai.UserText(opts.Input))
-	leaf, hasLeaf := r.Session.Leaf()
-	r.Session.Unlock()
+	leaf, hasLeaf, err := r.savePrompt(opts)
 	if err != nil {
 		emit("error", err.Error())
 		return nil, err
 	}
 	if hasLeaf {
-		emit("user-message", UserMessageEvent{ID: leaf.ID, Text: opts.Input, TS: leaf.TS})
+		emit("user-message", UserMessageEvent{ID: leaf.ID, Text: opts.Input, TS: leaf.TS, Team: opts.Team})
 	}
 
 	r.autoCompact(ctx, tracker, emit)
 
 	toolset := r.Toolset()
-	names := r.ToolNames()
+	names := toolNames(toolset)
 	needsApproval, approveTool := r.approvalHooks()
 
 	var (
@@ -260,7 +272,8 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 		persistErr     error
 		toolNames      = map[string]string{}
 	)
-	system := SystemPromptFor(r.Config.CWD, names, r.Planning) + r.personaBlock() + r.extensionBlock()
+	system := r.SystemPrompt(toolset)
+	notices, stop := r.stepNotices(toolset), turnStop(toolset)
 	// loop's attempt loop: one iteration is one stream. A transient failure
 	// that lands BETWEEN steps reopens the stream over what the finished
 	// steps persisted (a resume); a request the provider refused for its
@@ -279,7 +292,6 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 		sawFinish         bool
 		streamErr         error
 		finalErr          error
-		final             *ai.Result
 		stepsDone         int
 		resumes           int
 		overflowRecovered bool
@@ -290,6 +302,9 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 		r.Session.RLock()
 		messages := r.Session.ModelMessages()
 		r.Session.RUnlock()
+		// Fresh each attempt: mail carried in the last one is saved, so this
+		// one's history already holds it.
+		prepareStep := chainSteps(r.teamMail(names, emit), notices)
 		streamErr = nil
 		var heldErrors []ai.StreamPart
 		res, err := ai.StreamText(ctx, cachedOptions(ai.Options{
@@ -301,6 +316,8 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 			Reasoning:     r.Config.Reasoning,
 			NeedsApproval: needsApproval,
 			ApproveTool:   approveTool,
+			PrepareStep:   prepareStep,
+			StopWhen:      stop,
 			OnStepFinish: func(step ai.Step) {
 				// Persisted as the step finishes, so an abort later keeps it.
 				u := ToUsage(step.Usage)
@@ -365,7 +382,7 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (*ai.Result, error)
 				emit("tool-call", ToolCallEvent{ToolName: p.ToolName, Input: decodeInput(p.Input), ToolCallID: p.ToolCallID})
 			case ai.ToolExecuted:
 				x := p.Execution
-				out, failed := outputValue(x.Result.Output())
+				out, failed := uiOutput(x.Result)
 				switch {
 				case x.Err != nil && !x.Denied:
 					emit("tool-error", ToolErrorEvent{ToolCallID: x.ToolCallID, ToolName: x.ToolName, Error: PlainError(x.Err)})
@@ -680,6 +697,16 @@ func (r *Run) autoCompact(ctx context.Context, tracker *CostTracker, emit Emitte
 
 // outputValue is a tool result as the live `tool-result` carries it: the
 // tool's own value (a string for most tools), and whether it reports failure.
+// uiOutput is what the UI shows for a result: the tool's display value when
+// it set one (an edit's diff), else what the model got. The session keeps
+// only the model's side, as loop's does.
+func uiOutput(result ai.ToolResult) (any, bool) {
+	if display, ok := result.Display(); ok {
+		return display, false
+	}
+	return outputValue(result.Output())
+}
+
 func outputValue(o provider.ToolResultOutput) (any, bool) {
 	switch v := o.(type) {
 	case provider.ToolOutputText:

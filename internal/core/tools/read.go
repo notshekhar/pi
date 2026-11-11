@@ -1,155 +1,164 @@
 package tools
 
 import (
-	"bufio"
 	"context"
+	"fmt"
 	"os"
+	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/core/docs"
 )
 
-const (
-	defaultMaxLines = 2000
-	defaultMaxBytes = 64 << 10
-)
+// loopScheme is the URI scheme of the read tool's internal sources. It stays
+// "loop" in pi: the docs it serves are loop's own and describe ~/.loop, the
+// home both agents share.
+const loopScheme = "loop://"
 
 type readArgs struct {
-	Path   string `json:"path" jsonschema:"description=Local file path, relative or absolute"`
-	Offset *int   `json:"offset,omitempty" jsonschema:"description=1-indexed line to start at,minimum=1"`
-	Limit  *int   `json:"limit,omitempty" jsonschema:"description=Maximum number of lines to read,minimum=1"`
+	Path   string `json:"path"`
+	Offset int    `json:"offset,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }
 
-// Read returns the read tool.
+// Read returns the read tool: a local file, a URL, or loop's internal docs.
 func Read(t *Context) ai.Tool {
-	return ai.NewTool("read",
-		"Read a file. Large files are truncated; continue with offset= until complete. Directories need ls or glob. Read a file before editing it.",
-		func(ctx context.Context, a readArgs) (ai.ToolResult, error) {
-			if aborted(ctx) {
-				return ai.ToolError("aborted"), nil
-			}
-			path := Resolve(a.Path, t.CWD)
-			info, err := os.Stat(path)
-			if err != nil {
-				return ai.ToolErrorf("could not read %s: %v", a.Path, err), nil
-			}
-			if info.IsDir() {
-				return ai.ToolErrorf("%s is a directory. Use ls to list it, or glob to match files inside it.", a.Path), nil
-			}
-			if !utf8SafeFile(path) {
-				return ai.ToolErrorf("binary file (%s) at %s. Inspect it with bash (file, xxd, strings).", formatSize(info.Size()), path), nil
-			}
-
-			mtime := info.ModTime().UnixNano()
-			offset := 1
-			if a.Offset != nil && *a.Offset > 0 {
-				offset = *a.Offset
-			}
-			limit := defaultMaxLines
-			if a.Limit != nil && *a.Limit > 0 {
-				limit = *a.Limit
-			}
-
-			f, err := os.Open(path)
-			if err != nil {
-				return ai.ToolErrorf("could not read %s: %v", a.Path, err), nil
-			}
-			defer f.Close()
-
-			scan := bufio.NewScanner(f)
-			scan.Buffer(nil, 1<<20)
-			var (
-				lines   []string
-				lineNo  int
-				bytes   int
-				hasMore bool
-				sawEOF  = true
-				start   int
-			)
-			for scan.Scan() {
-				lineNo++
-				if lineNo < offset {
-					continue
-				}
-				if start == 0 {
-					start = lineNo
-				}
-				if len(lines) >= limit || bytes+len(scan.Bytes()) > defaultMaxBytes {
-					hasMore = true
-					sawEOF = false
-					break
-				}
-				lines = append(lines, scan.Text())
-				bytes += len(scan.Bytes()) + 1
-			}
-			if err := scan.Err(); err != nil {
-				return ai.ToolErrorf("reading %s: %v", a.Path, err), nil
-			}
-			if start == 0 {
-				start = offset
-			}
-			end := start
-			if len(lines) > 0 {
-				end = start + len(lines) - 1
-			}
-			t.Registry.RecordRead(path, mtime, start, end, sawEOF && !hasMore)
-
-			text := strings.Join(lines, "\n")
-			if hasMore {
-				next := end + 1
-				text += "\n\n[Showing lines " + itoa(start) + "-" + itoa(end) + ". Use offset=" + itoa(next) + " to continue.]"
-			}
-			return ai.ToolText(text), nil
-		})
+	return LoopTool("read", func(ctx context.Context, a readArgs) (ai.ToolResult, error) {
+		if aborted(ctx) {
+			return fail(errAborted)
+		}
+		trimmed := strings.TrimSpace(a.Path)
+		if strings.HasPrefix(strings.ToLower(trimmed), loopScheme) {
+			return ai.ToolText(readLoopURI(ctx, trimmed)), nil
+		}
+		if IsHTTPURL(trimmed) {
+			return ai.ToolText(FetchURLAsText(ctx, trimmed)), nil
+		}
+		text, err := readFile(ctx, t, a)
+		if err != nil {
+			return fail(err)
+		}
+		return ai.ToolText(text), nil
+	})
 }
 
-func utf8SafeFile(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	buf := make([]byte, 8000)
-	n, _ := f.Read(buf)
-	if n == 0 {
-		return true
-	}
-	if strings.IndexByte(string(buf[:n]), 0) >= 0 {
-		return false
-	}
-	return utf8.Valid(buf[:n]) || utf8.RuneCount(buf[:n]) > 0
-}
-
-func formatSize(n int64) string {
+// readLoopURI resolves loop://docs, loop://docs/<name>.md and loop://fetch/<url>.
+func readLoopURI(ctx context.Context, uri string) string {
+	rest := uri[len(loopScheme):]
 	switch {
-	case n < 1024:
-		return itoa(int(n)) + "B"
-	case n < 1024*1024:
-		return itoa(int(n/1024)) + "KB"
+	case rest == "docs" || rest == "docs/":
+		return docs.RenderIndex()
+	case strings.HasPrefix(rest, "docs/"):
+		name := strings.TrimPrefix(rest, "docs/")
+		doc, ok := docs.Get(name)
+		if !ok {
+			return fmt.Sprintf("[no such doc: %s]\n\n%s", name, docs.RenderIndex())
+		}
+		return doc.Content
+	case strings.HasPrefix(rest, "fetch/"):
+		url := strings.TrimSpace(strings.TrimPrefix(rest, "fetch/"))
+		if !IsHTTPURL(url) {
+			return fmt.Sprintf("[loop://fetch/ expects an http(s):// URL, got: %s]", url)
+		}
+		return FetchURLAsText(ctx, url)
+	}
+	return fmt.Sprintf("[unknown loop:// path: %s. Use loop://docs, loop://docs/<name>.md, or loop://fetch/<url>]", uri)
+}
+
+var imageExt = regexp.MustCompile(`(?i)\.(jpe?g|png|gif|webp)$`)
+
+func imageMimeType(path string) string {
+	m := imageExt.FindStringSubmatch(path)
+	if m == nil {
+		return ""
+	}
+	switch ext := strings.ToLower(m[1]); ext {
+	case "jpg", "jpeg":
+		return "image/jpeg"
 	default:
-		return itoa(int(n/(1024*1024))) + "MB"
+		return "image/" + ext
 	}
 }
 
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+func readFile(ctx context.Context, t *Context, a readArgs) (string, error) {
+	path := ResolveRead(a.Path, t.CWD)
+	// Stat before reading: the mtime recorded for read-before-modify has to
+	// predate the content, and a directory needs its own message.
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
 	}
-	var b [20]byte
-	i := len(b)
-	neg := n < 0
-	if neg {
-		n = -n
+	if info.IsDir() {
+		return "", fmt.Errorf("%s is a directory, not a file. Use ls to list its contents, or find to match files inside it.", a.Path)
 	}
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
+	if mime := imageMimeType(path); mime != "" {
+		return fmt.Sprintf("[image file: %s at %s. Image rendering not supported in this tool result; use bash 'file' or vision-capable read elsewhere.]", mime, path), nil
 	}
-	if neg {
-		i--
-		b[i] = '-'
+	binary, err := looksBinary(path)
+	if err != nil {
+		return "", err
 	}
-	return string(b[i:])
+	if binary {
+		return fmt.Sprintf("[binary file: %s at %s. Not printed as text; inspect it with bash (file, xxd, strings).]", FormatSize(info.Size()), path), nil
+	}
+	sel, err := selectLines(ctx, path, selectOptions{offset: a.Offset, limit: a.Limit, size: info.Size()})
+	if err != nil {
+		return "", err
+	}
+	// Unlocks edit for this file. write needs the whole file covered, which
+	// successive offset= reads add up to.
+	end := sel.startLine + len(sel.lines) - 1
+	t.Registry.RecordRead(path, info.ModTime().UnixNano(), sel.startLine, end, !sel.hasMore)
+	return renderSelection(sel, a.Path), nil
+}
+
+func renderSelection(sel lineSelection, displayPath string) string {
+	if sel.firstLineBytes > 0 {
+		measured := FormatSize(int64(sel.firstLineBytes))
+		if sel.firstLineClipped {
+			measured = "over " + measured
+		}
+		return fmt.Sprintf("[Line %d is %s, exceeds %s limit. Use bash: sed -n '%dp' %s | head -c %d]",
+			sel.startLine, measured, FormatSize(DefaultMaxBytes), sel.startLine, shellQuote(displayPath), DefaultMaxBytes)
+	}
+	text := strings.Join(sel.lines, "\n")
+	if sel.trailingNewline {
+		text += "\n"
+	}
+	if !sel.hasMore {
+		return text
+	}
+	return text + "\n\n" + continuationNotice(sel)
+}
+
+// continuationNotice tells the model where to carry on. "of N" appears only
+// when the file was scanned end to end — a streamed read of a huge file stops
+// early and never learns the total.
+func continuationNotice(sel lineSelection) string {
+	end := sel.startLine + len(sel.lines) - 1
+	next := end + 1
+	ofTotal := ""
+	if sel.totalLines >= 0 {
+		ofTotal = fmt.Sprintf(" of %d", sel.totalLines)
+	}
+	switch {
+	case sel.truncatedBy == "lines":
+		return fmt.Sprintf("[Showing lines %d-%d%s. Use offset=%d to continue.]", sel.startLine, end, ofTotal, next)
+	case sel.truncatedBy == "bytes":
+		return fmt.Sprintf("[Showing lines %d-%d%s (%s limit). Use offset=%d to continue.]", sel.startLine, end, ofTotal, FormatSize(DefaultMaxBytes), next)
+	case sel.totalLines >= 0:
+		remaining := sel.totalLines - end
+		plural := "s"
+		if remaining == 1 {
+			plural = ""
+		}
+		return fmt.Sprintf("[%d more line%s in file. Use offset=%d to continue.]", remaining, plural, next)
+	}
+	return fmt.Sprintf("[More lines in file. Use offset=%d to continue.]", next)
+}
+
+// shellQuote single-quotes a path for the bash hint in a truncation notice.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }

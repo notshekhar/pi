@@ -9,8 +9,8 @@ import (
 
 // Replacement is one old→new text swap.
 type Replacement struct {
-	OldText string
-	NewText string
+	OldText string `json:"oldText"`
+	NewText string `json:"newText"`
 }
 
 // detectLineEnding returns the first line ending in content.
@@ -211,36 +211,50 @@ type matchedEdit struct {
 	newText     string
 }
 
+// appliedEdits is a file before and after its edits.
+type appliedEdits struct {
+	base string
+	next string
+	// fuzzyIndexes are the edits whose match was only found after folding
+	// whitespace or unicode: the replaced text was not byte-identical to the
+	// oldText asked for, so the model's picture of the file is wrong there.
+	fuzzyIndexes []int
+}
+
 // applyEdits applies replacements against the original content. Fuzzy hits
 // are mapped back to the real span so untouched regions stay byte-identical.
-func applyEdits(content string, edits []Replacement, path string) (base, next string, err error) {
+func applyEdits(content string, edits []Replacement, path string) (applied appliedEdits, err error) {
 	normalized := make([]Replacement, len(edits))
 	for i, e := range edits {
 		normalized[i] = Replacement{OldText: normalizeToLF(e.OldText), NewText: normalizeToLF(e.NewText)}
 		if normalized[i].OldText == "" {
 			if len(edits) == 1 {
-				return "", "", fmt.Errorf("oldText must not be empty in %s", path)
+				return appliedEdits{}, fmt.Errorf("oldText must not be empty in %s", path)
 			}
-			return "", "", fmt.Errorf("edits[%d].oldText must not be empty in %s", i, path)
+			return appliedEdits{}, fmt.Errorf("edits[%d].oldText must not be empty in %s", i, path)
 		}
 	}
 
-	base = content
+	base := content
+	var fuzzy []int
 	matched := make([]matchedEdit, 0, len(normalized))
 	for i, e := range normalized {
 		span, ok := findMatchSpan(base, e.OldText)
 		if !ok {
 			if len(edits) == 1 {
-				return "", "", fmt.Errorf("Could not find the exact text in %s. The old text must match exactly including all whitespace and newlines.", path)
+				return appliedEdits{}, fmt.Errorf("Could not find the exact text in %s. The old text must match exactly including all whitespace and newlines.", path)
 			}
-			return "", "", fmt.Errorf("Could not find edits[%d] in %s. The oldText must match exactly including all whitespace and newlines.", i, path)
+			return appliedEdits{}, fmt.Errorf("Could not find edits[%d] in %s. The oldText must match exactly including all whitespace and newlines.", i, path)
 		}
 		n := countOccurrences(base, e.OldText, span.usedFuzzyMatch)
 		if n > 1 {
 			if len(edits) == 1 {
-				return "", "", fmt.Errorf("Found %d occurrences of the text in %s. The text must be unique. Please provide more context to make it unique.", n, path)
+				return appliedEdits{}, fmt.Errorf("Found %d occurrences of the text in %s. The text must be unique. Please provide more context to make it unique.", n, path)
 			}
-			return "", "", fmt.Errorf("Found %d occurrences of edits[%d] in %s. Each oldText must be unique. Please provide more context to make it unique.", n, i, path)
+			return appliedEdits{}, fmt.Errorf("Found %d occurrences of edits[%d] in %s. Each oldText must be unique. Please provide more context to make it unique.", n, i, path)
+		}
+		if span.usedFuzzyMatch {
+			fuzzy = append(fuzzy, i)
 		}
 		matched = append(matched, matchedEdit{
 			editIndex:   i,
@@ -258,68 +272,17 @@ func applyEdits(content string, edits []Replacement, path string) (base, next st
 	for i := 1; i < len(matched); i++ {
 		prev, cur := matched[i-1], matched[i]
 		if prev.matchIndex+prev.matchLength > cur.matchIndex {
-			return "", "", fmt.Errorf("edits[%d] and edits[%d] overlap in %s. Merge them into one edit or target disjoint regions.", prev.editIndex, cur.editIndex, path)
+			return appliedEdits{}, fmt.Errorf("edits[%d] and edits[%d] overlap in %s. Merge them into one edit or target disjoint regions.", prev.editIndex, cur.editIndex, path)
 		}
 	}
 
-	next = base
+	next := base
 	for i := len(matched) - 1; i >= 0; i-- {
 		e := matched[i]
 		next = next[:e.matchIndex] + e.newText + next[e.matchIndex+e.matchLength:]
 	}
 	if base == next {
-		return "", "", fmt.Errorf("No changes made to %s. The replacement produced identical content.", path)
+		return appliedEdits{}, fmt.Errorf("No changes made to %s. The replacement produced identical content.", path)
 	}
-	return base, next, nil
-}
-
-// generateDiff is a small unified-ish diff for the model and the user.
-func generateDiff(oldContent, newContent string, context int) string {
-	if context <= 0 {
-		context = 4
-	}
-	oldLines := strings.Split(oldContent, "\n")
-	newLines := strings.Split(newContent, "\n")
-	// Myers is overkill; walk with an LCS-free sliding window: emit a
-	// line-oriented diff by comparing prefixes until they diverge, then
-	// resync. Good enough for the blocks edit actually touches.
-	var out []string
-	oi, ni := 0, 0
-	width := len(fmt.Sprintf("%d", max(len(oldLines), len(newLines))))
-	for oi < len(oldLines) || ni < len(newLines) {
-		if oi < len(oldLines) && ni < len(newLines) && oldLines[oi] == newLines[ni] {
-			oi++
-			ni++
-			continue
-		}
-		// collect a changed hunk
-		os, ns := oi, ni
-		for oi < len(oldLines) && (ni >= len(newLines) || oldLines[oi] != newLines[ni]) {
-			// try to resync new
-			synced := false
-			for look := ni; look < len(newLines) && look-ni < 40; look++ {
-				if oldLines[oi] == newLines[look] {
-					for ns < look {
-						out = append(out, fmt.Sprintf("+%*d %s", width, ns+1, newLines[ns]))
-						ns++
-					}
-					ni = look
-					synced = true
-					break
-				}
-			}
-			if synced {
-				break
-			}
-			out = append(out, fmt.Sprintf("-%*d %s", width, oi+1, oldLines[oi]))
-			oi++
-		}
-		for ni < len(newLines) && (oi >= len(oldLines) || oldLines[oi] != newLines[ni]) {
-			out = append(out, fmt.Sprintf("+%*d %s", width, ni+1, newLines[ni]))
-			ni++
-		}
-		_ = os
-		_ = context
-	}
-	return strings.Join(out, "\n")
+	return appliedEdits{base: base, next: next, fuzzyIndexes: fuzzy}, nil
 }

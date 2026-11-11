@@ -62,7 +62,7 @@ func TestSkillToolLoadsInstructions(t *testing.T) {
 	}
 	// The directory travels with it, because a skill's instructions routinely
 	// reference its own files.
-	if !strings.Contains(out, "Skill directory:") {
+	if !strings.Contains(out, "Relative paths in these instructions resolve against") {
 		t.Errorf("directory not reported: %q", out)
 	}
 }
@@ -74,8 +74,8 @@ func TestSkillToolListsAlternativesOnMiss(t *testing.T) {
 	installSkill(t, c.CWD, "deploy", "d", "b")
 
 	out, isErr := callSkill(t, c, "nonexistent")
-	if !isErr {
-		t.Fatal("expected an error")
+	if isErr || !strings.Contains(out, "[unknown skill") {
+		t.Fatalf("out = %q isErr=%v", out, isErr)
 	}
 	for _, want := range []string{"review", "deploy"} {
 		if !strings.Contains(out, want) {
@@ -87,22 +87,13 @@ func TestSkillToolListsAlternativesOnMiss(t *testing.T) {
 func TestSkillToolWithNoSkillsInstalled(t *testing.T) {
 	c := skillContext(t)
 	out, isErr := callSkill(t, c, "anything")
-	if !isErr || !strings.Contains(out, "no skills") {
+	if isErr || !strings.Contains(out, "available: (none)") {
 		t.Errorf("out = %q isErr=%v", out, isErr)
 	}
 }
 
 func TestSkillToolRejectsEmptyName(t *testing.T) {
-	if out, isErr := callSkill(t, skillContext(t), ""); !isErr {
+	if out, isErr := callSkill(t, skillContext(t), ""); !isErr || !strings.Contains(out, "Invalid input for tool skill") {
 		t.Errorf("empty name accepted: %q", out)
 	}
-}
-
-func TestSkillToolIsRegistered(t *testing.T) {
-	for _, tool := range All(skillContext(t)) {
-		if tool.Name() == "skill" {
-			return
-		}
-	}
-	t.Error("the skill tool is not registered")
 }

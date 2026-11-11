@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/notshekhar/pi/internal/core/agent"
 	"github.com/notshekhar/pi/internal/core/session"
+	"github.com/notshekhar/pi/internal/core/teams"
 	"github.com/notshekhar/pi/internal/core/tools"
 	"github.com/notshekhar/pi/internal/core/transcript"
 )
@@ -23,26 +23,13 @@ const EventRingSize = 2048
 // Transport is one connected client.
 type Transport interface{ Send(msg any) }
 
-// AskAnswer is loop's AskAnswer.
-type AskAnswer struct {
-	Answers  []string `json:"answers"`
-	Custom   bool     `json:"custom,omitempty"`
-	Declined bool     `json:"declined,omitempty"`
-	Note     string   `json:"note,omitempty"`
-}
-
-// AskOption / AskQuestion are loop's ask-bridge shapes.
-type AskOption struct {
-	Label       string `json:"label"`
-	Description string `json:"description"`
-}
-
-type AskQuestion struct {
-	Question    string      `json:"question"`
-	Header      string      `json:"header"`
-	Options     []AskOption `json:"options"`
-	MultiSelect bool        `json:"multiSelect,omitempty"`
-}
+// The ask bridge's shapes are the ask tool's own: one set of types from the
+// tool, through the server, to the client.
+type (
+	AskAnswer   = tools.AskAnswer
+	AskOption   = tools.AskOption
+	AskQuestion = tools.AskQuestion
+)
 
 // Host is what the server needs from the program hosting it — the pieces
 // that live above core (tools, extensions, MCP, the command registry).
@@ -88,6 +75,8 @@ type activeSession struct {
 	savedSeq    int64
 	hasSaved    bool
 	transcript  *transcript.Transcript
+	// pendingTeam is team turns queued behind the running one (teams.go).
+	pendingTeam []pendingTeamTurn
 }
 
 // Server is one RPC server.
@@ -100,6 +89,8 @@ type Server struct {
 	pendingAsks map[string]chan []AskAnswer
 	nextAsk     int
 	handlers    map[string]handler
+	// releaseTeams gives back the team host claim and its change listener.
+	releaseTeams func()
 }
 
 type handler func(params map[string]any, t Transport) (any, error)
@@ -120,6 +111,7 @@ func NewServer(host Host) *Server {
 			s.handlers[name] = h
 		}
 	}
+	s.releaseTeams = s.claimTeams()
 	return s
 }
 
@@ -182,6 +174,7 @@ func (s *Server) Disconnect(t Transport) {
 
 // Dispose aborts every turn (the process is leaving).
 func (s *Server) Dispose() {
+	s.releaseTeams()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, c := range s.sessions {
@@ -432,27 +425,27 @@ func (s *Server) askOverRPC(ctx context.Context, id string, questions []AskQuest
 	}
 }
 
+// turnRequest is one turn for startTurn.
+type turnRequest struct {
+	input, modelID, thinking, agent string
+	// team is why the team started the turn; nil when a client sent it.
+	team *teams.TurnMeta
+}
+
 // startTurn runs a turn this server owns; its events stream to subscribers.
-func (s *Server) startTurn(id string, c *activeSession, input, modelID, thinking, agentName string) error {
-	run, err := s.host.NewRun(c.session, modelID, func(ctx context.Context, question string, options []string) string {
-		q := AskQuestion{Question: question, Options: make([]AskOption, 0, len(options))}
-		for _, o := range options {
-			q.Options = append(q.Options, AskOption{Label: o})
-		}
-		answers := s.askOverRPC(ctx, id, []AskQuestion{q})
-		if len(answers) == 0 || answers[0].Declined || len(answers[0].Answers) == 0 {
-			return ""
-		}
-		return answers[0].Answers[0]
+// Called with c.mu held.
+func (s *Server) startTurn(id string, c *activeSession, req turnRequest) error {
+	run, err := s.host.NewRun(c.session, req.modelID, func(ctx context.Context, questions []AskQuestion) []AskAnswer {
+		return s.askOverRPC(ctx, id, questions)
 	})
 	if err != nil {
 		return err
 	}
-	if thinking != "" {
-		run.Config.Reasoning = thinkingEffort(thinking)
+	if req.thinking != "" {
+		run.Config.Reasoning = thinkingEffort(req.thinking)
 	}
-	if agentName != "" {
-		if err := applyAgent(run, agentName); err != nil {
+	if req.agent != "" {
+		if err := applyAgent(run, req.agent); err != nil {
 			return err
 		}
 	}
@@ -467,13 +460,12 @@ func (s *Server) startTurn(id string, c *activeSession, input, modelID, thinking
 			s.broadcast(id, c, event, data)
 			c.mu.Unlock()
 		}
-		_, err := run.RunTurn(ctx, agent.TurnOptions{Input: input, Tracker: tracker, Emit: emit})
+		_, _ = run.RunTurn(ctx, agent.TurnOptions{Input: req.input, Tracker: tracker, Emit: emit, Team: req.team})
+		// RunTurn already emitted any error.
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		if err != nil && !errors.Is(err, context.Canceled) && c.transcript != nil {
-			// RunTurn already emitted the error; nothing more to say.
-		}
 		s.setRunning(id, c, false)
+		s.nextTeamTurn(id, c)
 	}()
 	return nil
 }

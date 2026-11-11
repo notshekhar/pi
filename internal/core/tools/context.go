@@ -1,73 +1,46 @@
 package tools
 
 import (
-	"context"
-
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/core/config"
 )
 
 // Context is the shared state every tool sees.
 type Context struct {
-	CWD      string
-	Registry *Registry
+	CWD string
+	// SessionID scopes background shells to the session that started them.
+	SessionID string
+	Registry  *Registry
 	// Todos is the agent's visible plan. Shared with the renderer, so it
 	// guards itself.
 	Todos *TodoList
-	// WebSearch enables the network-facing search tool. Off by default: the
-	// agent should not reach the internet because someone forgot a setting.
-	WebSearch bool
-	// Ask puts a question to the user. Nil means the `ask` and `plan` tools
-	// report that there is nobody to ask, rather than inventing an answer.
+	// Ask puts questions to the user. Nil means there is nobody to ask.
 	Ask Asker
-	// Sandbox bounds what shell commands may write. Not a security boundary
-	// — see sandbox.go.
-	Sandbox SandboxMode
-	// Feature switches from settings. Each REMOVES its tool rather than
-	// leaving one that refuses every call: a tool that exists but always
-	// fails still spends context on its description and teaches the model to
-	// keep trying it.
-	NoAsk    bool // askUser off — the agent cannot stop to ask
-	NoMemory bool // memory off
-	NoTodos  bool // todos off
+	// PlanMode is the session's read-only planning gate. Nil means the
+	// session has none, which reads as "off".
+	PlanMode PlanMode
+	// Sandbox is the user's `sandbox` setting for bash. Nil means off.
+	Sandbox *config.SandboxSetting
+	// BackgroundShells lets bash start commands that outlive their call.
+	BackgroundShells bool
+	// ReadOnlyBash runs every bash call in the fail-closed read-only sandbox:
+	// set for an agent allowed bash but neither write nor edit (loop's
+	// isReadOnlyBashAgent), so bash cannot become its way around them.
+	ReadOnlyBash bool
 }
 
-// All returns the built-in tool set.
-func All(ctx *Context) []ai.Tool {
-	if ctx.Registry == nil {
-		ctx.Registry = NewRegistry()
-	}
-	if ctx.Todos == nil {
-		ctx.Todos = &TodoList{}
-	}
-	set := []ai.Tool{
-		Read(ctx),
-		Write(ctx),
-		Edit(ctx),
-		Bash(ctx),
-		Ls(ctx),
-		Grep(ctx),
-		Glob(ctx),
-		Find(ctx),
-		Skill(ctx),
-	}
-	if !ctx.NoAsk {
-		set = append(set, Ask(ctx), Plan(ctx))
-	}
-	if !ctx.NoTodos {
-		set = append(set, Todos(ctx))
-	}
-	if !ctx.NoMemory {
-		set = append(set, Memory(ctx))
-	}
-	// Registered only when enabled, rather than registered and always
-	// failing: a tool that exists but refuses every call spends context on
-	// its description and teaches the model to keep trying it.
-	if ctx.WebSearch {
-		set = append(set, WebSearch(ctx))
-	}
-	return set
+func (t *Context) planMode() bool {
+	return t.PlanMode != nil && t.PlanMode.Active()
 }
 
-func aborted(ctx context.Context) bool {
-	return ctx.Err() != nil
+// FileTools is loop's base tool set (tools/index.ts createTools), in loop's
+// order: the tools every turn starts from before settings add to them.
+func FileTools(t *Context) []ai.Tool {
+	if t.Registry == nil {
+		t.Registry = NewRegistry()
+	}
+	if t.Todos == nil {
+		t.Todos = &TodoList{}
+	}
+	return []ai.Tool{Read(t), Write(t), Edit(t), Bash(t), Ls(t), Grep(t), Find(t), SQL(), Shells(t)}
 }

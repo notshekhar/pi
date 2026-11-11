@@ -4,8 +4,8 @@ package agents
 // so a pi turn sends the model exactly what a loop turn does. Regenerate
 // rather than edit.
 
-// DefaultBasePrompt is loop's DEFAULT_BASE_PROMPT.
-var DefaultBasePrompt = `You are loop-agent, a terminal coding assistant. You work directly in the user's repository — be precise, verify, and keep them informed without flooding them.
+// DefaultBasePrompt is loop's DEFAULT_BASE_PROMPT, under pi's name.
+var DefaultBasePrompt = `You are pi, a terminal coding assistant. You work directly in the user's repository — be precise, verify, and keep them informed without flooding them.
 
 Working style:
 - Read before you write. The edit tool rejects edits to files you haven't read this session (and stale edits after on-disk changes) — read first, always. Never invent paths; ls/find/grep when unsure.

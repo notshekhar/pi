@@ -189,9 +189,11 @@ func cachedOptions(opts ai.Options, cfg config.Config, conv string) ai.Options {
 	}
 	opts.Messages = withCaching(shape, opts.System, opts.Messages)
 	opts.System = ""
-	opts.PrepareStep = func(_ context.Context, step ai.StepContext) (ai.StepOverrides, error) {
+	// The tail anchor goes on BEFORE any one-step notice is appended, so the
+	// breakpoint stays on history that lasts and a notice never moves it.
+	opts.PrepareStep = thenPrepareStep(func(_ context.Context, step ai.StepContext) (ai.StepOverrides, error) {
 		return ai.StepOverrides{Messages: moveCacheTail(shape, step.Messages)}, nil
-	}
+	}, opts.PrepareStep)
 	if AnthropicCaching(cfg.Provider) && opts.MaxOutputTokens == nil {
 		if m, ok := config.ModelInfo(cfg.Provider, cfg.ModelID); ok && m.MaxOut > 0 {
 			n := int64(m.MaxOut)
@@ -232,4 +234,23 @@ func withOptions(m provider.Message, f func(provider.ProviderOptions) provider.P
 		return v
 	}
 	return m
+}
+
+// thenPrepareStep runs first, then next over the messages first chose. Only
+// Messages is threaded through: it is the one override both of pi's
+// PrepareSteps (cache anchoring, one-step notices) set.
+func thenPrepareStep(first, next ai.PrepareStepFunc) ai.PrepareStepFunc {
+	if next == nil {
+		return first
+	}
+	return func(ctx context.Context, step ai.StepContext) (ai.StepOverrides, error) {
+		out, err := first(ctx, step)
+		if err != nil {
+			return out, err
+		}
+		if out.Messages != nil {
+			step.Messages = out.Messages
+		}
+		return next(ctx, step)
+	}
 }

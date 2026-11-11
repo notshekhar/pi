@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -73,10 +74,10 @@ type Settings struct {
 	ClaudeHooksFilter    []string          `json:"claudeHooksFilter"`
 	// Hooks are Claude Code's matcher groups keyed by event; parsed by the
 	// hooks package.
-	Hooks         map[string]json.RawMessage  `json:"hooks"`
-	MCP           *bool                       `json:"mcp"`
-	MCPServers    map[string]mcp.ServerConfig `json:"mcpServers"`
-	MCPToolSearch json.RawMessage             `json:"mcpToolSearch"`
+	Hooks            map[string]json.RawMessage  `json:"hooks"`
+	MCP              *bool                       `json:"mcp"`
+	MCPServers       map[string]mcp.ServerConfig `json:"mcpServers"`
+	MCPToolSearchRaw json.RawMessage             `json:"mcpToolSearch"`
 	// BashDeny: nil = loop's default deny list; set (even empty) = full control.
 	BashDeny    []string            `json:"bashDeny"`
 	Permissions *PermissionsSetting `json:"permissions"`
@@ -269,14 +270,36 @@ func boolOr(v *bool, dflt bool) bool {
 
 // The switches, each with loop's default.
 
-func (s Settings) SubagentsOn() bool        { return boolOr(s.Subagents, true) }
-func (s Settings) MemoryOn() bool           { return boolOr(s.Memory, true) }
-func (s Settings) RecapOn() bool            { return boolOr(s.Recap, false) }
-func (s Settings) AskUserOn() bool          { return boolOr(s.AskUser, false) }
-func (s Settings) TodosOn() bool            { return boolOr(s.Todos, false) }
-func (s Settings) ClockOn() bool            { return boolOr(s.Clock, false) }
-func (s Settings) RemindersOn() bool        { return boolOr(s.Reminders, true) }
-func (s Settings) MCPOn() bool              { return boolOr(s.MCP, true) }
+func (s Settings) SubagentsOn() bool { return boolOr(s.Subagents, true) }
+func (s Settings) MemoryOn() bool    { return boolOr(s.Memory, true) }
+func (s Settings) RecapOn() bool     { return boolOr(s.Recap, false) }
+func (s Settings) AskUserOn() bool   { return boolOr(s.AskUser, false) }
+func (s Settings) TodosOn() bool     { return boolOr(s.Todos, false) }
+func (s Settings) ClockOn() bool     { return boolOr(s.Clock, false) }
+func (s Settings) RemindersOn() bool { return boolOr(s.Reminders, true) }
+func (s Settings) MCPOn() bool       { return boolOr(s.MCP, true) }
+
+// defaultToolSearchThreshold is loop's DEFAULT_TOOL_SEARCH_THRESHOLD: past
+// this many MCP tools, listing them all costs more than searching.
+const defaultToolSearchThreshold = 50
+
+// MCPToolSearch is loop's shouldUseToolSearch: true/false force it, a number
+// sets the threshold, unset means over 50 tools.
+func (s Settings) MCPToolSearch(toolCount int) bool {
+	threshold := defaultToolSearchThreshold
+	if raw := strings.TrimSpace(string(s.MCPToolSearchRaw)); raw == "" || raw == "null" {
+		return toolCount > threshold
+	}
+	var forced bool
+	if json.Unmarshal(s.MCPToolSearchRaw, &forced) == nil {
+		return forced
+	}
+	var n float64
+	if json.Unmarshal(s.MCPToolSearchRaw, &n) == nil && n >= 0 {
+		threshold = int(n)
+	}
+	return toolCount > threshold
+}
 func (s Settings) PinnedInputOn() bool      { return boolOr(s.PinnedInput, false) }
 func (s Settings) UILiveOn() bool           { return boolOr(s.UILive, false) }
 func (s Settings) HerdrOn() bool            { return boolOr(s.Herdr, true) }
@@ -286,6 +309,19 @@ func (s Settings) WorkspaceContextOn() bool { return boolOr(s.WorkspaceContext, 
 func (s Settings) ServeOn() bool            { return boolOr(s.Serve, false) }
 func (s Settings) ServeTerminalOn() bool    { return boolOr(s.ServeTerminal, true) }
 func (s Settings) BashApproveOn() bool      { return boolOr(s.BashApprove, false) }
+
+// DefaultBashDeny is loop's seeded bashDeny: commit and push stay with the
+// human.
+var DefaultBashDeny = []string{"git commit", "git push"}
+
+// BashDenyList is the bashDeny guardrail: the defaults until the user sets
+// the list (even to empty).
+func (s Settings) BashDenyList() []string {
+	if s.BashDeny == nil {
+		return slices.Clone(DefaultBashDeny)
+	}
+	return s.BashDeny
+}
 func (s Settings) WebSearchOn() bool        { return boolOr(s.WebSearch, false) }
 func (s Settings) ArtifactsOn() bool        { return boolOr(s.Artifacts, false) }
 func (s Settings) BackgroundShellsOn() bool { return boolOr(s.BackgroundShells, false) }

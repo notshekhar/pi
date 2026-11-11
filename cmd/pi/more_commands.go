@@ -235,31 +235,13 @@ func (t *repl) hotkeys() {
 	})
 }
 
-// bashDeny adds a deny rule for a shell command pattern — the common case of
-// /permissions, worth its own verb because it is the one people reach for.
+// bashDeny is `/bashdeny [command]`: block a command, or manage the list.
 func (t *repl) bashDeny(rest string) {
-	pattern := strings.TrimSpace(rest)
-	if pattern == "" {
-		t.pickBashDeny()
+	if pattern := strings.TrimSpace(rest); pattern != "" {
+		t.blockBashCommand(pattern)
 		return
 	}
-	t.permissions(fmt.Sprintf("deny bash(%s)", pattern))
-}
-
-func (t *repl) showBashDeny() {
-	stored := config.LoadSettings().BashDeny
-	t.do(func() {
-		th := t.app.Theme()
-		var lines []string
-		for _, pattern := range stored {
-			lines = append(lines, "  "+th.Fg(tui.SlotError, pattern))
-		}
-		if len(lines) == 0 {
-			t.app.Print(th.Fg(tui.SlotDim, "no bash deny rules beyond the built-in ones — /permissions to see those"))
-			return
-		}
-		t.app.Print(append([]string{th.Fg(tui.SlotDim, "denied bash patterns")}, lines...)...)
-	})
+	t.pickBashDeny()
 }
 
 // logout forgets a provider's stored credential.

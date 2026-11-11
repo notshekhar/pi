@@ -176,44 +176,6 @@ func TestUnparseableArgumentsDoNotBypassPolicy(t *testing.T) {
 	}
 }
 
-// Plan mode replaces the policy. Layering it would let a stored `allow write`
-// cancel the very restriction the mode exists to impose.
-func TestPlanModeCannotBeWeakenedByStoredRules(t *testing.T) {
-	r := &Run{
-		Config:   config.Config{CWD: "/repo"},
-		Planning: true,
-		Permissions: permissions.Policy{
-			CWD: "/repo", Default: permissions.Allow,
-			Rules: []permissions.Rule{{Tool: "write", Mode: permissions.Allow}},
-		},
-	}
-	_, approve := r.approvalHooks()
-	d, err := approve(context.Background(), call("write", map[string]any{"path": "/repo/a.go"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Approved {
-		t.Error("a stored allow-rule overrode plan mode")
-	}
-}
-
-func TestPlanModeAllowsReading(t *testing.T) {
-	r := &Run{Config: config.Config{CWD: "/repo"}, Planning: true}
-	needs, _ := r.approvalHooks()
-	if ok, _ := needs(context.Background(), call("read", map[string]any{"path": "/repo/a.go"})); ok {
-		t.Error("reading should run freely in plan mode")
-	}
-}
-
-func TestPlanPromptOnlyAppearsWhenPlanning(t *testing.T) {
-	if got := SystemPromptFor("/repo", nil, false); strings.Contains(got, "PLAN MODE") {
-		t.Error("the plan prompt leaked into a normal turn")
-	}
-	if got := SystemPromptFor("/repo", nil, true); !strings.Contains(got, "PLAN MODE") {
-		t.Error("the plan prompt is missing in plan mode")
-	}
-}
-
 // A PreToolUse hook must see calls the POLICY allows outright — refusing
 // something the rules are happy with is the only reason to have one.
 func TestPreToolHookSeesAllowedCalls(t *testing.T) {

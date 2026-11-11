@@ -21,6 +21,10 @@ import (
 //	hang      never answers; a notifications/cancelled is logged to FAKE_LOG
 //	die       exits without answering
 //	spawn     starts `sleep 300` in the background, writing its pid to FAKE_PIDFILE
+//	publish   adds a resource and announces notifications/resources/list_changed
+//
+// It also publishes resources: note://readme (text), note://logo (a blob),
+// and a template note://{name}.
 const fakeServerSrc = `package main
 
 import (
@@ -46,9 +50,13 @@ func send(v any) {
 
 func main() {
 	tools := []map[string]any{}
-	for _, n := range []string{"echo", "noisy", "pingme", "grow", "hang", "die", "spawn"} {
+	for _, n := range []string{"echo", "noisy", "pingme", "grow", "hang", "die", "spawn", "publish"} {
 		tools = append(tools, map[string]any{"name": n, "description": n + " tool",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string"}}}})
+	}
+	resources := []map[string]any{
+		{"uri": "note://readme", "name": "readme", "description": "the readme", "mimeType": "text/plain"},
+		{"uri": "note://logo", "name": "logo", "mimeType": "image/png", "size": 6},
 	}
 	pongs := make(chan struct{}, 1)
 	in := bufio.NewReader(os.Stdin)
@@ -62,6 +70,7 @@ func main() {
 			Method string          ` + "`json:\"method\"`" + `
 			Params struct {
 				Name      string ` + "`json:\"name\"`" + `
+				URI       string ` + "`json:\"uri\"`" + `
 				Arguments struct {
 					Text string ` + "`json:\"text\"`" + `
 				} ` + "`json:\"arguments\"`" + `
@@ -91,7 +100,7 @@ func main() {
 		}
 		switch req.Method {
 		case "initialize":
-			reply(map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{"listChanged": true}},
+			reply(map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{"listChanged": true}, "resources": map[string]any{"listChanged": true}},
 				"serverInfo": map[string]any{"name": "fake", "version": "1.0"}, "instructions": "use echo"})
 		case "tools/list":
 			reply(map[string]any{"tools": tools})
@@ -116,6 +125,10 @@ func main() {
 				tools = append(tools, map[string]any{"name": "extra", "inputSchema": map[string]any{"type": "object"}})
 				reply(text("grown"))
 				send(map[string]any{"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+			case "publish":
+				resources = append(resources, map[string]any{"uri": "note://new", "name": "new"})
+				reply(text("published"))
+				send(map[string]any{"jsonrpc": "2.0", "method": "notifications/resources/list_changed"})
 			case "hang":
 			case "die":
 				os.Exit(3)
@@ -126,6 +139,17 @@ func main() {
 				reply(text("spawned"))
 			default:
 				send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32602, "message": "unknown tool"}})
+			}
+		case "resources/list":
+			reply(map[string]any{"resources": resources})
+		case "resources/templates/list":
+			reply(map[string]any{"resourceTemplates": []map[string]any{{"uriTemplate": "note://{name}", "name": "note"}}})
+		case "resources/read":
+			switch req.Params.URI {
+			case "note://logo":
+				reply(map[string]any{"contents": []map[string]any{{"uri": req.Params.URI, "mimeType": "image/png", "blob": "iVBORw0K"}}})
+			default:
+				reply(map[string]any{"contents": []map[string]any{{"uri": req.Params.URI, "mimeType": "text/plain", "text": "contents of " + req.Params.URI}}})
 			}
 		case "ping":
 			reply(map[string]any{})

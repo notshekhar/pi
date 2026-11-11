@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -54,6 +53,10 @@ type serverState struct {
 	Status
 	client *Client
 	tools  []ai.Tool
+	// resources and templates are the server's published resources, loaded
+	// after it is ready (see loadResources).
+	resources []Resource
+	templates []ResourceTemplate
 }
 
 // Reconnect backoff after a server drops: doubling from 1s, capped, and
@@ -272,6 +275,9 @@ func (m *Manager) settle(cfg ServerConfig, gen int, instructions string, client 
 	}
 	m.mu.Unlock()
 	m.changed()
+	if err == nil {
+		go m.loadResources(name, gen)
+	}
 }
 
 func (m *Manager) prefixClashLocked(name string) string {
@@ -355,12 +361,15 @@ func (m *Manager) scheduleReconnectLocked(name string) {
 	m.timers[name] = t
 }
 
-// handleNotification: tools/list_changed is the one with work behind it —
-// a server that advertises it expects the client to re-list, and one that
-// doesn't goes on calling tools that no longer exist.
+// handleNotification re-lists what a list_changed says moved: a server that
+// advertises it expects the client to re-list, and one that doesn't goes on
+// calling tools (or reading resources) that no longer exist.
 func (m *Manager) handleNotification(name string, gen int, method string) {
-	if method == "notifications/tools/list_changed" {
+	switch method {
+	case "notifications/tools/list_changed":
 		go m.refreshTools(name, gen)
+	case "notifications/resources/list_changed":
+		go m.loadResources(name, gen)
 	}
 }
 
@@ -644,19 +653,6 @@ func (m *Manager) Server(name string) (Status, bool) {
 		return s.Status, true
 	}
 	return Status{}, false
-}
-
-// Instructions are the ready servers' own usage notes, by server.
-func (m *Manager) Instructions() map[string]string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	out := map[string]string{}
-	for name, s := range m.servers {
-		if s.State == StateReady && strings.TrimSpace(s.Instructions) != "" {
-			out[name] = s.Instructions
-		}
-	}
-	return out
 }
 
 // Close shuts every connection down and stops probes and retries.

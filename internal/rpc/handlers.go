@@ -56,31 +56,11 @@ func applyAgent(run *agent.Run, name string) error {
 	if !agents.Exists(name) {
 		return fmt.Errorf("Unknown agent: %s", name)
 	}
-	if name != agents.DefaultAgentName {
-		run.Persona = agents.Prompt(name)
-	}
-	run.AllowedTools = agents.Tools(name)
+	run.UseAgent(name)
 	if name == agents.PlanAgentName {
-		run.Planning = true
+		run.SetPlanning(true)
 	}
 	return nil
-}
-
-// ─── teams ───────────────────────────────────────────────────────────────
-
-func (s *Server) teamHandlers() map[string]handler {
-	return map[string]handler{
-		// pi runs no thread teams: there is never a team to show.
-		"team.get": func(p map[string]any, _ Transport) (any, error) {
-			if pstr(p, "teamId") == "" && pstr(p, "sessionId") == "" {
-				return nil, errors.New("team.get needs a teamId or a sessionId")
-			}
-			return nil, nil
-		},
-		"team.stop": func(p map[string]any, _ Transport) (any, error) {
-			return nil, errors.New("team.stop needs a teamId or a sessionId in a team")
-		},
-	}
 }
 
 // ─── agents ──────────────────────────────────────────────────────────────
@@ -380,5 +360,5 @@ func (s *Server) contextReport(sess *session.Session, modelID, cwd string) (any,
 	}
 	return map[string]any{"modelId": modelID, "contextWindow": window, "autoCompactThreshold": config.LoadSettings().AutoCompact(),
 		"categories": cats, "totalTokens": total, "freeTokens": max(0, window-total), "skills": skills,
-		"toolCount": len(run.ToolNames()), "mcpToolCount": len(run.Extra)}, nil
+		"toolCount": len(run.ToolNames()), "mcpToolCount": run.MCPToolCount()}, nil
 }

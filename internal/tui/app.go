@@ -233,7 +233,11 @@ type Conversation struct {
 	// index of the run's first member.
 	groupsOpen map[int]bool
 	todos      []TodoItem
-	planning   bool
+	shells     []ShellRow
+	// shellSecond is the wall-clock second the shells panel last painted,
+	// so a running shell's elapsed time repaints once a second, not per tick.
+	shellSecond int64
+	planning    bool
 	// Status-line identity. `thinkingLevel` rather than `thinking`, which is
 	// already the open reasoning block.
 	agent         string
@@ -932,6 +936,12 @@ func (a *App) Run() error {
 			a.needsPaint = true
 		case <-tick.C:
 			if !a.live() {
+				// A running shell's clock is the one thing that moves on an
+				// otherwise idle screen; it earns a frame per second, not
+				// one per animation tick.
+				if a.shellsRunning() && time.Now().Unix() != a.shellSecond {
+					a.needsPaint = true
+				}
 				continue
 			}
 			AdvanceAnim()

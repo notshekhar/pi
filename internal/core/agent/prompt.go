@@ -1,91 +1,106 @@
 package agent
 
 import (
-	"fmt"
+	"strings"
 
-	"github.com/notshekhar/pi/internal/core/config"
-	"github.com/notshekhar/pi/internal/core/memory"
-	"github.com/notshekhar/pi/internal/core/skills"
+	"github.com/notshekhar/pi/internal/core/agents"
 )
 
-// DefaultPrompt is the built-in persona. Custom agents would replace this;
-// the environment block is always appended.
-const DefaultPrompt = `You are pi-agent, a terminal coding assistant. You work directly in the user's repository — be precise, verify, and keep them informed without flooding them.
+// defaultToolList is what the prompt names when no tool list is given.
+const defaultToolList = "read, write, edit, bash, ls, grep, find"
 
-Working style:
-- Read before you write. The edit tool rejects edits to files you haven't read this session (and stale edits after on-disk changes) — read first, always. Never invent paths; ls/glob/grep when unsure.
-- Prefer edit over write for existing files, with exact unique match strings. Match the project's existing conventions, naming, and formatting — the diff should look like the original author wrote it.
-- Run bash with absolute paths or explicit cd; assume nothing about the shell's state between calls.
-- Verify your work: after a change, run the relevant build/test/typecheck command when one exists and report the actual result. Done means verified, not "should work".
-- When something fails, show the real error and what you concluded from it — never silently retry into the dark.
-
-Communication:
-- Lead with the outcome, keep it short, use the user's vocabulary. Diffs and tool output speak for themselves — don't re-narrate them.
-- If the request is ambiguous in a way that changes what you'd build, ask one sharp question instead of guessing big.
-- Don't expand scope: fix what was asked, mention (don't do) the neighboring cleanups you noticed.`
-
-// SystemPrompt builds the system message for a turn.
-func SystemPrompt(cwd string, tools []string) string {
-	list := "read, write, edit, bash, ls, grep, glob"
-	if len(tools) > 0 {
-		list = join(tools)
-	}
-	return fmt.Sprintf("%s\n\nWorking directory: %s\n\nYou have these tools: %s.", DefaultPrompt, cwd, list)
+// PromptParts is what loop's buildSystemPrompt assembles a prompt from.
+type PromptParts struct {
+	CWD string
+	// Base is the agent's prompt; empty means the default agent's.
+	Base string
+	// Tools are the names actually offered this turn.
+	Tools []string
+	// Workspace is the AGENTS.md block, Memory the <memory> block.
+	Workspace string
+	Memory    string
 }
 
-func join(s []string) string {
-	out := ""
-	for i, v := range s {
-		if i > 0 {
-			out += ", "
-		}
-		out += v
+// BuildSystemPrompt is loop's buildSystemPrompt: base, environment, then the
+// workspace and memory blocks.
+func BuildSystemPrompt(p PromptParts) string {
+	base := strings.TrimSpace(p.Base)
+	if base == "" {
+		base = agents.DefaultBasePrompt
 	}
-	return out
+	list := defaultToolList
+	if len(p.Tools) > 0 {
+		list = strings.Join(p.Tools, ", ")
+	}
+	parts := []string{base, "Working directory: " + p.CWD + "\n\nYou have these tools: " + list + "."}
+	for _, block := range []string{p.Workspace, p.Memory} {
+		if block != "" {
+			parts = append(parts, block)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
-// PlanPrompt is appended in plan mode.
-//
-// The policy already refuses the writes; this exists so the model spends the
-// turn producing something worth reading rather than discovering the refusals
-// one tool call at a time.
-const PlanPrompt = `
+// SubagentNote is delegation guidance, appended when the task tool is in
+// the turn's toolset.
+func SubagentNote(agentNames []string) string {
+	return `
 
-PLAN MODE — you cannot modify anything this turn. write and edit are refused, and bash needs approval.
+Subagents (task tool): delegate work that would flood your context — broad codebase exploration, analyzing many files, research across directories, or an independent multi-file change. Each subagent runs in its own context window and returns only a final report.
+Use task when: the job is self-contained, needs many file reads/searches, or you want parallel investigation of separate areas.
+Do NOT use task when: the job is one or two tool calls, needs back-and-forth with the user, or depends on context only you have (unless you include it in the prompt).
+Write complete prompts: the subagent knows nothing about this conversation — include paths, goals, constraints, and the exact output you expect. INDEPENDENT tasks belong in the same step: emit several task calls at once and they run in parallel (one per area to investigate) — sequential launches waste time. Only chain tasks when one needs another's report, and never mix task with other tool calls in a step. By default the subagent is a fork of you (same prompt and tools, minus task); pass agent to run a named agent instead. Available agents: ` + strings.Join(agentNames, ", ") + `.`
+}
 
-Investigate as much as you need, then produce a plan the user can act on:
-- What you found, and the specific files and lines it turns on
-- What you propose to change, concretely enough to disagree with
-- What you are unsure about, and what would settle it
+// BackgroundShellsNote is appended when the shells tool is in the toolset —
+// only when the opt-in backgroundShells setting is on. The base prompt
+// cannot carry it: with the setting off, bash refuses run_in_background.
+const BackgroundShellsNote = `
 
-Do not describe the plan as if you had carried it out, and do not ask for permission to begin — the user leaves plan mode when they are satisfied.`
+Background shells (bash run_in_background, read with the shells tool): a command that is not meant to finish — a dev server, a watcher, a tail — goes in the background rather than holding a tool call open until it times out. Read its output with the shells tool when you need it; you are told when it exits, so never sleep-and-poll waiting for one. Kill what you started once you are done with it.`
 
-// SystemPromptFor builds the system message for a turn, in a given mode.
-//
-// The memory index is appended, never the bodies — see the memory package for
-// why that boundary is the whole design.
-func SystemPromptFor(cwd string, tools []string, planning bool) string {
-	prompt := SystemPrompt(cwd, tools)
-	if planning {
-		prompt += PlanPrompt
+// TodoNote is appended when the todo tool is in the toolset.
+const TodoNote = `
+
+Todos (todo tool): for any job with 3+ distinct steps, keep a visible checklist the user can watch. Create it when you start, keep exactly one item in_progress (with an activeForm label), and mark each step completed the moment it's done and verified — never batch completions at the end. Capture newly discovered follow-ups as todos; mark abandoned steps cancelled. Each call replaces the whole list, so resend every item. Skip the tool entirely for trivial or single-step requests — when in doubt, use it.`
+
+// PlanModeNote is appended when the toolset carries exit_plan_mode: the
+// session's read-only gate is on and this agent can ask to lift it. Without
+// it the model learns it is planning only from a rejected edit.
+const PlanModeNote = `
+
+PLAN MODE IS ACTIVE. This is a read-only phase: edit and write are rejected and bash cannot modify anything, in every permission mode — do not try to work around it. Investigate with the read-only tools (read, ls, grep, find, read-only bash) until you understand the change well enough to describe it exactly, then call exit_plan_mode with the complete plan document. That call asks the user to approve it. If they approve, plan mode ends and you implement the plan yourself, immediately, in the same turn. If they decline, you stay in plan mode: address what they raised and call exit_plan_mode again. Never end a turn silently while plan mode is on — either deliver a plan or ask the question that is blocking it.`
+
+// MCPServer is one configured MCP server, as the prompt names it, with its
+// own usage notes once it has connected.
+type MCPServer struct {
+	Name         string
+	Instructions string
+}
+
+// MCPToolSearchNote is loop's buildMcpToolSearchNote: a model shown one
+// unfamiliar tool where it expected a server's tools usually concludes the
+// capability is missing rather than searching for it.
+func MCPToolSearchNote(servers []MCPServer) string {
+	names := make([]string, len(servers))
+	for i, s := range servers {
+		names[i] = s.Name
 	}
-	if store, err := memory.Open(cwd); err == nil {
-		if index := store.Index(); index != "" {
-			prompt += "\n\n" + index
+	return "\n\nMCP tools (from " + strings.Join(names, ", ") + ") are NOT listed individually in this conversation — there are too many to carry in every request. Reach them with the mcp_tools tool: search by keyword, describe the one you want, then call it. When a task needs a connected server, search before concluding you cannot do it."
+}
+
+// MCPInstructionsNote is each connected server's `instructions`, kept per
+// server and attributed: two servers' notes are not interchangeable, and an
+// unattributed blob reads as pi's own rules.
+func MCPInstructionsNote(servers []MCPServer) string {
+	var blocks []string
+	for _, s := range servers {
+		if text := strings.TrimSpace(s.Instructions); text != "" {
+			blocks = append(blocks, `From MCP server "`+s.Name+`" (applies to its mcp__`+s.Name+`__* tools):`+"\n"+text)
 		}
 	}
-	if index := skills.Index(cwd); index != "" {
-		prompt += "\n\n" + index
+	if len(blocks) == 0 {
+		return ""
 	}
-	// The repository's own instructions, in full. Unlike memory and skills —
-	// which are injected as an INDEX and loaded on demand — AGENTS.md is
-	// injected whole: it is the one document whose whole purpose is to be in
-	// the model's head before the first tool call, not fetched after a wrong
-	// turn has already been taken.
-	if config.LoadSettings().WorkspaceContextOn() {
-		if ws := LoadWorkspaceContext(cwd); ws.Text != "" {
-			prompt += "\n\n" + ws.Text
-		}
-	}
-	return prompt
+	return "\n\nMCP server instructions — guidance published by the connected servers themselves, not by pi:\n\n" + strings.Join(blocks, "\n\n")
 }

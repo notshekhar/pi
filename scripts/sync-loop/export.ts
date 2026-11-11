@@ -67,6 +67,15 @@ await add("artifact", t.createArtifactTool({}));
 await add("enter_plan_mode", t.createEnterPlanModeTool({ sessionId: "x", cwd: "/" }));
 await add("exit_plan_mode", t.createExitPlanModeTool({ sessionId: "x", cwd: "/" }));
 await add("mcp_tools", t.createMcpToolsTool({ tools: () => ({}) }));
+await add("mcp_resource", t.createMcpResourceTool({ listResources: () => [], listResourceTemplates: () => [], readResource: async () => [] }));
+const teams = await import(join(core, "teams", "tools.ts"));
+// spawn_threads' description carries the live thread cap; pi patches it in.
+const teamCtx = { session: { id: "x" }, modelId: "x/x", cwd: "/" } as never;
+await add("spawn_threads", teams.createSpawnThreadsTool(teamCtx));
+await add("send_message", teams.createSendMessageTool(teamCtx));
+await add("team_board", teams.createTeamBoardTool(teamCtx));
+await add("wait_for_team", teams.createWaitForTeamTool(teamCtx));
+await add("report", teams.createReportTool(teamCtx));
 const { createTaskTool } = await import(join(core, "agent", "subagent.ts"));
 await add("task", createTaskTool({ session: {}, cwd: "/", emitter: noop, tracker: {}, modelId: "x/x", parentTools: [] } as never));
 writeFileSync(join(repo, "internal", "core", "tools", "defs", "loop-tools.json"), JSON.stringify(defs, null, 2) + "\n");

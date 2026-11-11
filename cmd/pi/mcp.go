@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/notshekhar/pi/internal/core/agent"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/mcp"
 	"github.com/notshekhar/pi/internal/core/projects"
@@ -19,6 +20,26 @@ import (
 // manager when a turn starts, so a server that connects, drops or changes
 // its tools is reflected on the next turn without anyone reassigning
 // anything.
+
+// mcpServers is the configured servers the prompt names — every one not
+// disabled, so one finishing its connection between turns does not change
+// the prompt (and its cache) — with the ready ones' own instructions.
+func mcpServers(m *mcp.Manager) func() []agent.MCPServer {
+	return func() []agent.MCPServer {
+		var servers []agent.MCPServer
+		for _, st := range m.Status() {
+			if st.State == mcp.StateDisabled {
+				continue
+			}
+			server := agent.MCPServer{Name: st.Name}
+			if st.State == mcp.StateReady {
+				server.Instructions = st.Instructions
+			}
+			servers = append(servers, server)
+		}
+		return servers
+	}
+}
 
 // mcpSource is the servers that may connect here: off entirely when MCP is
 // switched off, and project servers only in a trusted folder.

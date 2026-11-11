@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // The frame, assembled the way loop's interactive app assembles it:
 //
 //	document = history, then chrome
-//	chrome   = working-indicator slot, todo panel, editor, status line, spacer
+//	chrome   = working-indicator slot, todo panel, shells panel, editor, status line, spacer
 //
 // The completion list and every picker are OVERLAYS anchored to the editor,
 // not rows appended to the frame — appended, a menu made the frame taller for
@@ -140,6 +141,11 @@ func (a *App) renderChrome(width int) []string {
 	}
 	if a.confirm == nil && a.prompt == nil && len(a.todos) > 0 {
 		out = append(out, renderTodos(a.theme, a.todos, width)...)
+	}
+	if a.confirm == nil && a.prompt == nil && len(a.shells) > 0 {
+		now := time.Now()
+		a.shellSecond = now.Unix()
+		out = append(out, renderShells(a.theme, a.shells, width, now)...)
 	}
 	// Queued input, between the panels and the editor: loop's
 	// PendingMessageLine — " queued 1/2: " dim, the message muted on one line.

@@ -116,10 +116,6 @@ func hasCommand(list []command, name string) bool {
 }
 
 // borrowedAgent is the session's own agent while a one-shot borrows the turn.
-type borrowedAgent struct {
-	persona string
-	tools   []string
-}
 
 // useAgent is loop's: `/<agent> <message>` runs that message under the
 // agent's prompt and tools; the session's selected agent is untouched.
@@ -133,12 +129,9 @@ func (t *repl) useAgent(ctx context.Context, name, message string) {
 		return
 	}
 	// Put back by startTurn's cleanup: the turn runs on its own goroutine.
-	t.restorePersona = &borrowedAgent{t.run.Persona, t.run.AllowedTools}
-	t.run.Persona = agents.Prompt(name)
-	if name == agents.DefaultAgentName {
-		t.run.Persona = ""
-	}
-	t.run.AllowedTools = agents.Tools(name)
+	own := t.run.Agent
+	t.borrowedFrom = &own
+	t.run.UseAgent(name)
 	t.dim("agent for this message: %s", name)
 	t.submit(ctx, message)
 }

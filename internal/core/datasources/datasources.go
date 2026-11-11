@@ -4,8 +4,10 @@
 package datasources
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -322,9 +324,37 @@ func AssertReadOnly(query string) error {
 	return nil
 }
 
+// Row is one result row, its columns in the query's order — a map would
+// sort them, and `SELECT name, id` should read back as name, id.
+type Row struct {
+	Columns []string
+	Values  []any
+}
+
+// MarshalJSON writes the row as an object in column order.
+func (r Row) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, col := range r.Columns {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		key, _ := json.Marshal(col)
+		value, err := json.Marshal(r.Values[i])
+		if err != nil {
+			return nil, err
+		}
+		b.Write(key)
+		b.WriteByte(':')
+		b.Write(value)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
+}
+
 // Query runs a validated query in a rolled-back READ ONLY transaction
-// (layer 2) and returns the rows as objects.
-func Query(ctx context.Context, id, query string) ([]map[string]any, error) {
+// (layer 2) and returns the rows.
+func Query(ctx context.Context, id, query string) ([]Row, error) {
 	if err := AssertReadOnly(query); err != nil {
 		return nil, err
 	}
@@ -355,7 +385,7 @@ func Query(ctx context.Context, id, query string) ([]map[string]any, error) {
 	}
 	defer rows.Close()
 	cols, _ := rows.Columns()
-	out := []map[string]any{}
+	out := []Row{}
 	for rows.Next() {
 		vals := make([]any, len(cols))
 		ptrs := make([]any, len(cols))
@@ -365,15 +395,12 @@ func Query(ctx context.Context, id, query string) ([]map[string]any, error) {
 		if err := rows.Scan(ptrs...); err != nil {
 			return nil, err
 		}
-		row := map[string]any{}
-		for i, col := range cols {
-			if b, ok := vals[i].([]byte); ok {
-				row[col] = string(b)
-			} else {
-				row[col] = vals[i]
+		for i, v := range vals {
+			if b, ok := v.([]byte); ok {
+				vals[i] = string(b)
 			}
 		}
-		out = append(out, row)
+		out = append(out, Row{Columns: cols, Values: vals})
 	}
 	return out, rows.Err()
 }

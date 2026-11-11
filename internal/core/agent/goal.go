@@ -126,13 +126,14 @@ func (r *Run) oneShot(ctx context.Context, prompt string) (string, error) {
 		return "", err
 	}
 	toolCtx := &tools.Context{
-		CWD:      r.Config.CWD,
-		Registry: tools.NewRegistry(),
-		Todos:    &tools.TodoList{},
+		CWD:          r.Config.CWD,
+		Registry:     tools.NewRegistry(),
+		Todos:        &tools.TodoList{},
+		ReadOnlyBash: true,
 	}
 	toolset := []ai.Tool{
 		tools.Read(toolCtx), tools.Ls(toolCtx), tools.Grep(toolCtx),
-		tools.Glob(toolCtx), tools.Find(toolCtx), tools.Bash(toolCtx),
+		tools.Find(toolCtx), tools.Bash(toolCtx),
 	}
 
 	sub := &Run{Config: r.Config, Permissions: r.Permissions}

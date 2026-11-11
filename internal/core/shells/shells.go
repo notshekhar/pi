@@ -6,7 +6,6 @@ package shells
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/notshekhar/pi/internal/core/home"
@@ -46,8 +46,16 @@ type Info struct {
 
 type record struct {
 	Info
-	cmd           *exec.Cmd
-	log           *os.File
+	child *Child
+	log   *os.File
+	// logStart is the offset of the log file's first byte in the shell's
+	// whole output: offsets count every byte the shell ever printed, while
+	// the file keeps only its recent part (logs.go).
+	logStart int64
+	// outputOpen: the shell's pipe is still held. It outlives the shell when
+	// it leaves a process behind, and only until it closes can the process
+	// group be trusted to exist and be killed.
+	outputOpen    bool
 	noticePending bool
 	killRequested bool
 	lastEmit      time.Time
@@ -162,6 +170,9 @@ func (r *record) pushPreview(chunk string) {
 	}
 }
 
+// emitEvery throttles output-driven repaints: a dev server can print
+// thousands of lines a second. The counters and the log are always exact;
+// only the panel's view of them lags, by at most this long.
 const emitEvery = 400 * time.Millisecond
 
 type sink struct{ r *record }
@@ -170,13 +181,7 @@ func (s sink) Write(p []byte) (int, error) {
 	mu.Lock()
 	r := s.r
 	r.pushPreview(string(p))
-	if r.log != nil {
-		if _, err := r.log.Write(p); err != nil {
-			_ = r.log.Close()
-			r.log = nil
-		}
-	}
-	r.Bytes += int64(len(p))
+	r.appendToLog(p)
 	var fire func()
 	if time.Since(r.lastEmit) >= emitEvery {
 		r.lastEmit = time.Now()
@@ -187,6 +192,39 @@ func (s sink) Write(p []byte) (int, error) {
 		fire()
 	}
 	return len(p), nil
+}
+
+// appendToLog counts bytes only once they are on disk, so a read is never
+// pointed at output that is not there.
+func (r *record) appendToLog(p []byte) {
+	if r.log == nil {
+		return
+	}
+	n, err := r.log.Write(p)
+	r.Bytes += int64(n)
+	if err == nil && r.Bytes-r.logStart > MaxLogBytes {
+		var kept int64
+		r.log, kept, err = compactLog(r.LogPath, r.log, r.Bytes-r.logStart)
+		r.logStart = r.Bytes - kept
+	}
+	if err != nil {
+		r.closeLog()
+	}
+}
+
+func (r *record) closeLog() {
+	if r.log != nil {
+		_ = r.log.Close()
+		r.log = nil
+	}
+}
+
+// releaseOutput: nothing more can arrive. The log closes, and the process
+// group stops being ours.
+func (r *record) releaseOutput() {
+	r.outputOpen = false
+	r.closeLog()
+	r.child.Release()
 }
 
 // ShellConfig is loop's getShellConfig: /bin/bash, else bash on PATH, else sh.
@@ -227,88 +265,93 @@ func ShellEnv() []string {
 	return append(env, "PATH="+bin)
 }
 
-// StartOptions is loop's StartShellOptions, plus the command line to spawn.
-type StartOptions struct {
+// RegisterOptions is loop's StartShellOptions: a spawned child to keep.
+type RegisterOptions struct {
 	SessionID string
 	Command   string
 	CWD       string
-	Seed      string
-	Promoted  bool
+	Child     *Child
+	// Seed is output already collected in the foreground, replayed into the
+	// log so a promoted run keeps the lines it printed before promotion.
+	Seed     string
+	Promoted bool
 }
 
-// Start spawns command in its own process group and registers it.
-func Start(o StartOptions) (Info, error) {
-	shell, args := ShellConfig()
-	cmd := exec.Command(shell, append(args, o.Command)...)
-	cmd.Dir = o.CWD
-	cmd.Env = ShellEnv()
-	cmd.Stdin = nil
-	setGroup(cmd)
-
+// Register keeps a spawned child as a background shell and starts logging it.
+func Register(o RegisterOptions) Info {
+	pruneLogs()
 	mu.Lock()
 	b := bucketOf(o.SessionID)
 	b.counter++
 	id := fmt.Sprintf("bash_%d", b.counter)
-	r := &record{Info: Info{ID: id, Command: o.Command, CWD: o.CWD, Status: "running",
-		StartedAt: time.Now().UnixMilli(), Preview: []string{}, Promoted: o.Promoted}}
-	dir := logDir(o.SessionID)
-	r.LogPath = filepath.Join(dir, id+".log")
-	if err := os.MkdirAll(dir, 0o755); err == nil {
-		if f, err := os.Create(r.LogPath); err == nil {
-			r.log = f
-		} else {
-			r.LogPath = ""
-		}
-	} else {
-		r.LogPath = ""
+	r := &record{
+		Info: Info{ID: id, Command: o.Command, CWD: o.CWD, PID: o.Child.PID(), Status: "running",
+			StartedAt: time.Now().UnixMilli(), Preview: []string{}, Promoted: o.Promoted},
+		child:      o.Child,
+		outputOpen: true,
 	}
+	r.openLog(logDir(o.SessionID))
 	b.byID[id] = r
 	b.order = append(b.order, id)
-	r.cmd = cmd
 	mu.Unlock()
 
 	out := sink{r}
 	if o.Seed != "" {
 		_, _ = out.Write([]byte(o.Seed))
 	}
-	cmd.Stdout = io.Writer(out)
-	cmd.Stderr = io.Writer(out)
-	if err := cmd.Start(); err != nil {
-		mu.Lock()
-		r.settle("failed", nil)
-		fire := emitLocked(r)
-		info := r.snapshot()
-		mu.Unlock()
-		fire()
-		return info, err
-	}
+	o.Child.SetSink(out)
+	go r.settleOnExit()
+	go r.releaseOnClose()
+
 	mu.Lock()
-	r.PID = cmd.Process.Pid
 	fire := emitLocked(r)
 	info := r.snapshot()
 	mu.Unlock()
 	fire()
+	return info
+}
 
-	go func() {
-		err := cmd.Wait()
-		mu.Lock()
-		code := cmd.ProcessState.ExitCode()
-		var cp *int
-		if code >= 0 {
-			cp = &code
-		}
-		status := "exited"
-		if r.killRequested && signaled(cmd) {
-			status = "killed"
-		} else if err != nil && cmd.ProcessState == nil {
-			status = "failed"
-		}
-		r.settle(status, cp)
-		fire := emitLocked(r)
-		mu.Unlock()
-		fire()
-	}()
-	return info, nil
+// openLog truncates: byte offsets are the whole read model, and a log left
+// by a previous process (a resumed session reusing its id) would put every
+// offset in this run past somebody else's output. A log that cannot be
+// opened is a degradation, not a failure — the shell still runs and reads
+// come back empty.
+func (r *record) openLog(dir string) {
+	path := filepath.Join(dir, r.ID+".log")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	if f, err := os.Create(path); err == nil {
+		r.log, r.LogPath = f, path
+	}
+}
+
+func (r *record) settleOnExit() {
+	<-r.child.Exited()
+	mu.Lock()
+	// A killed shell reports as killed even though the OS calls it a signal
+	// exit: the distinction is what the user did, not how it ended.
+	status := "exited"
+	if r.killRequested && r.child.Signaled() {
+		status = "killed"
+	}
+	var code *int
+	if c := r.child.ExitCode(); c >= 0 {
+		code = &c
+	}
+	r.settle(status, code)
+	fire := emitLocked(r)
+	mu.Unlock()
+	fire()
+}
+
+// releaseOnClose waits for the pipe, not the exit: whatever the shell left
+// behind is still writing, and still ours to kill.
+func (r *record) releaseOnClose() {
+	<-r.child.Closed()
+	mu.Lock()
+	r.releaseOutput()
+	mu.Unlock()
 }
 
 func (r *record) settle(status string, code *int) {
@@ -319,10 +362,22 @@ func (r *record) settle(status string, code *int) {
 	now := time.Now().UnixMilli()
 	r.EndedAt = &now
 	r.noticePending = true
-	if r.log != nil {
-		_ = r.log.Close()
-		r.log = nil
+}
+
+// StartOptions is a command for Start to spawn and register.
+type StartOptions struct {
+	SessionID string
+	Command   string
+	CWD       string
+}
+
+// Start spawns command in its own process group and registers it.
+func Start(o StartOptions) (Info, error) {
+	child, err := Spawn(SpawnOptions{Command: o.Command, CWD: o.CWD})
+	if err != nil {
+		return Info{}, err
 	}
+	return Register(RegisterOptions{SessionID: o.SessionID, Command: o.Command, CWD: o.CWD, Child: child}), nil
 }
 
 // List is the session's shells in start order.
@@ -350,13 +405,18 @@ func RunningCount(sessionID string) int {
 
 // ReadResult is loop's ShellReadResult.
 type ReadResult struct {
-	Info         Info
-	Text         string
+	Info Info
+	// Text is the output since the last read, newest kept when it is too long.
+	Text string
+	// SkippedBytes were dropped because the unread span was over MaxReadBytes.
 	SkippedBytes int64
-	FilteredOut  int
+	// FilteredOut is the lines the filter hid, so an empty read is explainable.
+	FilteredOut int
 }
 
-// Read returns output since the cursor (advancing it unless noAdvance).
+// Read returns output since the cursor and, unless noAdvance, moves the
+// cursor past it — so polling a dev server does not re-read its startup
+// banner every time.
 func Read(sessionID, id, filter string, noAdvance bool) (ReadResult, bool) {
 	mu.Lock()
 	r := bucketOf(sessionID).byID[id]
@@ -364,7 +424,7 @@ func Read(sessionID, id, filter string, noAdvance bool) (ReadResult, bool) {
 		mu.Unlock()
 		return ReadResult{}, false
 	}
-	end, start := r.Bytes, r.Cursor
+	end, start, logStart := r.Bytes, r.Cursor, r.logStart
 	path := r.LogPath
 	mu.Unlock()
 
@@ -373,27 +433,8 @@ func Read(sessionID, id, filter string, noAdvance bool) (ReadResult, bool) {
 		res.SkippedBytes = end - start - MaxReadBytes
 		start = end - MaxReadBytes
 	}
-	if path != "" && end > start {
-		if f, err := os.Open(path); err == nil {
-			buf := make([]byte, end-start)
-			n, _ := f.ReadAt(buf, start)
-			_ = f.Close()
-			res.Text = Sanitize(string(buf[:n]))
-		}
-	}
-	if filter != "" && res.Text != "" {
-		if re, err := regexp.Compile(filter); err == nil {
-			lines := strings.Split(res.Text, "\n")
-			kept := lines[:0:0]
-			for _, l := range lines {
-				if re.MatchString(l) {
-					kept = append(kept, l)
-				}
-			}
-			res.FilteredOut = len(lines) - len(kept)
-			res.Text = strings.Join(kept, "\n")
-		}
-	}
+	res.Text = readLogSpan(path, start-logStart, end-start)
+	res.Text, res.FilteredOut = keepMatching(res.Text, filter)
 	mu.Lock()
 	if !noAdvance {
 		r.Cursor = end
@@ -403,26 +444,65 @@ func Read(sessionID, id, filter string, noAdvance bool) (ReadResult, bool) {
 	return res, true
 }
 
-// Kill stops one shell's whole process tree.
+func readLogSpan(path string, offset, length int64) string {
+	if path == "" || length <= 0 {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	buf := make([]byte, length)
+	n, _ := f.ReadAt(buf, offset)
+	return Sanitize(string(buf[:n]))
+}
+
+// keepMatching keeps the lines a regex matches. A filter that does not parse
+// is ignored, not fatal.
+func keepMatching(text, filter string) (kept string, filteredOut int) {
+	if filter == "" || text == "" {
+		return text, 0
+	}
+	re, err := regexp.Compile(filter)
+	if err != nil {
+		return text, 0
+	}
+	lines := strings.Split(text, "\n")
+	var matching []string
+	for _, line := range lines {
+		if re.MatchString(line) {
+			matching = append(matching, line)
+		}
+	}
+	return strings.Join(matching, "\n"), len(lines) - len(matching)
+}
+
+// Kill stops one shell's whole process tree. An exited shell can still have
+// left processes behind, so the tree goes either way while its pipe is open.
 func Kill(sessionID, id string) (Info, bool) {
 	mu.Lock()
+	defer mu.Unlock()
 	r := bucketOf(sessionID).byID[id]
 	if r == nil {
-		mu.Unlock()
 		return Info{}, false
+	}
+	r.kill()
+	return r.snapshot(), true
+}
+
+func (r *record) kill() {
+	if r.outputOpen {
+		r.child.KillTree()
 	}
 	if r.Status == "running" {
 		r.killRequested = true
-		if r.PID > 0 {
-			killTree(r.PID)
-		}
 	}
-	info := r.snapshot()
-	mu.Unlock()
-	return info, true
 }
 
-// TakeNotices is exits the model has not been told about, cleared as taken.
+// TakeNotices is the exits the model has not been told about, cleared as
+// they are taken, so a finished shell announces itself instead of waiting to
+// be polled.
 func TakeNotices(sessionID string) []Info {
 	mu.Lock()
 	defer mu.Unlock()
@@ -437,19 +517,24 @@ func TakeNotices(sessionID string) []Info {
 	return out
 }
 
-// KillSession kills every running shell in one session.
+// KillSession kills every shell in one session, and what any of them left
+// behind. It returns how many were running.
 func KillSession(sessionID string) int {
-	n := 0
-	for _, s := range List(sessionID) {
-		if s.Status == "running" {
-			Kill(sessionID, s.ID)
-			n++
+	mu.Lock()
+	defer mu.Unlock()
+	b := bucketOf(sessionID)
+	running := 0
+	for _, id := range b.order {
+		r := b.byID[id]
+		if r.Status == "running" {
+			running++
 		}
+		r.kill()
 	}
-	return n
+	return running
 }
 
-// KillAll kills everything, everywhere — the process is going away.
+// KillAll kills every shell in every session — the process is going away.
 func KillAll() int {
 	mu.Lock()
 	keys := make([]string, 0, len(sessions))
@@ -465,6 +550,19 @@ func KillAll() int {
 		n += KillSession(k)
 	}
 	return n
+}
+
+// KillAllBashChildren is everything bash started, on the way out: the
+// background shells plus any foreground command still running. It returns
+// the number of shells killed, which is what a surface prints.
+//
+// Shells live only as long as the process by design, so a surface that exits
+// without calling this strands processes nobody can see, read or kill. Every
+// surface that can run a turn owes this one call on its exit path.
+func KillAllBashChildren() int {
+	killed := KillAll()
+	killTracked()
+	return killed
 }
 
 // FormatDuration is loop's formatDuration: 8s, 2m14s, 1h03m.
@@ -502,10 +600,62 @@ func StatusText(s Info) string {
 	return fmt.Sprintf("exited %d", *s.ExitCode)
 }
 
+// Whether a surface is showing running shells. Promotion on timeout is gated
+// on it: the timeout exists to stop an invisible long run, so it may only be
+// relaxed where a shells panel makes the run visible.
+var panelPresent atomic.Bool
+
+// SetPanelPresent records that a surface lists running shells.
+func SetPanelPresent(present bool) { panelPresent.Store(present) }
+
+// PanelPresent reports whether a surface lists running shells.
+func PanelPresent() bool { return panelPresent.Load() }
+
 // ResetForTests drops all state without killing.
 func ResetForTests() {
 	mu.Lock()
 	sessions = map[string]*bucket{}
 	listeners = map[int]func(Info){}
+	pruneOnce = sync.Once{}
 	mu.Unlock()
+}
+
+// FormatNotices is the reminder that tells the model which shells exited
+// since its last step (loop's formatShellNotices). It is what makes "do not
+// poll" honest: a model that is not told has no choice but to sleep and check.
+func FormatNotices(exited []Info) string {
+	if len(exited) == 0 {
+		return ""
+	}
+	rows := make([]string, len(exited))
+	for i, s := range exited {
+		how := "exited with code ?"
+		switch {
+		case s.Status == "killed":
+			how = "was killed"
+		case s.Status == "failed":
+			how = "failed to start"
+		case s.ExitCode != nil:
+			how = fmt.Sprintf("exited with code %d", *s.ExitCode)
+		}
+		tail := ""
+		if unread := s.Bytes - s.Cursor; unread > 0 {
+			tail = fmt.Sprintf("; %d bytes unread", unread)
+		}
+		rows[i] = fmt.Sprintf("%s (%s) %s%s.", s.ID, FirstLine(s.Command), how, tail)
+	}
+	return "<system-reminder>Background shell update: " + strings.Join(rows, " ") +
+		" Read anything you still need with the shells tool. Ignore this if it no longer matters.</system-reminder>"
+}
+
+// commandPreviewChars is how much of a command a one-line listing shows.
+const commandPreviewChars = 70
+
+// FirstLine is a command's first line, cut short for a one-line listing.
+func FirstLine(command string) string {
+	line, _, _ := strings.Cut(command, "\n")
+	if runes := []rune(line); len(runes) > commandPreviewChars {
+		return string(runes[:commandPreviewChars])
+	}
+	return line
 }

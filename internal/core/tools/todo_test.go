@@ -52,8 +52,8 @@ func TestTodoStoresTheList(t *testing.T) {
 	if items[1].Content != "make the change" {
 		t.Errorf("items = %+v", items)
 	}
-	// The model gets a summary, not the list echoed back into its context.
-	if !strings.Contains(out, "1/3 done") || !strings.Contains(out, "make the change") {
+	// loop's summary: the counts, then the list.
+	if !strings.Contains(out, "1 completed, 1 in progress, 1 pending") || !strings.Contains(out, "[in_progress] make the change") {
 		t.Errorf("summary = %q", out)
 	}
 }
@@ -71,35 +71,36 @@ func TestTodoReplacesRatherThanAppends(t *testing.T) {
 	}
 }
 
+// loop's contract: a list the schema allows but the rules do not comes back
+// as REJECTED text (the turn carries on and the model resends); a value the
+// schema forbids fails the call as invalid input.
 func TestTodoRejectsBadInput(t *testing.T) {
 	cases := []struct {
-		name  string
-		todos []Todo
-		want  string
+		name   string
+		todos  []Todo
+		failed bool
+		want   string
 	}{
-		{"empty content", []Todo{{Content: "  ", Status: TodoPending}}, "no content"},
-		{"unknown status", []Todo{{Content: "x", Status: "started"}}, "started"},
+		{"empty content", []Todo{{Content: "  ", Status: TodoPending}}, false, "REJECTED: every todo needs non-empty content"},
+		{"unknown status", []Todo{{Content: "x", Status: "started"}}, true, "Invalid input for tool todo"},
 		{
 			"two in progress",
 			[]Todo{
 				{Content: "a", Status: TodoInProgress},
 				{Content: "b", Status: TodoInProgress},
 			},
-			"in_progress",
+			false, "REJECTED: 2 items are in_progress",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			ctx := newContext()
 			out, isErr := callTodo(t, ctx, c.todos)
-			if !isErr {
-				t.Fatalf("expected an error, got %q", out)
-			}
-			if !strings.Contains(out, c.want) {
-				t.Errorf("error %q does not mention %q", out, c.want)
+			if isErr != c.failed || !strings.Contains(out, c.want) {
+				t.Fatalf("got %q (error=%v), want %q (error=%v)", out, isErr, c.want, c.failed)
 			}
 			if len(ctx.Todos.Items()) != 0 {
-				t.Error("a rejected call still wrote the list")
+				t.Errorf("a rejected list was stored: %+v", ctx.Todos.Items())
 			}
 		})
 	}
@@ -150,24 +151,4 @@ func TestTodoListItemsIsACopy(t *testing.T) {
 	if l.Items()[0].Content != "original" {
 		t.Error("Items exposed the internal slice")
 	}
-}
-
-func TestTodoIsRegistered(t *testing.T) {
-	c := newContext()
-	for _, tool := range All(c) {
-		if tool.Name() == "todo" {
-			return
-		}
-	}
-	t.Error("the todo tool is not in the built-in set")
-}
-
-// A Context built without a list must still work — All fills it in.
-func TestAllInitialisesTodos(t *testing.T) {
-	c := &Context{CWD: "/repo"}
-	All(c)
-	if c.Todos == nil {
-		t.Fatal("All left Todos nil")
-	}
-	c.Todos.Set([]Todo{{Content: "x", Status: TodoPending}})
 }

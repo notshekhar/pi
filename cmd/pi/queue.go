@@ -20,7 +20,7 @@ import (
 // unqueuedCommands run immediately even mid-turn.
 var unqueuedCommands = map[string]bool{
 	"new": true, "clear": true, "resume": true, "sessions": true,
-	"note": true, "notes": true,
+	"note": true, "notes": true, "team": true, "lead": true,
 }
 
 // skipsQueue reports whether a line is one of the unqueued commands.

@@ -214,6 +214,9 @@ func (s *Server) sessionHandlers() map[string]handler {
 					c.mu.Unlock()
 				}
 				m["running"], m["attached"] = running, attached
+				if team := teamField(row.ID); team != nil {
+					m["team"] = team
+				}
 				out = append(out, m)
 			}
 			return out, nil
@@ -383,7 +386,7 @@ func (s *Server) sessionHandlers() map[string]handler {
 				return nil, fmt.Errorf("Unknown agent: %s", agentName)
 			}
 			c.modelID = modelID
-			if err := s.startTurn(id, c, input, modelID, thinking, agentName); err != nil {
+			if err := s.startTurn(id, c, turnRequest{input: input, modelID: modelID, thinking: thinking, agent: agentName}); err != nil {
 				return nil, err
 			}
 			return map[string]any{"ok": true}, nil

@@ -47,7 +47,7 @@ func TestLspWrapsTheFileTools(t *testing.T) {
 		}
 	}
 	ctx := &tools.Context{CWD: t.TempDir(), Registry: tools.NewRegistry()}
-	base := tools.All(ctx)
+	base := tools.FileTools(ctx)
 	wrapped := extension.WrapTools([]extension.Extension{lspExtension}, base)
 
 	changed := 0

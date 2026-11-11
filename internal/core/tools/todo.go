@@ -35,23 +35,14 @@ const (
 	TodoCancelled TodoStatus = "cancelled"
 )
 
-// Valid reports whether a status is one this tool understands.
-func (s TodoStatus) Valid() bool {
-	switch s {
-	case TodoPending, TodoInProgress, TodoCompleted, TodoCancelled:
-		return true
-	}
-	return false
-}
-
 // Todo is one item of the plan.
 type Todo struct {
-	Content string     `json:"content" jsonschema:"description=What the step is; imperative and specific"`
-	Status  TodoStatus `json:"status" jsonschema:"description=One of pending, in_progress, completed, or cancelled"`
+	Content string     `json:"content"`
+	Status  TodoStatus `json:"status"`
 	// ActiveForm is what the pinned panel shows while the step is running.
 	// The panel is a statement about what is happening NOW, and an
 	// imperative there reads as an instruction nobody has picked up.
-	ActiveForm string `json:"activeForm,omitempty" jsonschema:"description=Present-continuous label shown while in progress, e.g. 'Adding session middleware'"`
+	ActiveForm string `json:"activeForm,omitempty"`
 }
 
 // TodoList is the current plan, guarded because the tool runs on the model's
@@ -101,50 +92,45 @@ func (l *TodoList) Done() bool {
 }
 
 type todoArgs struct {
-	Todos []Todo `json:"todos" jsonschema:"description=The complete list; every call replaces the previous one"`
+	Todos []Todo `json:"todos"`
 }
+
+// maxTodos caps the list: past this the plan is tracked at too fine a grain.
+const maxTodos = 50
 
 // Todos returns the todo tool.
 func Todos(t *Context) ai.Tool {
-	return ai.NewTool("todo",
-		"Maintain your visible task checklist for the current job. Each call REPLACES "+
-			"the whole list — resend every item, updated. An empty list clears it.\n\n"+
-			"Use it when the work has 3+ distinct steps, the user gives multiple tasks, "+
-			"or new instructions arrive mid-task. Skip it for single-step or purely "+
-			"informational requests. When in doubt, use it.\n\n"+
-			"Rules:\n"+
-			"- Keep exactly ONE item in_progress while work remains; mark it before starting the step.\n"+
-			"- Give each item an activeForm — the present-continuous label shown while it runs.\n"+
-			"- Mark a step completed the moment it is actually done and verified — never on intent, "+
-			"never batched at the end.\n"+
-			"- If a step is blocked, keep it in_progress and add a follow-up todo describing the blocker.\n"+
-			"- Add follow-ups discovered during the work; mark abandoned steps cancelled instead of "+
-			"deleting or fake-completing them.\n"+
-			"- Preserve user-provided commands verbatim (flags, args, order).\n"+
-			"- Items should be specific and actionable; break large work into smaller steps.",
-		func(ctx context.Context, a todoArgs) (ai.ToolResult, error) {
-			if aborted(ctx) {
-				return ai.ToolError("aborted"), nil
-			}
-			for i, item := range a.Todos {
-				if strings.TrimSpace(item.Content) == "" {
-					return ai.ToolErrorf("todo %d has no content", i+1), nil
-				}
-				if !item.Status.Valid() {
-					return ai.ToolErrorf(
-						"todo %d has status %q; use pending, in_progress, completed, or cancelled",
-						i+1, item.Status), nil
-				}
-			}
-			// More than one in-progress item means the plan has stopped
-			// describing what is actually happening.
-			if n := countStatus(a.Todos, TodoInProgress); n > 1 {
-				return ai.ToolErrorf("%d items are in_progress; exactly one may be", n), nil
-			}
+	return LoopTool("todo", func(_ context.Context, a todoArgs) (ai.ToolResult, error) {
+		// A rejection is ordinary text, not an error: the list was understood,
+		// it just has to be resent in a better shape.
+		if rejection := validateTodos(a.Todos); rejection != "" {
+			return ai.ToolText(rejection), nil
+		}
+		t.Todos.Set(a.Todos)
+		// The list is echoed back so the model's memory of it lives in a
+		// result it re-reads, not only in an earlier call's arguments.
+		if len(a.Todos) == 0 {
+			return ai.ToolText(summarizeTodos(a.Todos)), nil
+		}
+		return ai.ToolText(summarizeTodos(a.Todos) + "\n" + FormatTodoList(a.Todos)), nil
+	})
+}
 
-			t.Todos.Set(a.Todos)
-			return ai.ToolText(summarize(a.Todos)), nil
-		})
+func validateTodos(items []Todo) string {
+	if len(items) > maxTodos {
+		return fmt.Sprintf("REJECTED: %d items is too many (max %d). Track the plan at a coarser grain.", len(items), maxTodos)
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.Content) == "" {
+			return "REJECTED: every todo needs non-empty content. Resend the full list with each item described."
+		}
+	}
+	// More than one in-progress item means the plan has stopped describing
+	// what is actually happening.
+	if n := countStatus(items, TodoInProgress); n > 1 {
+		return fmt.Sprintf("REJECTED: %d items are in_progress — keep exactly one step in progress at a time. Resend the full list.", n)
+	}
+	return ""
 }
 
 func countStatus(items []Todo, status TodoStatus) int {
@@ -157,26 +143,81 @@ func countStatus(items []Todo, status TodoStatus) int {
 	return n
 }
 
-// summarize is what the model gets back: enough to confirm the write landed,
-// not the whole list echoed into the context on every call.
-func summarize(items []Todo) string {
+func summarizeTodos(items []Todo) string {
 	if len(items) == 0 {
-		return "todo list cleared"
+		return "Todo list cleared."
 	}
-	done := countStatus(items, TodoCompleted)
-	var current string
-	for _, item := range items {
-		if item.Status == TodoInProgress {
-			current = item.Content
-			break
+	summary := fmt.Sprintf("Todo list updated: %d completed, %d in progress, %d pending",
+		countStatus(items, TodoCompleted), countStatus(items, TodoInProgress), countStatus(items, TodoPending))
+	if cancelled := countStatus(items, TodoCancelled); cancelled > 0 {
+		summary += fmt.Sprintf(", %d cancelled", cancelled)
+	}
+	return summary + "."
+}
+
+// FormatTodoList is the list as numbered lines with each item's status.
+func FormatTodoList(items []Todo) string {
+	lines := make([]string, len(items))
+	for i, item := range items {
+		lines[i] = fmt.Sprintf("%d. [%s] %s", i+1, item.Status, item.Content)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func hasActiveTodos(items []Todo) bool {
+	return countStatus(items, TodoPending)+countStatus(items, TodoInProgress) > 0
+}
+
+// How many tool calls go by before the model is reminded about its list: a
+// list left untouched this long has probably fallen behind the work, and a
+// job this long with no list probably wants one.
+const (
+	todoNudgeStaleAfter = 10
+	todoNudgeStartAfter = 15
+)
+
+const staleTodoNudge = "<system-reminder>The todo list has not been updated in a while. If steps are finished, mark them " +
+	"completed now (resend the full list); if the plan changed, update or cancel items to match. " +
+	"Ignore if the list is still accurate.</system-reminder>"
+
+const startTodoNudge = "<system-reminder>This task has run for many tool calls without a todo list. If the remaining work has " +
+	"3+ distinct steps, create one with the todo tool so progress stays visible. Ignore if the work is " +
+	"nearly done or genuinely single-step.</system-reminder>"
+
+// TodoNudger decides, step by step, whether to remind the model about its
+// todo list. One nudger lives for one turn.
+type TodoNudger struct {
+	list        *TodoList
+	lastNudgeAt int
+	startNudged bool
+}
+
+// NewTodoNudger returns a nudger over the turn's list.
+func NewTodoNudger(list *TodoList) *TodoNudger { return &TodoNudger{list: list} }
+
+// Nudge returns a reminder for this step, or "". toolCalls is the name of
+// every tool called so far this turn, in order.
+func (n *TodoNudger) Nudge(toolCalls []string) string {
+	total := len(toolCalls)
+	lastWrite := -1
+	for i, name := range toolCalls {
+		if name == "todo" {
+			lastWrite = i
 		}
 	}
-	s := fmt.Sprintf("%d/%d done", done, len(items))
-	if n := countStatus(items, TodoCancelled); n > 0 {
-		s += fmt.Sprintf(" · %d cancelled", n)
+	sinceWrite := total - lastWrite - 1
+	if hasActiveTodos(n.list.Items()) {
+		if sinceWrite >= todoNudgeStaleAfter && total-n.lastNudgeAt >= todoNudgeStaleAfter {
+			n.lastNudgeAt = total
+			return staleTodoNudge
+		}
+		return ""
 	}
-	if current != "" {
-		s += " · now: " + current
+	// No list, or nothing left on it: one gentle prompt to start one.
+	if !n.startNudged && lastWrite == -1 && total >= todoNudgeStartAfter {
+		n.startNudged = true
+		n.lastNudgeAt = total
+		return startTodoNudge
 	}
-	return s
+	return ""
 }

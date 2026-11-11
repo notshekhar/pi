@@ -6,6 +6,7 @@ import (
 
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/permissions"
+	"github.com/notshekhar/pi/internal/core/projects"
 	"github.com/notshekhar/pi/internal/tui"
 )
 
@@ -23,19 +24,11 @@ func (t *repl) loadPolicy() permissions.Policy { return policyFor(t.cfg.CWD) }
 func policyFor(cwd string) permissions.Policy {
 	policy := permissions.Default(cwd)
 	settings := config.LoadSettings()
-	// bashApprove asks before EVERY bash command. It is prepended as a rule
-	// rather than special-cased at the call site so that a more specific
-	// allow rule can still exempt a command — an approval prompt you cannot
-	// escape is one people learn to answer without reading.
-	if settings.BashApproveOn() {
-		if rule, err := permissions.ParseRule("ask bash"); err == nil {
-			policy.Rules = append(policy.Rules, rule)
-		}
-	}
-	for _, pattern := range settings.BashDeny {
-		policy.Rules = append(policy.Rules, permissions.Rule{Tool: "bash", Pattern: pattern + "*", Mode: permissions.Deny,
-			Reason: "bashDeny `" + pattern + "`"})
-	}
+	policy.BashDeny = settings.BashDenyList()
+	// bashApprove asks before a bash command no rule decided — so a specific
+	// allow rule still exempts one — unless a remembered grant covers it.
+	policy.BashApprove = settings.BashApproveOn()
+	policy.BashGrants = append(projects.BashAllow(projects.Canonical(cwd)), settings.BashAllow...)
 	if p := settings.Permissions; p != nil {
 		policy.Rules = append(policy.Rules, permissions.FromSetting(p.Allow, p.Ask, p.Deny)...)
 	}
@@ -128,7 +121,7 @@ func (t *repl) setPlanMode(rest string) {
 	// is what the command's own help has always promised. Treating anything
 	// that is not on/off as a usage error made the documented form an error
 	// message.
-	on := !t.run.Planning
+	on := !t.run.Planning()
 	var task string
 	switch arg := strings.TrimSpace(rest); strings.ToLower(arg) {
 	case "on":
@@ -140,12 +133,11 @@ func (t *repl) setPlanMode(rest string) {
 		on, task = true, arg
 	}
 
-	t.run.Planning = on
 	// A gate set here is not one the agent cycle may clear — see planViaAgent.
 	t.planViaAgent = false
-	t.do(func() { t.app.SetPlanning(on) })
+	t.run.SetPlanning(on)
 	if on {
-		t.dim("plan mode — write and edit are refused, bash asks; /plan off to execute")
+		t.dim("plan mode — write and edit are refused, bash is read-only; /plan off to execute")
 		if task != "" {
 			t.submit(context.Background(), task)
 		}

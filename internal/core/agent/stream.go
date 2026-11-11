@@ -2,17 +2,14 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/notshekhar/pi/internal/core/session"
 
 	"github.com/notshekhar/pi/internal/ai"
 	"github.com/notshekhar/pi/internal/core/config"
-	"github.com/notshekhar/pi/internal/core/tools"
 )
 
-// Consume drains the stream. The TUI renders it; the one-shot path uses
-// the tui Printer instead.
+// Consume drains the stream; the TUI renders it.
 type Consume func(stream <-chan ai.StreamPart) error
 
 // TurnStream is Turn with the renderer injected, so main.go can glue the
@@ -27,22 +24,19 @@ func (r *Run) TurnStream(ctx context.Context, prompt string, consume Consume) (*
 		return nil, err
 	}
 
-	// `task` is added here rather than in tools.All, because it needs the Run
-	// it belongs to — and because only a PARENT run gets it. A subagent
-	// builds its own set without it, so delegation cannot recurse.
 	toolset := r.Toolset()
-	names := r.ToolNames()
-
 	needsApproval, approveTool := r.approvalHooks()
 	res, err := ai.StreamText(ctx, cachedOptions(ai.Options{
 		Model:         model,
-		System:        SystemPromptFor(r.Config.CWD, names, r.Planning) + r.personaBlock() + r.extensionBlock(),
+		System:        r.SystemPrompt(toolset),
 		Messages:      r.Session.ModelMessages(),
 		Tools:         toolset,
 		MaxSteps:      r.Config.MaxSteps,
 		Reasoning:     r.Config.Reasoning,
 		NeedsApproval: needsApproval,
 		ApproveTool:   approveTool,
+		PrepareStep:   r.stepNotices(toolset),
+		StopWhen:      stopWhen(toolset),
 	}, r.Config, r.Session.ID))
 	if err != nil {
 		return nil, err
@@ -107,91 +101,4 @@ func (r *Run) persistSteps(steps []ai.Step) error {
 		}
 	}
 	return nil
-}
-
-// personaBlock is the active agent's instructions, appended to the system
-// prompt. Empty for the default agent.
-// Toolset is the tools this turn will carry.
-//
-// `task` is added here rather than in tools.All, because it needs the Run it
-// belongs to — and because only a PARENT run gets it. A subagent builds its
-// own set without it, so delegation cannot recurse.
-//
-// Subagents are a setting, and an off switch has to REMOVE the tool: one that
-// exists and refuses spends context on its description and teaches the model
-// to keep trying it.
-func (r *Run) Toolset() []ai.Tool {
-	allowed := r.AllowedTools
-	allows := func(name string) bool {
-		for _, a := range allowed {
-			if a == name {
-				return true
-			}
-		}
-		return false
-	}
-	var toolset []ai.Tool
-	for _, t := range tools.All(r.Tools) {
-		if len(allowed) == 0 || allows(t.Name()) {
-			toolset = append(toolset, t)
-		}
-	}
-	// MCP and extension tools join unrestricted agents only (loop's
-	// assembleTurnTools), before task so a subagent fork inherits them.
-	if len(allowed) == 0 {
-		toolset = append(toolset, r.Extra...)
-		if r.ExtraTools != nil {
-			toolset = append(toolset, r.ExtraTools()...)
-		}
-		toolset = append(toolset, r.ExtensionTools...)
-	}
-	if r.Subagents && (len(allowed) == 0 || allows("task")) {
-		toolset = append(toolset, TaskTool(r, r.Progress))
-	}
-	if r.WrapTools != nil {
-		toolset = r.WrapTools(toolset)
-	}
-	return toolset
-}
-
-// ToolNames is the toolset's names, for the prompt's tool list.
-func (r *Run) ToolNames() []string {
-	toolset := r.Toolset()
-	names := make([]string, 0, len(toolset))
-	for _, t := range toolset {
-		names = append(names, t.Name())
-	}
-	return names
-}
-
-// ToolSchemaChars is how much of the window the tool definitions occupy —
-// name, description, and JSON schema, which is what actually goes on the wire.
-func (r *Run) ToolSchemaChars() int {
-	total := 0
-	for _, t := range r.Toolset() {
-		total += len(t.Name()) + len(t.Description())
-		if schema, err := json.Marshal(t.InputSchema()); err == nil {
-			total += len(schema)
-		}
-	}
-	return total
-}
-
-// extensionBlock is what the enabled extensions add to the system prompt.
-//
-// LAST, after the persona: an extension is something the user switched on for
-// this session, and it should be able to qualify the agent's own instructions
-// rather than be qualified by them.
-func (r *Run) extensionBlock() string {
-	if r.ExtensionPrompt == "" {
-		return ""
-	}
-	return "\n\n" + r.ExtensionPrompt
-}
-
-func (r *Run) personaBlock() string {
-	if r.Persona == "" {
-		return ""
-	}
-	return "\n\n" + r.Persona
 }

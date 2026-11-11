@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/notshekhar/pi/internal/ai"
 
+	"github.com/notshekhar/pi/internal/core/agents"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/permissions"
 	"github.com/notshekhar/pi/internal/core/session"
@@ -27,9 +29,12 @@ type Run struct {
 	// which makes `ask` behave as `deny` — the safe reading for a
 	// non-interactive run.
 	Ask Ask
-	// Planning puts the run in plan mode: read-only, and told to produce a
-	// proposal rather than carry one out.
-	Planning bool
+	// planning is plan mode; read and switched with Planning/SetPlanning,
+	// from the UI and from the plan tools mid-turn.
+	planning atomic.Bool
+	// OnPlanMode is told when plan mode changes, so the UI follows a switch
+	// the agent made.
+	OnPlanMode func(active bool)
 	// Progress reports subagent activity so the UI can show a live status.
 	Progress TaskProgress
 	// ExtensionTools and ExtensionPrompt are what the enabled extensions
@@ -57,27 +62,29 @@ type Run struct {
 	// user, just before the prompt goes up. Observation only — the answer
 	// still comes from Ask.
 	OnPermissionRequest func(ctx context.Context, tool string, args map[string]any, reason string)
-	// Subagents offers the task tool. Set from settings.
-	Subagents bool
-	// Persona is an extra instruction block appended to the system prompt,
-	// set by /agents. Empty means the default agent.
-	//
-	// Appended rather than replacing the base prompt: an agent is a
-	// specialisation ("review, do not fix"), and a persona that replaced the
-	// prompt would also drop the tool list and the working directory with it.
+	// Agent is the active agent's name ("" = default), and Persona its
+	// prompt, which REPLACES the base prompt (loop's agent semantics); the
+	// working directory, tool list, workspace and memory blocks are appended
+	// either way. Set both, with AllowedTools, through UseAgent.
+	Agent   string
 	Persona string
 	// AllowedTools is the agent's tool allowlist (loop's getAgentTools);
 	// empty means every tool. A restricted agent keeps exactly its list: no
 	// MCP or extension tools, and `task` only when named.
 	AllowedTools []string
-	// Extra are tools contributed from outside the built-in set. They are
-	// ordinary tools: same dispatch, same rows, and the same permissions
-	// policy.
-	Extra []ai.Tool
-	// ExtraTools, when set, is read at the start of every turn and joins
-	// Extra: the MCP manager's live tool set, which changes as servers
-	// connect, drop and re-list without anyone reassigning a slice.
-	ExtraTools func() []ai.Tool
+	// MCPTools, when set, is read at the start of every turn: the MCP
+	// manager's live tool set, which changes as servers connect, drop and
+	// re-list without anyone reassigning a slice.
+	MCPTools func() []ai.Tool
+	// MCPResources is where mcp_resource reads from; nil means no MCP.
+	MCPResources tools.ResourceSource
+	// turnTracker is the running turn's cost tracker, which subagents bill
+	// into; set by RunTurn.
+	turnTracker *CostTracker
+	// MCPServers, when set, is the configured MCP servers (not disabled
+	// ones) and the instructions of those connected, for the prompt notes
+	// while their tools are in the turn.
+	MCPServers func() []MCPServer
 }
 
 // Turn streams one user prompt through the model and tools, handing the
@@ -85,4 +92,68 @@ type Run struct {
 func (r *Run) Turn(ctx context.Context, prompt string, consume Consume) error {
 	_, err := r.TurnStream(ctx, prompt, consume)
 	return err
+}
+
+// connectedMCPTools is the MCP servers' tools right now.
+func (r *Run) connectedMCPTools() []ai.Tool {
+	if r.MCPTools == nil {
+		return nil
+	}
+	return r.MCPTools()
+}
+
+// MCPToolCount is how many MCP tools are connected.
+func (r *Run) MCPToolCount() int { return len(r.connectedMCPTools()) }
+
+// tracker is where this turn's spend goes; a throwaway outside RunTurn,
+// whose ledger rows still record the spend.
+func (r *Run) tracker() *CostTracker {
+	if r.turnTracker != nil {
+		return r.turnTracker
+	}
+	return NewCostTracker()
+}
+
+// UseAgent points the run at a named agent: its prompt, its tool list, and
+// the name a forked subagent inherits. "" is the default agent.
+func (r *Run) UseAgent(name string) {
+	if name == agents.DefaultAgentName {
+		name = ""
+	}
+	r.Agent = name
+	r.Persona = ""
+	if name != "" {
+		r.Persona = agents.Prompt(name)
+	}
+	r.AllowedTools = agents.Tools(name)
+}
+
+// Fork is a run for a new conversation with this one's setup: same model,
+// agent, policy and hooks, but a fresh tool context (read-before-edit and
+// the todo list belong to a conversation) and plan mode off — plan mode is a
+// stance on a conversation, and the fork is a different one. The caller
+// gives it a session.
+func (r *Run) Fork() *Run {
+	tc := *r.Tools
+	tc.Registry, tc.Todos = tools.NewRegistry(), &tools.TodoList{}
+	return &Run{
+		Config:              r.Config,
+		Tools:               &tc,
+		Permissions:         r.Permissions,
+		Ask:                 r.Ask,
+		OnPlanMode:          r.OnPlanMode,
+		Progress:            r.Progress,
+		ExtensionTools:      r.ExtensionTools,
+		ExtensionPrompt:     r.ExtensionPrompt,
+		WrapTools:           r.WrapTools,
+		PreTool:             r.PreTool,
+		RewriteCall:         r.RewriteCall,
+		OnPermissionRequest: r.OnPermissionRequest,
+		Agent:               r.Agent,
+		Persona:             r.Persona,
+		AllowedTools:        r.AllowedTools,
+		MCPTools:            r.MCPTools,
+		MCPResources:        r.MCPResources,
+		MCPServers:          r.MCPServers,
+	}
 }

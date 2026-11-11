@@ -221,7 +221,7 @@ func serveCommand(cwd string, args []string) {
 	<-ch
 	handle.Stop()
 	rh.close()
-	shells.KillAll()
+	shells.KillAllBashChildren()
 	db.Close()
 }
 

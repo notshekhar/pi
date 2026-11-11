@@ -27,7 +27,7 @@ const samplePage = `
 `
 
 func TestParseResults(t *testing.T) {
-	got := parseResults(samplePage)
+	got := parseResults(samplePage, defaultSearchResults)
 	if len(got) != 2 {
 		t.Fatalf("got %d results, want 2 (the ad should be dropped): %+v", len(got), got)
 	}
@@ -46,12 +46,16 @@ func TestParseResults(t *testing.T) {
 	if got[1].URL != "https://pkg.go.dev/" {
 		t.Errorf("second url = %q", got[1].URL)
 	}
+	// A skipped ad must not hand its snippet to the next result.
+	if got[1].Snippet != "Package index." {
+		t.Errorf("second snippet = %q", got[1].Snippet)
+	}
 }
 
 // Scraping is fragile by construction; every failure mode must be soft.
 func TestParseResultsOnJunkReturnsNothing(t *testing.T) {
 	for _, page := range []string{"", "<html><body>nothing here</body></html>", "not html at all"} {
-		if got := parseResults(page); len(got) != 0 {
+		if got := parseResults(page, defaultSearchResults); len(got) != 0 {
 			t.Errorf("page %q yielded %+v, want nothing", page, got)
 		}
 	}
@@ -60,10 +64,10 @@ func TestParseResultsOnJunkReturnsNothing(t *testing.T) {
 func TestParseResultsCaps(t *testing.T) {
 	var b strings.Builder
 	for i := 0; i < 40; i++ {
-		b.WriteString(`<a class="result__a" href="https://example.com/">Result</a>`)
+		b.WriteString(`<div class="result"><a class="result__a" href="https://example.com/">Result</a></div>`)
 	}
-	if got := parseResults(b.String()); len(got) != maxResults {
-		t.Errorf("got %d results, want the %d cap", len(got), maxResults)
+	if got := parseResults(b.String(), maxSearchResults); len(got) != maxSearchResults {
+		t.Errorf("got %d results, want the %d cap", len(got), maxSearchResults)
 	}
 }
 
@@ -113,40 +117,9 @@ func TestFormatResults(t *testing.T) {
 	}
 }
 
-// Off by default; only registered when switched on.
-func TestWebSearchIsOptIn(t *testing.T) {
-	off := &Context{CWD: "/repo"}
-	for _, tool := range All(off) {
-		if tool.Name() == "websearch" {
-			t.Fatal("websearch is registered without being enabled")
-		}
-	}
-
-	on := &Context{CWD: "/repo", WebSearch: true}
-	found := false
-	for _, tool := range All(on) {
-		if tool.Name() == "websearch" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("websearch is missing when enabled")
-	}
-}
-
 func TestCleanHTML(t *testing.T) {
 	got := cleanHTML("  <b>Go</b> &amp; \n  more  ")
 	if got != "Go & more" {
 		t.Errorf("cleanHTML = %q", got)
-	}
-}
-
-func TestTruncateRunes(t *testing.T) {
-	// Must cut on runes, not bytes, or a multi-byte snippet is corrupted.
-	if got := truncateRunes("日本語です", 3); got != "日本語…" {
-		t.Errorf("truncateRunes = %q", got)
-	}
-	if got := truncateRunes("short", 100); got != "short" {
-		t.Errorf("short text was altered: %q", got)
 	}
 }

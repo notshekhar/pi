@@ -52,10 +52,7 @@ func (h *rpcHost) newRun(sess *session.Session, modelID string, ask tools.Asker)
 	}
 	tc := toolContext(cfg)
 	tc.Ask = ask
-	if ask == nil {
-		tc.NoAsk = true
-	}
-	run := &agent.Run{Config: cfg, Session: sess, Tools: tc, Permissions: policyFor(cfg.CWD), Subagents: stored.SubagentsOn()}
+	run := &agent.Run{Config: cfg, Session: sess, Tools: tc, Permissions: policyFor(cfg.CWD)}
 	active := activeExtensions()
 	run.ExtensionTools = extension.ToolsFrom(active, run.Tools)
 	run.WrapTools = func(set []ai.Tool) []ai.Tool { return extension.WrapTools(activeExtensions(), set) }
@@ -78,10 +75,13 @@ func (h *rpcHost) newRun(sess *session.Session, modelID string, ask tools.Asker)
 	}
 	// No approval prompt over RPC: an `ask` rule fails closed, as loop's does
 	// headless. Agents and plan mode come from session.send's `agent`.
-	if saved := agents.ResolveSaved(stored.Agent); saved != "" && saved != agents.DefaultAgentName && agents.Exists(saved) {
-		run.Persona = agents.Prompt(saved)
+	if saved := agents.ResolveSaved(stored.Agent); saved != "" && agents.Exists(saved) {
+		run.UseAgent(saved)
 	}
-	run.ExtraTools = h.ensureMCP(cfg.CWD).Tools
+	manager := h.ensureMCP(cfg.CWD)
+	run.MCPTools = manager.Tools
+	run.MCPResources = manager
+	run.MCPServers = mcpServers(manager)
 	return run, nil
 }
 
@@ -208,14 +208,14 @@ func rpcCommand(cwd string) {
 		<-ch
 		server.Dispose()
 		host.close()
-		shells.KillAll()
+		shells.KillAllBashChildren()
 		db.Close()
 		os.Exit(0)
 	}()
 	server.Serve(os.Stdin, os.Stdout)
 	server.Dispose()
 	host.close()
-	shells.KillAll()
+	shells.KillAllBashChildren()
 }
 
 func init() {

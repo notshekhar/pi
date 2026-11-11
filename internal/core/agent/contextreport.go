@@ -2,9 +2,9 @@ package agent
 
 import (
 	"encoding/json"
+	"slices"
 
 	"github.com/notshekhar/pi/internal/core/config"
-	"github.com/notshekhar/pi/internal/core/memory"
 	"github.com/notshekhar/pi/internal/core/skills"
 )
 
@@ -59,30 +59,22 @@ func BuildContextReport(r *Run, window int) ContextReport {
 
 	// The system prompt WITHOUT the pieces that get their own category, so
 	// nothing is counted twice.
-	names := r.ToolNames()
-	base := SystemPrompt(cwd, names)
-	if r.Planning {
-		base += PlanPrompt
-	}
+	toolset := r.Toolset()
+	names := toolNames(toolset)
+	base := BuildSystemPrompt(PromptParts{CWD: cwd, Base: r.Persona, Tools: names})
 	add := func(label string, tokens int) {
 		if tokens > 0 {
 			report.Categories = append(report.Categories, ContextCategory{Label: label, Tokens: tokens})
 		}
 	}
 	add("System prompt", EstimateTokens(len(base)))
-	add("System tools", EstimateTokens(r.ToolSchemaChars()))
-
-	if settings.WorkspaceContextOn() {
-		add("Workspace context", EstimateTokens(len(LoadWorkspaceContext(cwd).Text)))
-	}
-	if settings.MemoryOn() {
-		if store, err := memory.Open(cwd); err == nil {
-			add("Memory", EstimateTokens(len(store.Index())))
-		}
-	}
-	if index := skills.Index(cwd); index != "" {
+	add("System tools", EstimateTokens(toolSchemaChars(toolset)))
+	add("Workspace context", EstimateTokens(len(r.workspaceBlock(settings))))
+	add("Memory", EstimateTokens(len(r.memoryBlock(settings))))
+	turnSkills := r.turnSkills(settings)
+	if index := skills.FormatForPrompt(turnSkills, slices.Contains(names, "skill")); index != "" {
 		add("Skills", EstimateTokens(len(index)))
-		for _, s := range skills.Load(cwd) {
+		for _, s := range turnSkills {
 			report.Skills = append(report.Skills, SkillTokens{
 				Name: s.Name, Tokens: EstimateTokens(len(s.Body)),
 			})

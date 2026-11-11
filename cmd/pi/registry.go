@@ -114,6 +114,8 @@ func commands() []command {
 		{"alias", "Command aliases: /alias · /alias <name> </cmd args…> · /alias rm <name>", arg((*repl).alias)},
 		{"recipe", "Reusable workflows: save <name> [focus], list, show/edit/rm <name>, or <name> [inputs]", func(t *repl, ctx context.Context, rest string) { t.recipeCmd(ctx, rest) }},
 		{"handoff", "Continue in a fresh session with an editable brief and model/agent choice (optional focus)", func(t *repl, ctx context.Context, rest string) { t.handoffCmd(ctx, rest) }},
+		{"team", "Thread team: see every thread and jump to one (/team stop stops them all)", arg((*repl).teamCmd)},
+		{"lead", "Back to the thread that started this one (thread teams)", bare((*repl).leadCmd)},
 		{"shells", "Background shells: /shells lists · /shells run <cmd> · /shells <id> shows output · /shells kill <id>|all", arg((*repl).shellsCmd)},
 		{"notes", "This session's notes: /notes opens them (submit or delete one, remove all) · /notes <text> adds one", arg((*repl).notesCmd)},
 		{"note", "Add a note to this session: /note <text>", arg((*repl).notesCmd)},

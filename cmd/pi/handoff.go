@@ -51,7 +51,7 @@ func (t *repl) handoffFlow(ctx context.Context, focus string) error {
 	if sourceAgent == "" {
 		sourceAgent = agents.DefaultAgentName
 	}
-	sourcePlan := t.run.Planning
+	sourcePlan := t.run.Planning()
 	cwd := t.cfg.CWD
 	sourceLeaf := source.LeafID()
 
@@ -141,13 +141,14 @@ func (t *repl) handoffFlow(ctx context.Context, focus string) error {
 	t.apply()
 	planMode := picked.Value == agents.PlanAgentName || (picked.Value == sourceAgent && sourcePlan)
 	t.setAgent(picked.Value)
-	t.run.Planning = planMode
+	t.run.SetPlanning(planMode)
 	t.do(func() {
 		t.app.Clear()
 		t.app.SetSession(dest.ID)
 		t.app.SetCostText("")
 		t.app.SetPlanning(planMode)
 		t.app.SetTodos(nil)
+		t.refreshShells()
 		t.app.ResetUsage(t.contextWindow())
 		t.replayTranscript(dest)
 	})

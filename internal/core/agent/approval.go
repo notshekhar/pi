@@ -115,13 +115,10 @@ func (r *Run) approvalHooks() (
 
 // policy is the run's effective policy, defaulted if unset.
 //
-// Plan mode REPLACES the policy rather than adding to it. Layering it on top
-// would leave a stored `allow write` able to cancel the very restriction the
-// mode exists to impose.
+// Plan mode is not a policy: it can switch mid-turn, so the tools enforce it
+// themselves (write and edit refuse, bash runs read-only) whatever the rules
+// say — a stored `allow write` cannot cancel it.
 func (r *Run) policy() permissions.Policy {
-	if r.Planning {
-		return permissions.Plan(r.Config.CWD)
-	}
 	p := r.Permissions
 	if p.Default == "" {
 		p = permissions.Default(r.Config.CWD)

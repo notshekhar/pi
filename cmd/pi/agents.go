@@ -43,16 +43,11 @@ func (t *repl) currentAgent() string {
 	return t.agent
 }
 
-// applyAgent points the run at an agent: its prompt (appended to the base
-// prompt; the default agent adds none) and its tool allowlist.
+// applyAgent points the session at an agent: its prompt (in place of the
+// base prompt) and its tool allowlist.
 func (t *repl) applyAgent(name string) {
-	t.agent = name
-	if name == defaultAgent {
-		t.agent, t.run.Persona = "", ""
-	} else {
-		t.run.Persona = agents.Prompt(name)
-	}
-	t.run.AllowedTools = agents.Tools(name)
+	t.run.UseAgent(name)
+	t.agent = t.run.Agent
 }
 
 // cycleAgent is shift+tab: the visible built-ins, plus the one extra agent
@@ -82,12 +77,12 @@ func (t *repl) cycleAgent() {
 	_ = config.SettingsStore().Set("agent", next)
 	t.do(func() { t.app.SetAgent(next) })
 	switch {
-	case next == planAgent && !t.run.Planning:
-		t.run.Planning, t.planViaAgent = true, true
-		t.do(func() { t.app.SetPlanning(true) })
+	case next == planAgent && !t.run.Planning():
+		t.planViaAgent = true
+		t.run.SetPlanning(true)
 	case prev == planAgent && next != planAgent && t.planViaAgent:
-		t.run.Planning, t.planViaAgent = false, false
-		t.do(func() { t.app.SetPlanning(false) })
+		t.planViaAgent = false
+		t.run.SetPlanning(false)
 	}
 }
 
@@ -110,12 +105,12 @@ func (t *repl) setAgent(name string) {
 		t.cycleCustomAgent = name
 	}
 	switch {
-	case name == planAgent && !t.run.Planning:
-		t.run.Planning, t.planViaAgent = true, true
-		t.do(func() { t.app.SetPlanning(true) })
+	case name == planAgent && !t.run.Planning():
+		t.planViaAgent = true
+		t.run.SetPlanning(true)
 	case prev == planAgent && name != planAgent && t.planViaAgent:
-		t.run.Planning, t.planViaAgent = false, false
-		t.do(func() { t.app.SetPlanning(false) })
+		t.planViaAgent = false
+		t.run.SetPlanning(false)
 	}
 	t.dim("agent → %s", name)
 }

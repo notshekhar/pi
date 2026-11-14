@@ -102,7 +102,7 @@ var Methods = []string{
 	"server.info", "hello",
 	"session.create", "session.list", "session.projects", "session.history", "session.messages", "session.open",
 	"session.send", "session.cancel", "session.compact", "session.rename", "session.attach", "session.detach",
-	"session.delete", "session.answer", "session.tree", "session.branch", "session.fork", "session.archive",
+	"session.delete", "session.answer", "session.tree", "session.branch", "session.fork", "session.btw", "session.archive",
 	"team.get", "team.stop",
 	"agent.list", "agent.get", "agent.save", "agent.delete", "agent.tools",
 	"auth.status", "auth.providers", "auth.login", "auth.logout", "auth.flow.start", "auth.flow.poll",

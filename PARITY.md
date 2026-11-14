@@ -186,6 +186,7 @@ nobody finds.
 - [x] `/attach` — image by path or from the clipboard; `/paste` attaches an image or drafts text
 - [x] `/import` — a JSONL session, validated before anything is created
 - [x] `/notes` `/note` — per-session notes in loop's `session_notes` table; submit (queues like typed input) or delete one, remove all, usable mid-turn
+- [x] `/btw` — a side question in a fresh session linked to this one (the model sees the question alone), answered as a ruled card here, usable mid-turn; `/btw` alone lists them, `/btw back` returns; RPC `session.btw`, `session.list` rows carry `btw.parentId`
 
 **Aliases loop teaches, so the name a user knows always works**
 - [x] `/effort` `/resume` `/sessions` `/name` `/rename` `/cwd` `/bg` `/reminders`

@@ -14,13 +14,14 @@ import (
 // one item at a time, after each item finishes, whatever its type.
 //
 // The exception is the commands that leave the running turn alone: the ones
-// that LEAVE this session, and notes, which are jotted down while the model
-// works. Making them wait would be waiting for nothing.
+// that LEAVE this session, notes, which are jotted down while the model
+// works, and /btw, whose question runs in a copy of this session. Making
+// them wait would be waiting for nothing.
 
 // unqueuedCommands run immediately even mid-turn.
 var unqueuedCommands = map[string]bool{
 	"new": true, "clear": true, "resume": true, "sessions": true,
-	"note": true, "notes": true, "team": true, "lead": true,
+	"note": true, "notes": true, "team": true, "lead": true, "btw": true,
 }
 
 // skipsQueue reports whether a line is one of the unqueued commands.

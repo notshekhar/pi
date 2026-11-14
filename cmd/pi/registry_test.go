@@ -261,3 +261,11 @@ func TestExportHTMLEscapes(t *testing.T) {
 		}
 	}
 }
+
+// A side question runs in a copy of the session, so it must not wait behind
+// the turn it is asking about.
+func TestBtwRunsMidTurn(t *testing.T) {
+	if !skipsQueue("/btw what is this?") {
+		t.Error("/btw queues behind the running turn")
+	}
+}

@@ -189,7 +189,13 @@ func Folders(scope Scope) ([]Folder, error) {
 // CreateWith is loop's SessionManager.create: provider and model given
 // separately (a session may start before a model is chosen), written at once.
 func CreateWith(provider, model, cwd string) (*Session, error) {
-	info := Info{ID: NewULID(), CreatedAt: time.Now().UnixMilli(), CWD: cwd, Provider: provider, Model: model}
+	return createInfo(Info{Provider: provider, Model: model, CWD: cwd})
+}
+
+// createInfo writes a new session with info's provider, model, folder and
+// parent link; the id and creation time are its own.
+func createInfo(info Info) (*Session, error) {
+	info.ID, info.CreatedAt = NewULID(), time.Now().UnixMilli()
 	s := newSession(info, nil)
 	return s, s.ensureStarted()
 }

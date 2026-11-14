@@ -313,7 +313,7 @@ func FromEntries(entries []session.Entry, running bool, todos []Todo) *Transcrip
 				if team != nil {
 					parts = []*Part{team}
 				}
-				t.Messages = append(t.Messages, &Message{ID: id, Role: "user", Parts: parts, Metadata: Metadata{CreatedAt: at}})
+				t.Messages = append(t.Messages, &Message{ID: id, Role: "user", Parts: parts, Metadata: Metadata{CreatedAt: at, Btw: entryBtw(e)}})
 			case e.Role == "assistant":
 				target := currentReply(at)
 				if e.Interrupted {

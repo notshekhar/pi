@@ -51,14 +51,18 @@ type TurnOptions struct {
 	// nil when the user typed it. It rides on the opening entry, and the
 	// turn bills as "team".
 	Team *teams.TurnMeta
+	// Btw marks the user's question opening a `/btw` side thread
+	// (session/btw.go); it rides on the opening entry.
+	Btw *session.BtwMeta
 }
 
 // UserMessageEvent opens a turn.
 type UserMessageEvent struct {
-	ID   string          `json:"id"`
-	Text string          `json:"text"`
-	TS   int64           `json:"ts"`
-	Team *teams.TurnMeta `json:"team,omitzero"`
+	ID   string           `json:"id"`
+	Text string           `json:"text"`
+	TS   int64            `json:"ts"`
+	Team *teams.TurnMeta  `json:"team,omitzero"`
+	Btw  *session.BtwMeta `json:"btw,omitzero"`
 }
 
 // ToolInputStartEvent is a tool call beginning to stream its input.
@@ -214,6 +218,27 @@ func estimateInterruptedUsage(text, reasoning string, basis *session.Usage, cont
 	}
 }
 
+// savePrompt saves the turn's prompt — with its team key when the team
+// started it, its btw key when it opens a side thread. Its entry id is the
+// turn's id everywhere.
+func (r *Run) savePrompt(opts TurnOptions) (session.Entry, bool, error) {
+	entry, err := session.MessageEntry(ai.UserText(opts.Input))
+	if err != nil {
+		return session.Entry{}, false, err
+	}
+	entry.Extra = teamEntryExtra(opts.Team)
+	if opts.Btw != nil {
+		entry.SetBtw(*opts.Btw)
+	}
+	r.Session.Lock()
+	defer r.Session.Unlock()
+	if err := r.Session.AppendAll(entry); err != nil {
+		return session.Entry{}, false, err
+	}
+	leaf, ok := r.Session.Leaf()
+	return leaf, ok, nil
+}
+
 // RunTurn runs one turn.
 func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (final *ai.Result, err error) {
 	emit := opts.Emit
@@ -256,7 +281,7 @@ func (r *Run) RunTurn(ctx context.Context, opts TurnOptions) (final *ai.Result, 
 		return nil, err
 	}
 	if hasLeaf {
-		emit("user-message", UserMessageEvent{ID: leaf.ID, Text: opts.Input, TS: leaf.TS, Team: opts.Team})
+		emit("user-message", UserMessageEvent{ID: leaf.ID, Text: opts.Input, TS: leaf.TS, Team: opts.Team, Btw: opts.Btw})
 	}
 
 	r.autoCompact(ctx, tracker, emit)

@@ -7,7 +7,11 @@
 // desktop and mobile apps render.
 package transcript
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/notshekhar/pi/internal/core/session"
+)
 
 // Part states and tool states, in the AI SDK's words.
 const (
@@ -89,6 +93,9 @@ func strPtr(s string) *string { return &s }
 type Metadata struct {
 	CreatedAt   int64 `json:"createdAt"`
 	Interrupted bool  `json:"interrupted,omitzero"`
+	// Btw marks a user message that opened a `/btw` side thread: asked from
+	// that conversation.
+	Btw *session.BtwMeta `json:"btw,omitzero"`
 }
 
 // Message is one transcript message: user, assistant, or system (markers

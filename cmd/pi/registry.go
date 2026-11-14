@@ -113,6 +113,7 @@ func commands() []command {
 		{"install", "Install an extension: /install <path to a Go main package>", arg((*repl).installExtension)},
 		{"alias", "Command aliases: /alias · /alias <name> </cmd args…> · /alias rm <name>", arg((*repl).alias)},
 		{"recipe", "Reusable workflows: save <name> [focus], list, show/edit/rm <name>, or <name> [inputs]", func(t *repl, ctx context.Context, rest string) { t.recipeCmd(ctx, rest) }},
+		{"btw", "Ask a side question in its own thread — the conversation here never sees it (/btw lists them, /btw back returns)", func(t *repl, ctx context.Context, rest string) { t.btwCmd(ctx, rest) }},
 		{"handoff", "Continue in a fresh session with an editable brief and model/agent choice (optional focus)", func(t *repl, ctx context.Context, rest string) { t.handoffCmd(ctx, rest) }},
 		{"team", "Thread team: see every thread and jump to one (/team stop stops them all)", arg((*repl).teamCmd)},
 		{"lead", "Back to the thread that started this one (thread teams)", bare((*repl).leadCmd)},

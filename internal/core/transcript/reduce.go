@@ -276,7 +276,7 @@ func (t *Transcript) Apply(ev Event, at int64) {
 			parts = append(parts, &Part{Type: "text", Text: strPtr(text), State: Done})
 		}
 		t.Running = true
-		t.Messages = append(t.Messages, &Message{ID: id, Role: "user", Parts: parts, Metadata: Metadata{CreatedAt: createdAt}})
+		t.Messages = append(t.Messages, &Message{ID: id, Role: "user", Parts: parts, Metadata: Metadata{CreatedAt: createdAt, Btw: btwOf(rec["btw"])}})
 	case "team-message":
 		team := teamPartOf(record(rec["team"]), "")
 		if team == nil {

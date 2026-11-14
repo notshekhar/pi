@@ -217,6 +217,9 @@ func (s *Server) sessionHandlers() map[string]handler {
 				if team := teamField(row.ID); team != nil {
 					m["team"] = team
 				}
+				if btw := btwField(row); btw != nil {
+					m["btw"] = btw
+				}
 				out = append(out, m)
 			}
 			return out, nil
@@ -374,22 +377,19 @@ func (s *Server) sessionHandlers() map[string]handler {
 				return nil, fmt.Errorf("session %s already has a turn running (cancel it first)", id)
 			}
 			input := pstr(p, "input") + writeAttachmentPayloads(p["images"])
-			modelID := orStr(pstr(p, "model"), c.modelID)
-			thinking := pstr(p, "thinking")
-			switch thinking {
-			case "off", "minimal", "low", "medium", "high", "xhigh":
-			default:
-				thinking = ""
+			req, err := turnChoices(p)
+			if err != nil {
+				return nil, err
 			}
-			agentName := strings.TrimSpace(pstr(p, "agent"))
-			if agentName != "" && !agentExists(agentName) {
-				return nil, fmt.Errorf("Unknown agent: %s", agentName)
-			}
-			c.modelID = modelID
-			if err := s.startTurn(id, c, turnRequest{input: input, modelID: modelID, thinking: thinking, agent: agentName}); err != nil {
+			req.input, req.modelID = input, orStr(pstr(p, "model"), c.modelID)
+			c.modelID = req.modelID
+			if err := s.startTurn(id, c, req); err != nil {
 				return nil, err
 			}
 			return map[string]any{"ok": true}, nil
+		},
+		"session.btw": func(p map[string]any, t Transport) (any, error) {
+			return s.askBtw(p, t)
 		},
 		"session.rename": func(p map[string]any, _ Transport) (any, error) {
 			id := pstr(p, "sessionId")

@@ -249,23 +249,6 @@ func reportedThisStep(step ai.Step) bool {
 	return false
 }
 
-// savePrompt saves the turn's prompt — with its team key, when the team
-// started it. Its entry id is the turn's id everywhere.
-func (r *Run) savePrompt(opts TurnOptions) (session.Entry, bool, error) {
-	entry, err := session.MessageEntry(ai.UserText(opts.Input))
-	if err != nil {
-		return session.Entry{}, false, err
-	}
-	entry.Extra = teamEntryExtra(opts.Team)
-	r.Session.Lock()
-	defer r.Session.Unlock()
-	if err := r.Session.AppendAll(entry); err != nil {
-		return session.Entry{}, false, err
-	}
-	leaf, ok := r.Session.Leaf()
-	return leaf, ok, nil
-}
-
 // turnStop is the turn's early stop: a delivered plan, or a member's report.
 func turnStop(toolset []ai.Tool) func(ai.Step) bool {
 	plan := stopWhen(toolset)

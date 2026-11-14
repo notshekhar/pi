@@ -44,6 +44,13 @@ type entry struct {
 	title        string // a draft block's heading
 	at           time.Time
 
+	// aside replaces a draft's heading and adds a footer: pre-styled lines
+	// for a ruled block that is not a draft (a /btw answer).
+	aside *asideText
+	// tag is a user prompt's line above its panel (a /btw question: where
+	// it was asked), already styled.
+	tag string
+
 	md *Markdown // assistant
 
 	started   time.Time // thinking
@@ -116,6 +123,11 @@ func (e *entry) render(t *Theme, width int, tick int64, expandAll, nav bool) []s
 
 	case entUser:
 		out = RenderUser(t, e.text, e.at, width)
+		if e.tag != "" {
+			// Gap, tag, then the panel without its own gap: loop's
+			// Spacer, Text, user box.
+			out = append(append([]string{""}, asideLines(e.tag, width)...), out[1:]...)
+		}
 
 	case entThinking:
 		out = RenderThinking(t, ThinkingState{
@@ -152,11 +164,18 @@ func (e *entry) render(t *Theme, width int, tick int64, expandAll, nav bool) []s
 	case entDraft:
 		// loop's ruled transient block: a draft (a handoff brief, a recipe)
 		// that is not a turn in this conversation and must not read as one.
+		head := []string{"", t.Fg(SlotAccent, t.Bold(" "+e.title)) + t.Fg(SlotDim, "  · not part of this conversation")}
+		var foot []string
+		if e.aside != nil {
+			// loop's /btw card has no spacer: it sits right under the line
+			// that said the question was asked.
+			head, foot = asideLines(e.aside.head, width), asideLines(e.aside.foot, width)
+		}
 		e.md.SetText(e.text)
 		rule := t.Fg(SlotBorder, strings.Repeat("─", max(1, width)))
-		out = []string{"", t.Fg(SlotAccent, t.Bold(" "+e.title)) + t.Fg(SlotDim, "  · not part of this conversation"), rule}
+		out = append(head, rule)
 		out = append(out, indentLines(e.md.Render(max(1, width-2)), 1)...)
-		out = append(out, rule)
+		out = append(append(out, rule), foot...)
 	}
 
 	// The spine is applied LAST, over whatever the block rendered, so every
@@ -697,6 +716,25 @@ func (a *App) PrintDraft(title, markdown string) {
 	a.push(&entry{kind: entDraft, title: title, text: markdown, md: NewMarkdown(a.mdTheme, nil)})
 }
 
+// asideText is an aside's heading and footer, already styled.
+type asideText struct{ head, foot string }
+
+// PrintAside adds a ruled markdown block under head with foot below it —
+// loop's Container of Text, DynamicBorder, Markdown, DynamicBorder, Text: an
+// answer that is shown here but is not part of this conversation.
+func (a *App) PrintAside(head, markdown, foot string) {
+	a.push(&entry{kind: entDraft, aside: &asideText{head: head, foot: foot}, text: markdown, md: NewMarkdown(a.mdTheme, nil)})
+}
+
+// asideLines is a styled line wrapped to width with one column of padding
+// on each side — loop's Text(…, 1, 0); none for an empty line.
+func asideLines(line string, width int) []string {
+	if line == "" {
+		return nil
+	}
+	return indentLines(wrapTextWithAnsi(line, max(1, width-2)), 1)
+}
+
 // Printf is Print with formatting.
 func (a *App) Printf(format string, args ...any) {
 	a.Print(strings.Split(fmt.Sprintf(format, args...), "\n")...)
@@ -705,6 +743,11 @@ func (a *App) Printf(format string, args ...any) {
 // UserEcho prints the submitted prompt into the transcript.
 func (a *App) UserEcho(text string) {
 	a.push(&entry{kind: entUser, text: text, at: time.Now()})
+}
+
+// TaggedUserEcho is UserEcho under a styled tag line.
+func (a *App) TaggedUserEcho(tag, text string) {
+	a.push(&entry{kind: entUser, tag: tag, text: text, at: time.Now()})
 }
 
 // AddThinking adds a finished reasoning block (a replayed session's), with

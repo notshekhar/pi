@@ -221,6 +221,10 @@ func (t *repl) replayTranscript(s *session.Session) {
 			drawn = true
 		}
 		index++
+		if meta, ok := e.Btw(); ok && e.Role == "user" {
+			t.echoBtwQuestion(meta, session.TextContent(e.Content))
+			continue
+		}
 		if msg, ok := session.DecodeContent(e.Role, e.Content); ok {
 			t.replayMessage(msg, e.ReasoningMs, results)
 		}

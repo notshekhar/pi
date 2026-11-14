@@ -81,6 +81,10 @@ type shared struct {
 	daemonStop chan struct{}
 	// slots are the live sessions (slots.go).
 	slots *slotSet
+	// openingSlot serialises opening background slots (background_slot.go).
+	openingSlot sync.Mutex
+	// sideThreads are the `/btw` threads asked in this process (btw.go).
+	sideThreads sideThreads
 }
 
 // slot is one live session (loop's SessionSlot): its run, its turn, its
@@ -458,14 +462,25 @@ func (t *repl) pump(parent context.Context) {
 }
 
 func (t *repl) startTurn(parent context.Context, prompt string) {
-	if !t.startTurnWith(parent, prompt, nil) {
+	if !t.startTurnWith(parent, prompt, turnOrigin{}) {
 		t.dim("(turn in progress — Esc to interrupt)")
 	}
 }
 
-// startTurnWith starts a turn in this slot; team is why the team started
-// it, nil for one the user typed. False when a turn is already running.
-func (t *repl) startTurnWith(parent context.Context, prompt string, team *teams.TurnMeta) bool {
+// turnOrigin is what started a turn the user did not type into this
+// session; the zero value is a typed turn.
+type turnOrigin struct {
+	// team is why the thread team started it (a member's brief, mail).
+	team *teams.TurnMeta
+	// btw marks the question opening a `/btw` side thread.
+	btw *session.BtwMeta
+	// finished, if set, runs once the turn has wound down.
+	finished func()
+}
+
+// startTurnWith starts a turn in this slot. False when a turn is already
+// running.
+func (t *repl) startTurnWith(parent context.Context, prompt string, origin turnOrigin) bool {
 	// Pinned: the turn writes to ITS session even after a switch.
 	t = t.pinned()
 	t.mu.Lock()
@@ -477,8 +492,11 @@ func (t *repl) startTurnWith(parent context.Context, prompt string, team *teams.
 	ctx, cancel := context.WithCancel(parent)
 	t.cancel = cancel
 	t.mu.Unlock()
-	if team != nil {
-		t.do(func() { t.echoTeamTurn(team, prompt) })
+	switch {
+	case origin.team != nil:
+		t.do(func() { t.echoTeamTurn(origin.team, prompt) })
+	case origin.btw != nil:
+		t.do(func() { t.echoBtwQuestion(*origin.btw, prompt) })
 	}
 
 	started := time.Now()
@@ -490,6 +508,10 @@ func (t *repl) startTurnWith(parent context.Context, prompt string, team *teams.
 	// and the session title both read it.
 	var said strings.Builder
 	go func() {
+		// Deferred first, so it runs last: after the turn has fully settled.
+		if origin.finished != nil {
+			defer origin.finished()
+		}
 		// loop's sound reporter: one cue per finished turn, error if anything
 		// went wrong; an interrupted turn stays silent (Esc played its own).
 		turnFailed := false
@@ -565,7 +587,8 @@ func (t *repl) startTurnWith(parent context.Context, prompt string, team *teams.
 		go func() { rendered <- t.consume(parts) }()
 		final, err := t.run.RunTurn(ctx, agent.TurnOptions{
 			Input:   prompt,
-			Team:    team,
+			Team:    origin.team,
+			Btw:     origin.btw,
 			Tracker: t.tracker(),
 			Tap: func(p ai.StreamPart) {
 				if d, ok := p.(provider.TextDelta); ok {

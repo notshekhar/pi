@@ -6,8 +6,6 @@ import (
 	"sync"
 
 	"github.com/notshekhar/pi/internal/ai/provider"
-	"github.com/notshekhar/pi/internal/core/config"
-	"github.com/notshekhar/pi/internal/core/session"
 	"github.com/notshekhar/pi/internal/core/teams"
 	"github.com/notshekhar/pi/internal/tui"
 )
@@ -19,10 +17,7 @@ import (
 type tuiTeamRuntime struct {
 	t      *repl
 	parent context.Context
-	// opening serialises opening slots, so two deliveries to one thread at
-	// once share one slot instead of loading its session twice.
-	opening sync.Mutex
-	mu      sync.Mutex
+	mu     sync.Mutex
 	// pending is team turns handed over while their thread was busy.
 	pending map[*slot][]queuedTeamTurn
 }
@@ -88,7 +83,7 @@ func (rt *tuiTeamRuntime) start(s *slot, turn queuedTeamTurn) bool {
 	}
 	p := &repl{shared: rt.t.shared, slot: s}
 	meta := turn.meta
-	return p.startTurnWith(rt.parent, turn.input, &meta)
+	return p.startTurnWith(rt.parent, turn.input, turnOrigin{team: &meta})
 }
 
 // drain runs what waited for a thread that is free now; a closed thread's
@@ -153,50 +148,14 @@ func (rt *tuiTeamRuntime) Cancel(sessionID string) {
 }
 
 // memberSlot is the slot a thread runs in: open already, or loaded from
-// disk into a new background slot that runs the way its lead started it.
+// disk into a new background slot that runs as its lead started it, not as
+// whatever tab is in front.
 func (rt *tuiTeamRuntime) memberSlot(sessionID string) (*slot, error) {
-	rt.opening.Lock()
-	defer rt.opening.Unlock()
-	t := rt.t
-	if s := t.slots.bySessionID(sessionID); s != nil {
-		return s, nil
-	}
-	sess, err := session.Load(sessionID)
-	if err != nil {
-		return nil, err
-	}
-	run := t.slots.foreground().run.Fork()
-	run.Session = sess
-	model := sess.LastModel()
-	if model == "" {
-		model = sess.Info.Model
-	}
-	run.Config.Provider, run.Config.ModelID = config.SplitModel(model)
-	run.Config.CWD = sess.Info.CWD
-	run.Tools.CWD = sess.Info.CWD
-	// A thread runs as its lead started it, not as whatever tab is in front.
+	opening := slotOpening{banner: func(p *repl) { p.introduceMember(sessionID) }}
 	if rc, ok := teams.MemberRunConfig(sessionID); ok {
-		if rc.Thinking != "" {
-			run.Config.Reasoning = provider.ReasoningEffort(rc.Thinking)
-		}
-		run.UseAgent(rc.Agent)
+		opening.choices = backgroundRunChoices{thinking: provider.ReasoningEffort(rc.Thinking), agent: rc.Agent, useAgent: true}
 	}
-	s := &slot{cfg: run.Config, run: run, agent: run.Agent, conv: tui.NewConversation(run.Config.FullID()), firstPrompt: sess.Name()}
-	t.slots.add(s)
-	t.wireRun(s)
-	p := &repl{shared: t.shared, slot: s}
-	// Drawn before anything can run in the slot: a replay that landed after
-	// a turn had started would draw that turn's saved steps over its live
-	// ones.
-	drawn := make(chan struct{})
-	p.do(func() {
-		p.introduceMember(sessionID)
-		p.replayTranscript(sess)
-		close(drawn)
-	})
-	<-drawn
-	t.refreshSessionsChip()
-	return s, nil
+	return rt.t.slotFor(sessionID, opening)
 }
 
 // echoTeamTurn opens a team turn in the transcript: who it came from, then

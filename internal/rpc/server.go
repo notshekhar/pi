@@ -431,6 +431,8 @@ type turnRequest struct {
 	input, modelID, thinking, agent string
 	// team is why the team started the turn; nil when a client sent it.
 	team *teams.TurnMeta
+	// btw is the question opening a `/btw` side thread.
+	btw *session.BtwMeta
 }
 
 // startTurn runs a turn this server owns; its events stream to subscribers.
@@ -461,7 +463,7 @@ func (s *Server) startTurn(id string, c *activeSession, req turnRequest) error {
 			s.broadcast(id, c, event, data)
 			c.mu.Unlock()
 		}
-		_, _ = run.RunTurn(ctx, agent.TurnOptions{Input: req.input, Tracker: tracker, Emit: emit, Team: req.team})
+		_, _ = run.RunTurn(ctx, agent.TurnOptions{Input: req.input, Tracker: tracker, Emit: emit, Team: req.team, Btw: req.btw})
 		// RunTurn already emitted any error.
 		c.mu.Lock()
 		defer c.mu.Unlock()

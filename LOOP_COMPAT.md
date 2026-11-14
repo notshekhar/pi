@@ -29,9 +29,19 @@ Status: **[x]** compatible · **[~]** partial · **[ ]** not yet
 | `reminders` | reminders | [ ] |
 | `teams`, `team_members`, `team_messages`, `team_member_runs` | teams/store.ts | [~] never run; deleting a session leaves its team as loop's `forgetTeamSession` does (a lead dissolves its team, board kept) |
 | `goals` | goals/ | [ ] (preserved, unused) |
+| `usage_rollup`, `ledger_rollup` + six triggers — running totals for /steak and /cost, stamped `meta.rollups_version` | sessions/rollups.ts | [x] `db/rollups.go`, same SQL; whichever opens first builds them |
 
 Entry types: `session-info`, `message`, `subagent`, `model-change`, `compact`,
 `branch-summary`, `label`, `session-name`, `custom`.
+
+The rollup triggers live in the database, so every writer keeps the totals
+right; `internal/core/db/rollups.go` must stay byte-for-byte loop's SQL and
+version, or the two programs keep rebuilding each other's totals.
+
+A `/btw` question's user message carries `btw: {parentId, parentTitle}`;
+pi reads and writes it (`session.BtwMeta`). It is for the UI only — the model
+sees the question as typed. A side thread's session row has a `btw: ` name and
+its source's transcript path as `parentSession`.
 
 ## Files
 

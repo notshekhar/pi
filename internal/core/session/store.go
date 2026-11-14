@@ -360,13 +360,13 @@ func DailyTokens() (map[string]int64, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.Query(`SELECT date(ts / 1000, 'unixepoch', 'localtime') AS day,
-			SUM(COALESCE(usage_input, 0) + COALESCE(usage_output, 0)) AS toks
-		FROM entries
-		WHERE ((type = 'message' AND role = 'assistant') OR type = 'subagent')
-		  AND COALESCE(usage_input, 0) + COALESCE(usage_output, 0) > 0
-		  AND COALESCE(usage_estimated, 0) = 0
-		GROUP BY day`)
+	// Read off the trigger-kept quarter-hour totals (db/rollups.go), not a
+	// scan of every entry; the local day is taken here, at read time.
+	rows, err := h.Query(fmt.Sprintf(`SELECT date(bucket * %d, 'unixepoch', 'localtime') AS day,
+			SUM(tokens) AS toks
+		FROM usage_rollup
+		GROUP BY day
+		HAVING toks > 0`, db.UsageBucketMS/1000))
 	if err != nil {
 		return nil, err
 	}

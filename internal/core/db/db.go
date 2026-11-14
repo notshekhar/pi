@@ -402,6 +402,10 @@ func prepare(h *sql.DB) error {
 		}
 	}
 
+	if err := ensureRollups(h); err != nil {
+		return err
+	}
+
 	// quick_check scans the whole file, so it is earned rather than routine:
 	// Close stamps '1', open flips it to '0' for the run, and a crash
 	// therefore leaves '0' behind and the next open verifies.

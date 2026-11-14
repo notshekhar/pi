@@ -241,8 +241,7 @@ func Stats(cwd string) (CostStats, error) {
 	}
 	life := 0.0
 
-	rows, err := h.Query(`SELECT provider, SUM(usd) FROM cost_ledger
-		WHERE estimated = 0 AND backfilled = 0 GROUP BY provider`)
+	rows, err := h.Query(`SELECT provider, SUM(usd) FROM ledger_rollup GROUP BY provider`)
 	if err != nil {
 		return st, err
 	}
@@ -262,8 +261,7 @@ func Stats(cwd string) (CostStats, error) {
 	// days; a day in both is ledger + baseline. Float sums are order-sensitive.
 	daily := map[string]float64{}
 	var order []string
-	rows, err = h.Query(`SELECT day, SUM(usd) FROM cost_ledger
-		WHERE estimated = 0 AND backfilled = 0 GROUP BY day`)
+	rows, err = h.Query(`SELECT day, SUM(usd) FROM ledger_rollup GROUP BY day`)
 	if err != nil {
 		return st, err
 	}
@@ -304,8 +302,7 @@ func Stats(cwd string) (CostStats, error) {
 	st.Today = daily[today]
 	if cwd != "" {
 		var usd float64
-		_ = h.QueryRow(`SELECT COALESCE(SUM(usd), 0) FROM cost_ledger
-			WHERE cwd = ? AND estimated = 0 AND backfilled = 0`, cwd).Scan(&usd)
+		_ = h.QueryRow(`SELECT COALESCE(SUM(usd), 0) FROM ledger_rollup WHERE cwd = ?`, cwd).Scan(&usd)
 		st.Cwd = usd + base.ByCwd[cwd]
 	}
 	return st, nil
@@ -318,7 +315,7 @@ type Totals struct {
 	CostUSD                   float64
 }
 
-// TotalUsage sums the whole ledger.
+// TotalUsage sums the whole ledger, read off its trigger-kept totals (db/rollups.go).
 func TotalUsage() (Totals, error) {
 	h, err := db.Open()
 	if err != nil {
@@ -327,7 +324,7 @@ func TotalUsage() (Totals, error) {
 	var t Totals
 	err = h.QueryRow(`SELECT (SELECT COUNT(*) FROM sessions), COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0), COALESCE(SUM(usd), 0)
-		FROM cost_ledger WHERE estimated = 0 AND backfilled = 0`).
+		FROM ledger_rollup`).
 		Scan(&t.Sessions, &t.InputTokens, &t.OutputTokens, &t.CostUSD)
 	return t, err
 }

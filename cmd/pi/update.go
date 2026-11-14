@@ -141,12 +141,16 @@ func resolveAvailableUpdate(ctx context.Context, current string) string {
 }
 
 // installCommand runs the platform installer.
+//
+// A connect timeout, because raw.githubusercontent.com shares GitHub's CDN
+// addresses and one can be unreachable from a given network: without it curl
+// waits the OS's full 75s on that address before trying the next.
 func installCommand(force bool) *exec.Cmd {
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "irm "+upgradeURLPS1+" | iex")
 	} else {
-		cmd = exec.Command("bash", "-c", "curl -fsSL "+upgradeURL+" | bash")
+		cmd = exec.Command("bash", "-c", "curl --connect-timeout 10 -fsSL "+upgradeURL+" | bash")
 	}
 	cmd.Env = os.Environ()
 	if force {

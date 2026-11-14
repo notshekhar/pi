@@ -35,7 +35,7 @@ type MailView struct {
 	Kind      Kind   `json:"kind"`
 	Text      string `json:"text"`
 	TS        int64  `json:"ts"`
-	Broadcast bool   `json:"broadcast,omitempty"`
+	Broadcast bool   `json:"broadcast,omitzero"`
 }
 
 // TurnMeta is why a turn the team started is running. It rides on the
@@ -46,14 +46,14 @@ type TurnMeta struct {
 	Kind   string `json:"kind"`
 	TeamID string `json:"teamId"`
 	// From is, for a spawn, the lead that started the member.
-	From *Peer `json:"from,omitempty"`
+	From *Peer `json:"from,omitzero"`
 	// Title is, for a spawn, the thread's own title.
 	Title string `json:"title,omitempty"`
 	// Agent is, for a spawn, the named agent the lead chose.
 	Agent string     `json:"agent,omitempty"`
 	Mail  []MailView `json:"mail,omitempty"`
 	// MidTurn is set on mail delivered between two steps of a running turn.
-	MidTurn bool `json:"midTurn,omitempty"`
+	MidTurn bool `json:"midTurn,omitzero"`
 }
 
 // MailIDs is the mail a team turn carries, to put back if it never runs.

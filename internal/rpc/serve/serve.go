@@ -11,7 +11,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net"
@@ -23,6 +23,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/rpc"
 )
@@ -124,7 +125,7 @@ type wsTransport struct {
 }
 
 func (t *wsTransport) Send(msg any) {
-	raw, err := json.Marshal(msg)
+	raw, err := json.Marshal(msg, jsonopt.Write)
 	if err != nil {
 		return
 	}
@@ -169,7 +170,7 @@ func Start(o Options) (*Handle, error) {
 	)
 	ws := newWorkspace(server, func(channel string, payload any) {
 		frame, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": workspaceEvent,
-			"params": map[string]any{"channel": channel, "payload": payload}})
+			"params": map[string]any{"channel": channel, "payload": payload}}, jsonopt.Write)
 		socketsMu.Lock()
 		list := make([]*wsTransport, 0, len(sockets))
 		for s := range sockets {
@@ -240,7 +241,7 @@ func Start(o Options) (*Handle, error) {
 						} else {
 							resp = map[string]any{"jsonrpc": "2.0", "id": req.id, "result": result}
 						}
-						raw, _ := json.Marshal(resp)
+						raw, _ := json.Marshal(resp, jsonopt.Write)
 						t.send(raw)
 					}()
 					continue

@@ -5,7 +5,8 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
@@ -109,7 +111,7 @@ func (t *bridgedTool) InputSchema() *jsonschema.Schema { return t.schema }
 // Server is the server this tool belongs to.
 func (t *bridgedTool) Server() string { return t.server }
 
-func (t *bridgedTool) Execute(ctx context.Context, input json.RawMessage) (ai.ToolResult, error) {
+func (t *bridgedTool) Execute(ctx context.Context, input jsontext.Value) (ai.ToolResult, error) {
 	client, gen := t.m.liveClient(t.server)
 	if client == nil {
 		return ai.ToolErrorf("MCP server %q is not connected — /mcp to see why", t.server), nil
@@ -180,8 +182,8 @@ func toolResult(r CallToolResult) ai.ToolResult {
 	// text block would otherwise hand the model nothing at all.
 	if len(texts) == 0 && len(r.StructuredContent) > 0 && string(r.StructuredContent) != "null" {
 		var v any
-		if json.Unmarshal(r.StructuredContent, &v) == nil {
-			pretty, _ := json.MarshalIndent(v, "", "  ")
+		if json.Unmarshal(r.StructuredContent, &v, jsonopt.Read) == nil {
+			pretty, _ := json.Marshal(v, jsonopt.Write, jsontext.WithIndent("  "))
 			texts = append(texts, string(pretty))
 			parts = append(parts, provider.ToolContentText{Text: string(pretty)})
 		}
@@ -226,12 +228,12 @@ func (m *Manager) bridge(server string, cfg ServerConfig, defs []ToolDef) []ai.T
 // parseSchema decodes a server-supplied JSON schema. An unusable one yields
 // a permissive object rather than nil: nil means "takes no arguments",
 // which would make the model call it wrongly forever.
-func parseSchema(raw json.RawMessage) *jsonschema.Schema {
+func parseSchema(raw jsontext.Value) *jsonschema.Schema {
 	if len(raw) == 0 {
 		return &jsonschema.Schema{Type: jsonschema.Object}
 	}
 	var s jsonschema.Schema
-	if err := json.Unmarshal(raw, &s); err != nil {
+	if err := json.Unmarshal(raw, &s, jsonopt.Read); err != nil {
 		return &jsonschema.Schema{Type: jsonschema.Object}
 	}
 	if s.Type == "" {

@@ -2,13 +2,14 @@ package anthropic
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -58,7 +59,7 @@ func (m *languageModel) DoStream(ctx context.Context, opts provider.CallOptions)
 		s.run(resp.body)
 	}()
 
-	requestBody, _ := json.Marshal(req)
+	requestBody, _ := json.Marshal(req, jsonopt.Write)
 
 	return &provider.StreamResult{
 		Stream:   out,
@@ -149,7 +150,7 @@ func (s *streamState) run(body io.ReadCloser) {
 		}
 
 		var event streamEvent
-		if err := json.Unmarshal([]byte(ev.Data), &event); err != nil {
+		if err := json.Unmarshal([]byte(ev.Data), &event, jsonopt.Read); err != nil {
 			// A single malformed event should not abandon a generation that
 			// is otherwise progressing.
 			s.emit(provider.ErrorPart{Err: &provider.InvalidResponseError{
@@ -162,7 +163,7 @@ func (s *streamState) run(body io.ReadCloser) {
 
 		if s.raw {
 			var rawValue any
-			if json.Unmarshal([]byte(ev.Data), &rawValue) == nil {
+			if json.Unmarshal([]byte(ev.Data), &rawValue, jsonopt.Read) == nil {
 				s.emit(provider.Raw{RawValue: rawValue})
 			}
 		}

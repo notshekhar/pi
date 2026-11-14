@@ -2,13 +2,15 @@ package trace
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"os"
 	"reflect"
 	"sort"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/session"
 )
 
@@ -36,11 +38,11 @@ func TestParityWithLoop(t *testing.T) {
 	checked, failed := 0, 0
 	for sc.Scan() {
 		var row struct {
-			ID       string          `json:"id"`
-			Trace    json.RawMessage `json:"trace"`
-			Headline string          `json:"headline"`
+			ID       string         `json:"id"`
+			Trace    jsontext.Value `json:"trace"`
+			Headline string         `json:"headline"`
 		}
-		if json.Unmarshal(sc.Bytes(), &row) != nil || row.Trace == nil {
+		if json.Unmarshal(sc.Bytes(), &row, jsonopt.Read) != nil || row.Trace == nil {
 			continue
 		}
 		s, err := session.Load(row.ID)
@@ -50,10 +52,10 @@ func TestParityWithLoop(t *testing.T) {
 		}
 		m := FromSession(s)
 		m.GeneratedAt = 0
-		raw, _ := json.Marshal(m)
+		raw, _ := json.Marshal(m, jsonopt.Write)
 		var a, b any
-		_ = json.Unmarshal(raw, &a)
-		_ = json.Unmarshal(row.Trace, &b)
+		_ = json.Unmarshal(raw, &a, jsonopt.Read)
+		_ = json.Unmarshal(row.Trace, &b, jsonopt.Read)
 		checked++
 		if !reflect.DeepEqual(a, b) || Headline(m) != row.Headline {
 			failed++

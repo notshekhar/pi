@@ -29,6 +29,14 @@ cross-compiler to release. Everything goes through `database/sql` and
 `modernc.org/sqlite` is one import line. Do not add a second dependency
 without the same kind of reason.
 
+JSON is `encoding/json/v2` + `jsontext`, never v1. Pass `jsonopt.Read` to
+every decode and `jsonopt.Write` to every encode (`internal/ai/jsonopt` says
+why: loop writes lone surrogates, tool output is raw bytes, map keys must stay
+sorted). In struct tags, `omitempty` is only for strings, slices and maps; a
+bool, number, pointer, interface or `jsontext.Value` takes `omitzero`, because
+v2's `omitempty` keeps `false`/`0` and drops `{}`/`""`. Untagged fields no
+longer match case-insensitively — tag anything decoded from outside.
+
 Tools live in `core/tools`. The edit matcher is the fixed loop version:
 fuzzy match is found in normalized space, then rewritten only on the real
 span. Never normalize the whole file and write it back.

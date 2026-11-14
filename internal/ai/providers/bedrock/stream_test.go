@@ -2,11 +2,12 @@ package bedrock
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providertest"
@@ -23,7 +24,7 @@ func eventStreamHandler(frames ...[]byte) http.HandlerFunc {
 }
 
 func frame(eventType string, payload any) []byte {
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(payload, jsonopt.Write)
 	if err != nil {
 		panic(err)
 	}

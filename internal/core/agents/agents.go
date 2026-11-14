@@ -68,7 +68,7 @@ type Info struct {
 	Builtin bool     `json:"builtin"`
 	Tools   []string `json:"tools,omitempty"`
 	Model   string   `json:"model,omitempty"`
-	Hidden  bool     `json:"hidden,omitempty"`
+	Hidden  bool     `json:"hidden,omitzero"`
 }
 
 // Dir is ~/.loop/agents.

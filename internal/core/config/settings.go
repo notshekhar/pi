@@ -1,12 +1,14 @@
 package config
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"reflect"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/home"
 	"github.com/notshekhar/pi/internal/core/hooks"
@@ -74,10 +76,10 @@ type Settings struct {
 	ClaudeHooksFilter    []string          `json:"claudeHooksFilter"`
 	// Hooks are Claude Code's matcher groups keyed by event; parsed by the
 	// hooks package.
-	Hooks            map[string]json.RawMessage  `json:"hooks"`
+	Hooks            map[string]jsontext.Value   `json:"hooks"`
 	MCP              *bool                       `json:"mcp"`
 	MCPServers       map[string]mcp.ServerConfig `json:"mcpServers"`
-	MCPToolSearchRaw json.RawMessage             `json:"mcpToolSearch"`
+	MCPToolSearchRaw jsontext.Value              `json:"mcpToolSearch"`
 	// BashDeny: nil = loop's default deny list; set (even empty) = full control.
 	BashDeny    []string            `json:"bashDeny"`
 	Permissions *PermissionsSetting `json:"permissions"`
@@ -101,13 +103,13 @@ type PermissionsSetting struct {
 
 // SandboxSetting is loop's OS sandbox for bash.
 type SandboxSetting struct {
-	Enabled        *bool           `json:"enabled,omitempty"`
-	Network        json.RawMessage `json:"network,omitempty"`
-	AllowWrite     []string        `json:"allowWrite,omitempty"`
-	DenyWrite      []string        `json:"denyWrite,omitempty"`
-	DenyRead       []string        `json:"denyRead,omitempty"`
-	AllowRead      []string        `json:"allowRead,omitempty"`
-	AllowGitConfig *bool           `json:"allowGitConfig,omitempty"`
+	Enabled        *bool          `json:"enabled,omitzero"`
+	Network        jsontext.Value `json:"network,omitzero"`
+	AllowWrite     []string       `json:"allowWrite,omitempty"`
+	DenyWrite      []string       `json:"denyWrite,omitempty"`
+	DenyRead       []string       `json:"denyRead,omitempty"`
+	AllowRead      []string       `json:"allowRead,omitempty"`
+	AllowGitConfig *bool          `json:"allowGitConfig,omitzero"`
 }
 
 // On reports whether the sandbox is enabled.
@@ -135,7 +137,7 @@ func decodeSettings(o *jsonstore.Object) Settings {
 			continue
 		}
 		ptr := reflect.New(t.Field(i).Type)
-		if json.Unmarshal(raw, ptr.Interface()) == nil {
+		if json.Unmarshal(raw, ptr.Interface(), jsonopt.Read) == nil {
 			v.Field(i).Set(ptr.Elem())
 		}
 	}
@@ -291,11 +293,11 @@ func (s Settings) MCPToolSearch(toolCount int) bool {
 		return toolCount > threshold
 	}
 	var forced bool
-	if json.Unmarshal(s.MCPToolSearchRaw, &forced) == nil {
+	if json.Unmarshal(s.MCPToolSearchRaw, &forced, jsonopt.Read) == nil {
 		return forced
 	}
 	var n float64
-	if json.Unmarshal(s.MCPToolSearchRaw, &n) == nil && n >= 0 {
+	if json.Unmarshal(s.MCPToolSearchRaw, &n, jsonopt.Read) == nil && n >= 0 {
 		threshold = int(n)
 	}
 	return toolCount > threshold

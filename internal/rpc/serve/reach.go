@@ -2,7 +2,7 @@ package serve
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"net"
 	"os"
 	"os/exec"
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // IsLoopbackHost is loop's isLoopbackHost.
@@ -63,7 +65,7 @@ func TailnetIdentity() *Tailnet {
 				TailscaleIPs []string
 			}
 		}
-		if json.Unmarshal(out, &st) != nil {
+		if json.Unmarshal(out, &st, jsonopt.Read) != nil {
 			continue
 		}
 		if st.BackendState != "Running" || st.Self == nil {

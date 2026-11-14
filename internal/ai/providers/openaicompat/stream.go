@@ -2,13 +2,15 @@ package openaicompat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -35,7 +37,7 @@ func (m *languageModel) DoStream(ctx context.Context, opts provider.CallOptions)
 	}
 
 	resp, err := providerutil.Retry(ctx, m.provider.retry, func(ctx context.Context) (io.ReadCloser, error) {
-		httpResp, err := m.provider.client.PostJSON(ctx, m.provider.chatPath, json.RawMessage(body), opts.Headers)
+		httpResp, err := m.provider.client.PostJSON(ctx, m.provider.chatPath, jsontext.Value(body), opts.Headers)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +132,7 @@ func (s *streamState) run(body io.ReadCloser) {
 		}
 
 		var chunk streamChunk
-		if err := json.Unmarshal([]byte(ev.Data), &chunk); err != nil {
+		if err := json.Unmarshal([]byte(ev.Data), &chunk, jsonopt.Read); err != nil {
 			s.emit(provider.ErrorPart{Err: &provider.InvalidResponseError{
 				Message:  "could not decode stream chunk",
 				Response: ev.Data,
@@ -141,7 +143,7 @@ func (s *streamState) run(body io.ReadCloser) {
 
 		if s.raw {
 			var rawValue any
-			if json.Unmarshal([]byte(ev.Data), &rawValue) == nil {
+			if json.Unmarshal([]byte(ev.Data), &rawValue, jsonopt.Read) == nil {
 				s.emit(provider.Raw{RawValue: rawValue})
 			}
 		}

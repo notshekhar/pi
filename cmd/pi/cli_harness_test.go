@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // The subcommand tests run the real binary in a scratch HOME: exit codes,
@@ -111,7 +113,7 @@ func (h piHome) mustRun(t *testing.T, want int, args ...string) piResult {
 
 // anthropicReply is one streamed Anthropic message saying text.
 func anthropicReply(text string) string {
-	delta, _ := json.Marshal(text)
+	delta, _ := json.Marshal(text, jsonopt.Write)
 	return `event: message_start
 data: {"type":"message_start","message":{"id":"m1","type":"message","role":"assistant","model":"claude-x","content":[],"usage":{"input_tokens":10,"output_tokens":1}}}
 
@@ -170,7 +172,7 @@ func (h piHome) writeLoopFile(t *testing.T, name string, v any) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	data, _ := json.Marshal(v)
+	data, _ := json.Marshal(v, jsonopt.Write)
 	if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
 		t.Fatal(err)
 	}

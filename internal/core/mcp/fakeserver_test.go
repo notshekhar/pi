@@ -29,7 +29,8 @@ const fakeServerSrc = `package main
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"os"
 	"os/exec"
@@ -66,8 +67,8 @@ func main() {
 			return
 		}
 		var req struct {
-			ID     json.RawMessage ` + "`json:\"id\"`" + `
-			Method string          ` + "`json:\"method\"`" + `
+			ID     jsontext.Value ` + "`json:\"id\"`" + `
+			Method string         ` + "`json:\"method\"`" + `
 			Params struct {
 				Name      string ` + "`json:\"name\"`" + `
 				URI       string ` + "`json:\"uri\"`" + `
@@ -75,7 +76,7 @@ func main() {
 					Text string ` + "`json:\"text\"`" + `
 				} ` + "`json:\"arguments\"`" + `
 			} ` + "`json:\"params\"`" + `
-			Result json.RawMessage ` + "`json:\"result\"`" + `
+			Result jsontext.Value ` + "`json:\"result\"`" + `
 		}
 		if json.Unmarshal(line, &req) != nil {
 			continue
@@ -116,7 +117,7 @@ func main() {
 				send(map[string]any{"jsonrpc": "2.0", "method": "notifications/message", "params": map[string]any{"level": "info", "data": "hi"}})
 				reply(text("quiet now"))
 			case "pingme":
-				go func(id json.RawMessage) {
+				go func(id jsontext.Value) {
 					send(map[string]any{"jsonrpc": "2.0", "id": "srv-1", "method": "ping"})
 					<-pongs
 					send(map[string]any{"jsonrpc": "2.0", "id": id, "result": text("pong received")})

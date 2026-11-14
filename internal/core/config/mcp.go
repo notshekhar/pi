@@ -1,11 +1,13 @@
 package config
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"sort"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/home"
 	"github.com/notshekhar/pi/internal/core/jsonstore"
 	"github.com/notshekhar/pi/internal/core/mcp"
@@ -35,10 +37,10 @@ func ProjectMCPServers(cwd string) map[string]mcp.ServerConfig {
 	var wrapped struct {
 		MCPServers map[string]mcp.ServerConfig `json:"mcpServers"`
 	}
-	if json.Unmarshal(data, &wrapped) == nil && wrapped.MCPServers != nil {
+	if json.Unmarshal(data, &wrapped, jsonopt.Read) == nil && wrapped.MCPServers != nil {
 		return wrapped.MCPServers
 	}
-	_ = json.Unmarshal(data, &out)
+	_ = json.Unmarshal(data, &out, jsonopt.Read)
 	return out
 }
 
@@ -105,7 +107,7 @@ func writeProjectServers(cwd string, servers map[string]mcp.ServerConfig) error 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(map[string]any{"mcpServers": servers}, "", "  ")
+	data, err := json.Marshal(map[string]any{"mcpServers": servers}, jsonopt.Write, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}

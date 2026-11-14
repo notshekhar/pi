@@ -47,10 +47,10 @@ type predictInstance struct {
 
 // predictParameters carries the generation settings.
 type predictParameters struct {
-	SampleCount int `json:"sampleCount,omitempty"`
+	SampleCount int `json:"sampleCount,omitzero"`
 	// AspectRatio is how Imagen sizes an image; it takes no pixel dimensions.
 	AspectRatio string `json:"aspectRatio,omitempty"`
-	Seed        *int64 `json:"seed,omitempty"`
+	Seed        *int64 `json:"seed,omitzero"`
 	// PersonGeneration gates images of people and defaults to Google's own
 	// policy when unset.
 	PersonGeneration string `json:"personGeneration,omitempty"`

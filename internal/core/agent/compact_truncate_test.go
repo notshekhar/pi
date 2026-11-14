@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/session"
 )
@@ -62,7 +64,7 @@ func TestFailedSummaryTruncatesInstead(t *testing.T) {
 		t.Fatal("no compaction saved")
 	}
 	var why string
-	_ = json.Unmarshal(c.Extra["truncated"], &why)
+	_ = json.Unmarshal(c.Extra["truncated"], &why, jsonopt.Read)
 	if !strings.Contains(why, "invalid x-api-key") {
 		t.Errorf("entry truncated = %q", why)
 	}
@@ -102,7 +104,7 @@ func TestIdleSummaryFailureIsReportedNotTruncated(t *testing.T) {
 
 func TestRolloverHandoffKeepsInputsNotProse(t *testing.T) {
 	msg := func(role, content string) session.Entry {
-		return session.Entry{Type: session.TypeMessage, Role: role, Content: json.RawMessage(content)}
+		return session.Entry{Type: session.TypeMessage, Role: role, Content: jsontext.Value(content)}
 	}
 	branch := []session.Entry{
 		msg("user", `"fix the parser"`),

@@ -2,7 +2,7 @@ package teams
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 	"strings"
@@ -16,8 +16,8 @@ import (
 // it, then say what happened.
 
 type waitArgs struct {
-	Until      json.RawMessage `json:"until,omitempty"`
-	TimeoutSec *float64        `json:"timeoutSec,omitempty"`
+	Until      jsontext.Value `json:"until,omitzero"`
+	TimeoutSec *float64       `json:"timeoutSec,omitzero"`
 }
 
 type waitOutcome string
@@ -94,7 +94,7 @@ func waitTimeoutFor(sec *float64) time.Duration {
 	return time.Duration(min(maxWaitSec, max(minWaitSec, s)) * float64(time.Second))
 }
 
-func newWaiter(self, teamID string, until json.RawMessage) (*waiter, string) {
+func newWaiter(self, teamID string, until jsontext.Value) (*waiter, string) {
 	roster, _ := ListTeam(teamID)
 	mode, ids := decodeUntil(until)
 	w := &waiter{self: self, teamID: teamID, mode: mode, startState: map[string]State{}}

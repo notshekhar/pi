@@ -22,10 +22,12 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"reflect"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
@@ -53,7 +55,7 @@ type Tool interface {
 	// conversation continues, which is almost always what an agent wants: the
 	// model can read the message and try something else. To abort the whole
 	// run instead, return an error wrapping ErrAbortRun.
-	Execute(ctx context.Context, input json.RawMessage) (ToolResult, error)
+	Execute(ctx context.Context, input jsontext.Value) (ToolResult, error)
 }
 
 // ToolResult is what a tool reports back to the model.
@@ -199,7 +201,7 @@ func (t *typedTool[T]) Description() string { return t.description }
 func (t *typedTool[T]) InputSchema() *jsonschema.Schema { return t.schema }
 
 // Execute implements Tool by decoding the model's arguments into T.
-func (t *typedTool[T]) Execute(ctx context.Context, input json.RawMessage) (ToolResult, error) {
+func (t *typedTool[T]) Execute(ctx context.Context, input jsontext.Value) (ToolResult, error) {
 	var args T
 
 	// A tool with no fields is called with no arguments, and some providers
@@ -211,7 +213,7 @@ func (t *typedTool[T]) Execute(ctx context.Context, input json.RawMessage) (Tool
 		}
 	}
 	if len(input) > 0 && string(input) != "null" {
-		if err := json.Unmarshal(input, &args); err != nil {
+		if err := json.Unmarshal(input, &args, jsonopt.Read); err != nil {
 			// Malformed arguments are the model's mistake, not the program's,
 			// so report them back rather than failing the run. Naming the
 			// offending payload lets the model correct itself.
@@ -280,10 +282,10 @@ func specTools(tools []Tool, hosted []provider.ProviderTool) []provider.Tool {
 
 // validateInput checks a call's arguments against a hand-written schema. No
 // arguments at all is read as an empty object, as providers send it.
-func validateInput(schema *jsonschema.Schema, input json.RawMessage) error {
+func validateInput(schema *jsonschema.Schema, input jsontext.Value) error {
 	var value any = map[string]any{}
 	if len(input) > 0 && string(input) != "null" {
-		if err := json.Unmarshal(input, &value); err != nil {
+		if err := json.Unmarshal(input, &value, jsonopt.Read); err != nil {
 			return err
 		}
 	}

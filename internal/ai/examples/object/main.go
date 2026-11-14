@@ -11,13 +11,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providers/anthropic"
 	"github.com/notshekhar/pi/internal/ai/providers/deepseek"
@@ -101,7 +103,7 @@ func run(ctx context.Context, opts ai.Options, stream bool) error {
 }
 
 func print(v Assessment) error {
-	encoded, err := json.MarshalIndent(v, "", "  ")
+	encoded, err := json.Marshal(v, jsonopt.Write, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}

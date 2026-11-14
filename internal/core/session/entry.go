@@ -2,8 +2,11 @@ package session
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"sort"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // Entry types — loop's Entry union (types.ts).
@@ -34,7 +37,7 @@ type Entry struct {
 
 	// message
 	Role        string
-	Content     json.RawMessage // string or AI SDK part array
+	Content     jsontext.Value // string or AI SDK part array
 	Usage       *Usage
 	Model       string // also session-info's model
 	Interrupted bool
@@ -65,7 +68,7 @@ type Entry struct {
 	Name *string
 
 	// custom
-	Payload json.RawMessage
+	Payload jsontext.Value
 
 	// subagent
 	Agent  string
@@ -77,12 +80,12 @@ type Entry struct {
 
 	// tsRaw is the ts as it was read, so a fractional value loop wrote comes
 	// back out unchanged when TS was not touched.
-	tsRaw json.RawMessage
+	tsRaw jsontext.Value
 	tsAt  int64
 
 	// Extra holds every key not modelled above (timing, team, activity,
 	// details, trigger, …), raw, so a round trip loses nothing.
-	Extra map[string]json.RawMessage
+	Extra map[string]jsontext.Value
 }
 
 // modelled lists, per type, the keys the typed fields own. Everything else in
@@ -114,22 +117,22 @@ func owns(typ, key string) bool {
 
 // UnmarshalJSON reads a row, typed where modelled and raw everywhere else.
 func (e *Entry) UnmarshalJSON(data []byte) error {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(data, &m); err != nil {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(data, &m, jsonopt.Read); err != nil {
 		return err
 	}
 	*e = Entry{}
 	get := func(key string, into any) {
 		if raw, ok := m[key]; ok && !bytes.Equal(raw, []byte("null")) {
-			_ = json.Unmarshal(raw, into)
+			_ = json.Unmarshal(raw, into, jsonopt.Read)
 		}
 	}
 	get("type", &e.Type)
 	if raw, ok := m["ts"]; ok {
 		var f float64
-		if json.Unmarshal(raw, &f) == nil {
+		if json.Unmarshal(raw, &f, jsonopt.Read) == nil {
 			e.TS = int64(f)
-			e.tsRaw, e.tsAt = append(json.RawMessage{}, raw...), e.TS
+			e.tsRaw, e.tsAt = append(jsontext.Value{}, raw...), e.TS
 		}
 	}
 	get("id", &e.ID)
@@ -144,7 +147,7 @@ func (e *Entry) UnmarshalJSON(data []byte) error {
 	case TypeMessage:
 		get("role", &e.Role)
 		if raw, ok := m["content"]; ok {
-			e.Content = append(json.RawMessage{}, raw...)
+			e.Content = append(jsontext.Value{}, raw...)
 		}
 		get("model", &e.Model)
 		get("interrupted", &e.Interrupted)
@@ -173,34 +176,34 @@ func (e *Entry) UnmarshalJSON(data []byte) error {
 		get("targetId", &e.TargetID)
 		if raw, ok := m["label"]; ok && !bytes.Equal(raw, []byte("null")) {
 			var l string
-			if json.Unmarshal(raw, &l) == nil {
+			if json.Unmarshal(raw, &l, jsonopt.Read) == nil {
 				e.Label = &l
 			}
 		}
 	case TypeSessionName:
 		if raw, ok := m["name"]; ok && !bytes.Equal(raw, []byte("null")) {
 			var n string
-			if json.Unmarshal(raw, &n) == nil {
+			if json.Unmarshal(raw, &n, jsonopt.Read) == nil {
 				e.Name = &n
 			}
 		}
 	case TypeCustom:
 		if raw, ok := m["payload"]; ok {
-			e.Payload = append(json.RawMessage{}, raw...)
+			e.Payload = append(jsontext.Value{}, raw...)
 		}
 	}
 	if raw, ok := m["usage"]; ok && owns(e.Type, "usage") && !bytes.Equal(raw, []byte("null")) {
 		var u Usage
-		if json.Unmarshal(raw, &u) == nil {
+		if json.Unmarshal(raw, &u, jsonopt.Read) == nil {
 			e.Usage = &u
 		}
 	}
 	for k, v := range m {
 		if !owns(e.Type, k) {
 			if e.Extra == nil {
-				e.Extra = map[string]json.RawMessage{}
+				e.Extra = map[string]jsontext.Value{}
 			}
-			e.Extra[k] = append(json.RawMessage{}, v...)
+			e.Extra[k] = append(jsontext.Value{}, v...)
 		}
 	}
 	return nil
@@ -213,7 +216,7 @@ func (e Entry) MarshalJSON() ([]byte, error) {
 	b.WriteByte('{')
 	first := true
 	put := func(key string, v any) {
-		raw, err := json.Marshal(v)
+		raw, err := json.Marshal(v, jsonopt.Write)
 		if err != nil {
 			return
 		}
@@ -221,12 +224,12 @@ func (e Entry) MarshalJSON() ([]byte, error) {
 			b.WriteByte(',')
 		}
 		first = false
-		k, _ := json.Marshal(key)
+		k, _ := json.Marshal(key, jsonopt.Write)
 		b.Write(k)
 		b.WriteByte(':')
 		b.Write(raw)
 	}
-	putRaw := func(key string, raw json.RawMessage) {
+	putRaw := func(key string, raw jsontext.Value) {
 		if len(raw) == 0 {
 			return
 		}
@@ -348,19 +351,19 @@ func infoEntry(info Info) Entry {
 
 // TextContent is message content as plain text: a string as-is, a part
 // array's text parts joined (loop's extractMessageText).
-func TextContent(raw json.RawMessage) string {
+func TextContent(raw jsontext.Value) string {
 	if len(raw) == 0 {
 		return ""
 	}
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return s
 	}
 	var parts []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
-	if json.Unmarshal(raw, &parts) != nil {
+	if json.Unmarshal(raw, &parts, jsonopt.Read) != nil {
 		return ""
 	}
 	var b bytes.Buffer

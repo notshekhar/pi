@@ -2,10 +2,11 @@ package google
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -248,18 +249,18 @@ func argsObject(input any) (map[string]any, error) {
 			return map[string]any{}, nil
 		}
 		var decoded map[string]any
-		if err := json.Unmarshal([]byte(s), &decoded); err != nil {
+		if err := json.Unmarshal([]byte(s), &decoded, jsonopt.Read); err != nil {
 			return nil, err
 		}
 		return decoded, nil
 	}
 
-	raw, err := json.Marshal(input)
+	raw, err := json.Marshal(input, jsonopt.Write)
 	if err != nil {
 		return nil, err
 	}
 	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	if err := json.Unmarshal(raw, &decoded, jsonopt.Read); err != nil {
 		return nil, err
 	}
 	if decoded == nil {
@@ -410,9 +411,9 @@ func convertUsage(u *usageMetadata) provider.Usage {
 		},
 	}
 
-	if raw, err := json.Marshal(u); err == nil {
+	if raw, err := json.Marshal(u, jsonopt.Write); err == nil {
 		var obj provider.JSONObject
-		if json.Unmarshal(raw, &obj) == nil {
+		if json.Unmarshal(raw, &obj, jsonopt.Read) == nil {
 			usage.Raw = obj
 		}
 	}

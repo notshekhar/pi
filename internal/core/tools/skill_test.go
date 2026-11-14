@@ -2,19 +2,20 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/skills"
 )
 
 func callSkill(t *testing.T, c *Context, name string) (string, bool) {
 	t.Helper()
-	input, _ := json.Marshal(skillArgs{Name: name})
+	input, _ := json.Marshal(skillArgs{Name: name}, jsonopt.Write)
 	res, err := Skill(c).Execute(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)

@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // Resources are the half of MCP that is read rather than called: files,
@@ -19,7 +21,7 @@ type Resource struct {
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	MimeType    string `json:"mimeType,omitempty"`
-	Size        *int64 `json:"size,omitempty"`
+	Size        *int64 `json:"size,omitzero"`
 }
 
 // ResourceTemplate describes resources a client builds a uri for rather than
@@ -65,7 +67,7 @@ func (c *Client) ListResources(ctx context.Context, server string) ([]Resource, 
 			Resources  []Resource `json:"resources"`
 			NextCursor string     `json:"nextCursor"`
 		}
-		if err := json.Unmarshal(raw, &r); err != nil {
+		if err := json.Unmarshal(raw, &r, jsonopt.Read); err != nil {
 			return nil, fmt.Errorf("malformed resources/list result: %w", err)
 		}
 		for _, res := range r.Resources {
@@ -93,7 +95,7 @@ func (c *Client) ListResourceTemplates(ctx context.Context, server string) ([]Re
 	var r struct {
 		ResourceTemplates []ResourceTemplate `json:"resourceTemplates"`
 	}
-	if err := json.Unmarshal(raw, &r); err != nil {
+	if err := json.Unmarshal(raw, &r, jsonopt.Read); err != nil {
 		return nil, fmt.Errorf("malformed resources/templates/list result: %w", err)
 	}
 	for i := range r.ResourceTemplates {
@@ -112,7 +114,7 @@ func (c *Client) ReadResource(ctx context.Context, uri string) ([]ResourcePart, 
 	var r struct {
 		Contents []resourceContents `json:"contents"`
 	}
-	if err := json.Unmarshal(raw, &r); err != nil {
+	if err := json.Unmarshal(raw, &r, jsonopt.Read); err != nil {
 		return nil, fmt.Errorf("malformed resources/read result: %w", err)
 	}
 	return flattenContents(r.Contents), nil

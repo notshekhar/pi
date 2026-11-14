@@ -2,12 +2,15 @@ package hooks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 func short(event Event, commands ...string) Config {
@@ -71,7 +74,7 @@ func TestHooksSeeTheJsonPayloadOnStdin(t *testing.T) {
 		t.Fatalf("the hook got no stdin: %v", err)
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := json.Unmarshal(body, &payload, jsonopt.Read); err != nil {
 		t.Fatalf("stdin was not JSON: %q", body)
 	}
 	if payload["hook_event_name"] != "PreToolUse" || payload["tool_name"] != "bash" {
@@ -229,10 +232,10 @@ func TestMatcherGatesTheRun(t *testing.T) {
 }
 
 func TestParseBothShapes(t *testing.T) {
-	cfg, err := Parse(map[string]json.RawMessage{
-		"Stop":         json.RawMessage(`["go test ./..."]`),
-		"SessionStart": json.RawMessage(`["echo hi", "  "]`), // blank entries are dropped
-		"PreToolUse":   json.RawMessage(`[{"matcher":"bash","hooks":[{"type":"command","command":"./check.sh","timeout":60}]}]`),
+	cfg, err := Parse(map[string]jsontext.Value{
+		"Stop":         jsontext.Value(`["go test ./..."]`),
+		"SessionStart": jsontext.Value(`["echo hi", "  "]`), // blank entries are dropped
+		"PreToolUse":   jsontext.Value(`[{"matcher":"bash","hooks":[{"type":"command","command":"./check.sh","timeout":60}]}]`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +254,7 @@ func TestParseBothShapes(t *testing.T) {
 
 // The names this package used before it adopted Claude Code's still load.
 func TestParseAcceptsLegacyEventNames(t *testing.T) {
-	cfg, err := Parse(map[string]json.RawMessage{"turnEnd": json.RawMessage(`["echo x"]`)})
+	cfg, err := Parse(map[string]jsontext.Value{"turnEnd": jsontext.Value(`["echo x"]`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +265,7 @@ func TestParseAcceptsLegacyEventNames(t *testing.T) {
 
 // A typo must be reported, not silently bound to nothing.
 func TestParseRejectsUnknownEvent(t *testing.T) {
-	_, err := Parse(map[string]json.RawMessage{"onEverything": json.RawMessage(`["echo x"]`)})
+	_, err := Parse(map[string]jsontext.Value{"onEverything": jsontext.Value(`["echo x"]`)})
 	if err == nil {
 		t.Fatal("expected an error")
 	}

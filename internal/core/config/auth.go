@@ -2,7 +2,8 @@ package config
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/home"
 	"github.com/notshekhar/pi/internal/core/jsonstore"
 )
@@ -79,18 +81,18 @@ func RefreshConfigStores() {
 }
 
 // providerMap reads auth.json's providers, each entry raw.
-func providerMap() map[string]json.RawMessage {
-	out := map[string]json.RawMessage{}
+func providerMap() map[string]jsontext.Value {
+	out := map[string]jsontext.Value{}
 	AuthStore().Get("providers", &out)
 	return out
 }
 
 // updateProviders is a read-modify-write of the provider map against the
 // file on disk, never the cache.
-func updateProviders(mutate func(map[string]json.RawMessage)) error {
+func updateProviders(mutate func(map[string]jsontext.Value)) error {
 	s := AuthStore()
 	return s.Mutate(func(o *jsonstore.Object) {
-		providers := map[string]json.RawMessage{}
+		providers := map[string]jsontext.Value{}
 		o.Get("providers", &providers)
 		// Keep the order loop wrote: rebuild through an ordered object.
 		ordered := jsonstore.NewObject()
@@ -119,11 +121,11 @@ func updateProviders(mutate func(map[string]json.RawMessage)) error {
 
 // authEntry is one provider's stored credential (loop's AuthEntry).
 type authEntry struct {
-	Mode     string          `json:"mode"`
-	Provider string          `json:"provider"`
-	APIKey   string          `json:"apiKey,omitempty"`
-	Xai      json.RawMessage `json:"xai,omitempty"`
-	Creds    json.RawMessage `json:"creds,omitempty"`
+	Mode     string         `json:"mode"`
+	Provider string         `json:"provider"`
+	APIKey   string         `json:"apiKey,omitempty"`
+	Xai      jsontext.Value `json:"xai,omitzero"`
+	Creds    jsontext.Value `json:"creds,omitzero"`
 }
 
 func readEntry(id string) (authEntry, bool) {
@@ -132,7 +134,7 @@ func readEntry(id string) (authEntry, bool) {
 		return authEntry{}, false
 	}
 	var e authEntry
-	if json.Unmarshal(raw, &e) != nil {
+	if json.Unmarshal(raw, &e, jsonopt.Read) != nil {
 		return authEntry{}, false
 	}
 	return e, true
@@ -191,7 +193,7 @@ func SaveKey(provider, key string) error {
 		return fmt.Errorf("a provider and a key are both required")
 	}
 	raw, _ := jsonstore.Marshal(map[string]any{"mode": "apikey", "provider": provider, "apiKey": key})
-	if err := updateProviders(func(p map[string]json.RawMessage) { p[provider] = raw }); err != nil {
+	if err := updateProviders(func(p map[string]jsontext.Value) { p[provider] = raw }); err != nil {
 		return err
 	}
 	ensureActive(provider)
@@ -204,7 +206,7 @@ func SaveOAuth(provider string, creds any) error {
 	if err != nil {
 		return err
 	}
-	if err := updateProviders(func(p map[string]json.RawMessage) { p[provider] = raw }); err != nil {
+	if err := updateProviders(func(p map[string]jsontext.Value) { p[provider] = raw }); err != nil {
 		return err
 	}
 	ensureActive(provider)
@@ -223,7 +225,7 @@ func Logout(provider string) error {
 		return fmt.Errorf("no credential stored for %q", provider)
 	}
 	var remaining []string
-	err := updateProviders(func(p map[string]json.RawMessage) { delete(p, provider) })
+	err := updateProviders(func(p map[string]jsontext.Value) { delete(p, provider) })
 	if err != nil {
 		return err
 	}
@@ -313,14 +315,14 @@ func (f *flight) do(key string, fn func() (string, error)) (string, error) {
 
 // xaiStored reads the xAI OAuth record, raw (every field loop keeps —
 // idToken, discovery, baseUrl — survives a refresh) and typed.
-func xaiStored() (map[string]json.RawMessage, XaiCreds, bool) {
+func xaiStored() (map[string]jsontext.Value, XaiCreds, bool) {
 	e, ok := readEntry("xai")
 	if !ok || e.Mode != "oauth" || len(e.Xai) == 0 {
 		return nil, XaiCreds{}, false
 	}
-	raw := map[string]json.RawMessage{}
+	raw := map[string]jsontext.Value{}
 	var creds XaiCreds
-	if json.Unmarshal(e.Xai, &raw) != nil || json.Unmarshal(e.Xai, &creds) != nil || creds.Access == "" {
+	if json.Unmarshal(e.Xai, &raw, jsonopt.Read) != nil || json.Unmarshal(e.Xai, &creds, jsonopt.Read) != nil || creds.Access == "" {
 		return nil, XaiCreds{}, false
 	}
 	return raw, creds, true
@@ -350,7 +352,7 @@ func saveXaiCreds(creds XaiCreds) error {
 	_ = entry.Set("provider", "xai")
 	entry.SetRaw("xai", xai)
 	raw, _ := entry.MarshalJSON()
-	if err := updateProviders(func(p map[string]json.RawMessage) { p["xai"] = raw }); err != nil {
+	if err := updateProviders(func(p map[string]jsontext.Value) { p["xai"] = raw }); err != nil {
 		return err
 	}
 	ensureActive("xai")

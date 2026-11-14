@@ -2,7 +2,8 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/mcp"
@@ -25,7 +27,7 @@ func testRun(t *testing.T, settings map[string]any) *Run {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	raw, _ := json.Marshal(settings)
+	raw, _ := json.Marshal(settings, jsonopt.Write)
 	if err := os.MkdirAll(filepath.Join(home, ".loop"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +165,7 @@ func TestMemoryBlockFollowsTheSetting(t *testing.T) {
 
 func TestPlanDeliveredStopsTheTurn(t *testing.T) {
 	call := func(plan string) ai.Step {
-		input, _ := json.Marshal(map[string]string{"plan": plan})
+		input, _ := json.Marshal(map[string]string{"plan": plan}, jsonopt.Write)
 		return ai.Step{ToolCalls: []ai.ToolCall{{ToolName: "plan", Input: input}}}
 	}
 	if planDelivered(call("## Plan")) {
@@ -206,7 +208,7 @@ func TestTodoNudgeIsOneStep(t *testing.T) {
 }
 
 func messageText(m provider.Message) string {
-	raw, _ := json.Marshal(m)
+	raw, _ := json.Marshal(m, jsonopt.Write)
 	return string(raw)
 }
 
@@ -219,7 +221,7 @@ func TestShellExitNoticeIsOneStep(t *testing.T) {
 	toolset := r.Toolset()
 	prepare := r.stepNotices(toolset)
 	bash := toolset[slices.IndexFunc(toolset, func(tl ai.Tool) bool { return tl.Name() == "bash" })]
-	if _, err := bash.Execute(context.Background(), json.RawMessage(`{"command":"exit 3","run_in_background":true}`)); err != nil {
+	if _, err := bash.Execute(context.Background(), jsontext.Value(`{"command":"exit 3","run_in_background":true}`)); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)

@@ -3,13 +3,14 @@ package rpc
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/agent"
 	"github.com/notshekhar/pi/internal/core/session"
 	"github.com/notshekhar/pi/internal/core/teams"
@@ -122,7 +123,7 @@ type lineTransport struct {
 }
 
 func (l *lineTransport) Send(msg any) {
-	raw, err := json.Marshal(msg)
+	raw, err := json.Marshal(msg, jsonopt.Write)
 	if err != nil {
 		return
 	}
@@ -189,7 +190,7 @@ func (s *Server) Dispose() {
 
 func (s *Server) handleLine(line string, t Transport) {
 	var req Request
-	if err := json.Unmarshal([]byte(line), &req); err != nil {
+	if err := json.Unmarshal([]byte(line), &req, jsonopt.Read); err != nil {
 		t.Send(Response{JSONRPC: "2.0", ID: nil, Error: &RPCError{Code: ParseError, Message: "Parse error"}})
 		return
 	}
@@ -244,7 +245,7 @@ func (s *Server) dispatch(req Request, t Transport) (result any, err error) {
 type SessionStatus struct {
 	SessionID  string `json:"sessionId"`
 	Change     string `json:"change"`
-	Running    *bool  `json:"running,omitempty"`
+	Running    *bool  `json:"running,omitzero"`
 	TeamID     string `json:"teamId,omitempty"`
 	TeamChange string `json:"teamChange,omitempty"`
 }
@@ -272,10 +273,10 @@ func (s *Server) announce(n SessionStatus) {
 func (s *Server) broadcast(id string, c *activeSession, typ string, data any) {
 	part := map[string]any{"type": typ}
 	if data != nil {
-		raw, err := json.Marshal(data)
+		raw, err := json.Marshal(data, jsonopt.Write)
 		if err == nil {
 			var v any
-			if json.Unmarshal(raw, &v) == nil {
+			if json.Unmarshal(raw, &v, jsonopt.Read) == nil {
 				part["data"] = v
 			}
 		}

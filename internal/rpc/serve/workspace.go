@@ -2,9 +2,10 @@ package serve
 
 import (
 	"bytes"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/rpc"
 )
 
@@ -33,7 +34,7 @@ func parseWorkspaceRequest(frame []byte) *workspaceRequest {
 		Method string         `json:"method"`
 		Params map[string]any `json:"params"`
 	}
-	if json.Unmarshal(frame, &msg) != nil || msg.ID == nil || len(msg.Method) <= len(workspacePrefix) ||
+	if json.Unmarshal(frame, &msg, jsonopt.Read) != nil || msg.ID == nil || len(msg.Method) <= len(workspacePrefix) ||
 		msg.Method[:len(workspacePrefix)] != workspacePrefix {
 		return nil
 	}

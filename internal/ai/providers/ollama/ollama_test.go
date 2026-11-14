@@ -2,12 +2,13 @@ package ollama
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -26,7 +27,7 @@ func TestNativeChat(t *testing.T) {
 			t.Errorf("path %s", r.URL.Path)
 		}
 		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &sent)
+		_ = json.Unmarshal(raw, &sent, jsonopt.Read)
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		_, _ = io.WriteString(w, stream)
 	}))

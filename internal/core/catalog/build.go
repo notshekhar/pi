@@ -2,9 +2,12 @@ package catalog
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"strings"
 	"sync"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // getCatalog (catalog/index.ts), minus the providers pi cannot call (ollama
@@ -30,8 +33,8 @@ type CustomProvider struct {
 // under catalog.json's customMeta, keyed by full id).
 type CustomMeta struct {
 	Name          string `json:"name,omitempty"`
-	ContextWindow int    `json:"contextWindow,omitempty"`
-	MaxOutput     int    `json:"maxOutput,omitempty"`
+	ContextWindow int    `json:"contextWindow,omitzero"`
+	MaxOutput     int    `json:"maxOutput,omitzero"`
 }
 
 // Hooks are what the catalog asks of the auth layer, which sits above it.
@@ -233,22 +236,22 @@ func build() *built {
 	// ~/.loop/models.json patches win: {...out[id], ...patch, id}.
 	for _, id := range overrideOrder() {
 		patch := readOverrides()[id]
-		base := map[string]json.RawMessage{}
+		base := map[string]jsontext.Value{}
 		if m, ok := out.byID[id]; ok {
-			raw, _ := json.Marshal(m)
-			_ = json.Unmarshal(raw, &base)
+			raw, _ := json.Marshal(m, jsonopt.Write)
+			_ = json.Unmarshal(raw, &base, jsonopt.Read)
 		}
-		var p map[string]json.RawMessage
-		if json.Unmarshal(patch, &p) != nil {
+		var p map[string]jsontext.Value
+		if json.Unmarshal(patch, &p, jsonopt.Read) != nil {
 			continue
 		}
 		for k, v := range p {
 			base[k] = v
 		}
-		base["id"], _ = json.Marshal(id)
-		raw, _ := json.Marshal(base)
+		base["id"], _ = json.Marshal(id, jsonopt.Write)
+		raw, _ := json.Marshal(base, jsonopt.Write)
 		var m Model
-		if json.Unmarshal(raw, &m) == nil {
+		if json.Unmarshal(raw, &m, jsonopt.Read) == nil {
 			out.put(m)
 		}
 	}

@@ -3,7 +3,7 @@ package bedrock
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // CredentialSource supplies AWS credentials, refreshing them as needed.
@@ -304,7 +306,7 @@ func (d *defaultCredentials) fetchJSON(req *http.Request, out any) bool {
 	if !ok {
 		return false
 	}
-	return json.Unmarshal([]byte(body), out) == nil
+	return json.Unmarshal([]byte(body), out, jsonopt.Read) == nil
 }
 
 // httpClient returns the client used for metadata lookups.

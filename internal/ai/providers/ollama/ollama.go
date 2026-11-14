@@ -12,7 +12,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -122,12 +124,12 @@ func (m *model) buildRequest(opts provider.CallOptions) (map[string]any, []provi
 		}
 		params := map[string]any{"type": "object", "properties": map[string]any{}, "required": []any{}}
 		if t.InputSchema != nil {
-			raw, err := json.Marshal(t.InputSchema)
+			raw, err := json.Marshal(t.InputSchema, jsonopt.Write)
 			if err != nil {
 				return nil, nil, err
 			}
 			params = map[string]any{}
-			_ = json.Unmarshal(raw, &params)
+			_ = json.Unmarshal(raw, &params, jsonopt.Read)
 			delete(params, "$schema")
 			if props, _ := params["properties"].(map[string]any); params["type"] == "object" && len(props) == 0 {
 				params["properties"], params["required"] = map[string]any{}, []any{}
@@ -226,13 +228,13 @@ func convertPrompt(prompt provider.Prompt) ([]any, error) {
 				case provider.ToolOutputExecutionDenied:
 					content = o.Reason
 				case provider.ToolOutputJSON:
-					raw, _ := json.Marshal(o.Value)
+					raw, _ := json.Marshal(o.Value, jsonopt.Write)
 					content = string(raw)
 				case provider.ToolOutputErrorJSON:
-					raw, _ := json.Marshal(o.Value)
+					raw, _ := json.Marshal(o.Value, jsonopt.Write)
 					content = string(raw)
 				case provider.ToolOutputContent:
-					raw, _ := json.Marshal(o.Value)
+					raw, _ := json.Marshal(o.Value, jsonopt.Write)
 					content = string(raw)
 				}
 				out = append(out, map[string]any{"role": "tool", "tool_call_id": p.ToolCallID, "content": content})
@@ -253,8 +255,8 @@ type chunk struct {
 		ToolCalls []struct {
 			ID       string `json:"id"`
 			Function struct {
-				Name      string          `json:"name"`
-				Arguments json.RawMessage `json:"arguments"`
+				Name      string         `json:"name"`
+				Arguments jsontext.Value `json:"arguments"`
 			} `json:"function"`
 		} `json:"tool_calls"`
 	} `json:"message"`
@@ -277,12 +279,12 @@ func (m *model) DoStream(ctx context.Context, opts provider.CallOptions) (*provi
 	if err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(req)
+	body, err := json.Marshal(req, jsonopt.Write)
 	if err != nil {
 		return nil, err
 	}
 	resp, err := providerutil.Retry(ctx, m.p.retry, func(ctx context.Context) (io.ReadCloser, error) {
-		r, err := m.p.client.PostJSON(ctx, "/chat", json.RawMessage(body), opts.Headers)
+		r, err := m.p.client.PostJSON(ctx, "/chat", jsontext.Value(body), opts.Headers)
 		if err != nil {
 			return nil, err
 		}
@@ -336,7 +338,7 @@ func run(ctx context.Context, body io.ReadCloser, out chan<- provider.StreamPart
 			continue
 		}
 		var c chunk
-		if err := json.Unmarshal([]byte(line), &c); err != nil {
+		if err := json.Unmarshal([]byte(line), &c, jsonopt.Read); err != nil {
 			emit(provider.ErrorPart{Err: &provider.InvalidResponseError{Message: "could not decode stream chunk", Response: line, Cause: err}})
 			continue
 		}

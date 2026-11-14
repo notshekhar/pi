@@ -2,13 +2,14 @@ package openaicompat
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providertest"
@@ -274,7 +275,7 @@ func TestToolResultsBecomeSeparateToolMessages(t *testing.T) {
 	collect(t, res)
 
 	var sent chatRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 
@@ -327,7 +328,7 @@ func TestMaxCompletionTokensSwitch(t *testing.T) {
 			collect(t, res)
 
 			var req chatRequest
-			if err := json.Unmarshal(sent, &req); err != nil {
+			if err := json.Unmarshal(sent, &req, jsonopt.Read); err != nil {
 				t.Fatal(err)
 			}
 			if tc.wantOld && req.MaxTokens == nil {
@@ -358,7 +359,7 @@ func TestProviderExtrasAreMergedAtTopLevel(t *testing.T) {
 	collect(t, res)
 
 	var raw map[string]any
-	if err := json.Unmarshal(*body, &raw); err != nil {
+	if err := json.Unmarshal(*body, &raw, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := raw["logit_bias"]; !ok {
@@ -395,7 +396,7 @@ func TestStructuredOutputUsesJSONSchema(t *testing.T) {
 			} `json:"json_schema"`
 		} `json:"response_format"`
 	}
-	if err := json.Unmarshal(*body, &raw); err != nil {
+	if err := json.Unmarshal(*body, &raw, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 
@@ -458,7 +459,7 @@ func TestStructuredOutputFallsBackToPromptWhenSchemaUnsupported(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
-	if err := json.Unmarshal(sent, &raw); err != nil {
+	if err := json.Unmarshal(sent, &raw, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 
@@ -515,7 +516,7 @@ func TestEmbeddingsAreOrderedByReportedIndex(t *testing.T) {
 		Input      []string `json:"input"`
 		Dimensions *int     `json:"dimensions"`
 	}
-	if err := json.Unmarshal(sent, &req); err != nil {
+	if err := json.Unmarshal(sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if req.Dimensions == nil || *req.Dimensions != 256 {
@@ -589,7 +590,7 @@ func TestImageGenerationRequestAndWarnings(t *testing.T) {
 		Size           string `json:"size"`
 		ResponseFormat string `json:"response_format"`
 	}
-	if err := json.Unmarshal(sent, &req); err != nil {
+	if err := json.Unmarshal(sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if req.Model != "gpt-image-1" || req.Prompt != "a lighthouse" || req.N != 2 || req.Size != "1024x1024" {

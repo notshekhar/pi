@@ -2,12 +2,14 @@ package transcript
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"os"
 	"reflect"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/session"
 )
 
@@ -32,11 +34,11 @@ func TestParityWithLoop(t *testing.T) {
 	var checked, failed int
 	for sc.Scan() {
 		var row struct {
-			ID         string          `json:"id"`
-			Transcript json.RawMessage `json:"transcript"`
-			Error      string          `json:"error"`
+			ID         string         `json:"id"`
+			Transcript jsontext.Value `json:"transcript"`
+			Error      string         `json:"error"`
 		}
-		if json.Unmarshal(sc.Bytes(), &row) != nil || row.Error != "" {
+		if json.Unmarshal(sc.Bytes(), &row, jsonopt.Read) != nil || row.Error != "" {
 			continue
 		}
 		s, err := session.Load(row.ID)
@@ -47,10 +49,10 @@ func TestParityWithLoop(t *testing.T) {
 		}
 		branch := s.CurrentBranch()
 		got := FromEntries(branch, false, LatestTodos(branch))
-		gotJSON, _ := json.Marshal(got)
+		gotJSON, _ := json.Marshal(got, jsonopt.Write)
 		var a, b any
-		_ = json.Unmarshal(gotJSON, &a)
-		_ = json.Unmarshal(row.Transcript, &b)
+		_ = json.Unmarshal(gotJSON, &a, jsonopt.Read)
+		_ = json.Unmarshal(row.Transcript, &b, jsonopt.Read)
 		checked++
 		if !reflect.DeepEqual(a, b) {
 			failed++

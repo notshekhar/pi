@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // A transport moves JSON-RPC messages. Delivery is asynchronous in both
@@ -41,7 +43,7 @@ type transportHandlers struct {
 
 func encode(m *message) ([]byte, error) {
 	m.JSONRPC = "2.0"
-	data, err := json.Marshal(m)
+	data, err := json.Marshal(m, jsonopt.Write)
 	if err != nil {
 		return nil, fmt.Errorf("mcp: encoding message: %w", err)
 	}
@@ -56,13 +58,13 @@ func decodeMessages(data []byte) ([]*message, error) {
 	}
 	if data[0] == '[' {
 		var batch []*message
-		if err := json.Unmarshal(data, &batch); err != nil {
+		if err := json.Unmarshal(data, &batch, jsonopt.Read); err != nil {
 			return nil, err
 		}
 		return batch, nil
 	}
 	var m message
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal(data, &m, jsonopt.Read); err != nil {
 		return nil, err
 	}
 	return []*message{&m}, nil

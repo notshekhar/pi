@@ -2,9 +2,11 @@ package extension
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -82,7 +84,7 @@ type augmented struct {
 	augmenters []ResultAugmenter
 }
 
-func (a *augmented) Execute(ctx context.Context, input json.RawMessage) (ai.ToolResult, error) {
+func (a *augmented) Execute(ctx context.Context, input jsontext.Value) (ai.ToolResult, error) {
 	result, err := a.Tool.Execute(ctx, input)
 	if err != nil {
 		// A failed call has nothing to append to, and running a diagnostics
@@ -99,7 +101,7 @@ func (a *augmented) Execute(ctx context.Context, input json.RawMessage) (ai.Tool
 	}
 
 	var args map[string]any
-	_ = json.Unmarshal(input, &args)
+	_ = json.Unmarshal(input, &args, jsonopt.Read)
 
 	for _, augmenter := range a.augmenters {
 		if extra := augmenter.Augment(ctx, a.Tool.Name(), text, args); extra != "" {

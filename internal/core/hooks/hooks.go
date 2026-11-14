@@ -27,7 +27,8 @@ package hooks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -36,6 +37,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // Event is a point in a session's life where hooks may run.
@@ -130,10 +133,10 @@ type Command struct {
 	Command string `json:"command"`
 	// Timeout is in SECONDS, matching the config format. Zero means the
 	// default.
-	Timeout int `json:"timeout,omitempty"`
+	Timeout int `json:"timeout,omitzero"`
 	// Async fires the command without waiting: it cannot block, and its
 	// output is discarded. For notifiers, which have nothing to say back.
-	Async bool `json:"async,omitempty"`
+	Async bool `json:"async,omitzero"`
 }
 
 // MatcherGroup binds a set of commands to the tools whose names match.
@@ -406,7 +409,7 @@ func apply(event Event, cmd Command, res result, outcome *Outcome, contexts *[]s
 		return
 	}
 	var parsed jsonOutput
-	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(text), &parsed, jsonopt.Read); err != nil {
 		// Plain text on the two events that feed the model is CONTEXT;
 		// anywhere else it is something to show the user. Claude Code's rule,
 		// and the reason `echo "remember X"` works as a SessionStart hook.
@@ -494,7 +497,7 @@ func payloadFor(hc Context) []byte {
 	}
 	// A payload that cannot be encoded must not stop the hook from running —
 	// the event itself is the part that matters.
-	encoded, err := json.Marshal(payload)
+	encoded, err := json.Marshal(payload, jsonopt.Write)
 	if err != nil {
 		return []byte("{}")
 	}
@@ -560,7 +563,7 @@ func boolEnv(b bool) string {
 // per-command timeouts; the short one is a bare list of shell lines per
 // event, which is what most hooks are and which nobody should have to write
 // three levels of JSON for.
-func Parse(raw map[string]json.RawMessage) (Config, error) {
+func Parse(raw map[string]jsontext.Value) (Config, error) {
 	cfg := Config{}
 	for name, value := range raw {
 		event := Event(name)
@@ -572,7 +575,7 @@ func Parse(raw map[string]json.RawMessage) (Config, error) {
 		}
 
 		var groups []MatcherGroup
-		if err := json.Unmarshal(value, &groups); err == nil && looksLikeGroups(groups) {
+		if err := json.Unmarshal(value, &groups, jsonopt.Read); err == nil && looksLikeGroups(groups) {
 			for _, g := range groups {
 				if len(g.Hooks) > 0 {
 					cfg[event] = append(cfg[event], g)
@@ -582,7 +585,7 @@ func Parse(raw map[string]json.RawMessage) (Config, error) {
 		}
 
 		var lines []string
-		if err := json.Unmarshal(value, &lines); err != nil {
+		if err := json.Unmarshal(value, &lines, jsonopt.Read); err != nil {
 			return nil, fmt.Errorf("hooks: %s must be a list of commands or matcher groups", name)
 		}
 		var commands []Command
@@ -629,13 +632,13 @@ func EventNames() string {
 // Always the full matcher-group shape, never the short one: a table that was
 // read as short form and is being written back may have had a matcher added,
 // and round-tripping through the short form would silently drop it.
-func Marshal(cfg Config) (map[string]json.RawMessage, error) {
-	out := map[string]json.RawMessage{}
+func Marshal(cfg Config) (map[string]jsontext.Value, error) {
+	out := map[string]jsontext.Value{}
 	for event, groups := range cfg {
 		if len(groups) == 0 {
 			continue
 		}
-		encoded, err := json.Marshal(groups)
+		encoded, err := json.Marshal(groups, jsonopt.Write)
 		if err != nil {
 			return nil, err
 		}

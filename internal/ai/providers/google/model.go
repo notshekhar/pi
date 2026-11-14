@@ -2,13 +2,14 @@ package google
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -398,7 +399,7 @@ func (m *languageModel) DoGenerate(ctx context.Context, opts provider.CallOption
 	c := resp.Candidates[0]
 	content, hasToolCalls := m.convertParts(c)
 
-	requestBody, _ := json.Marshal(req)
+	requestBody, _ := json.Marshal(req, jsonopt.Write)
 
 	return &provider.GenerateResult{
 		Content:      content,
@@ -429,7 +430,7 @@ func (m *languageModel) convertParts(c candidate) ([]provider.Content, bool) {
 		switch {
 		case p.FunctionCall != nil:
 			hasToolCalls = true
-			args, err := json.Marshal(p.FunctionCall.Args)
+			args, err := json.Marshal(p.FunctionCall.Args, jsonopt.Write)
 			if err != nil {
 				args = []byte("{}")
 			}

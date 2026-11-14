@@ -2,11 +2,13 @@ package session
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"net/url"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -28,11 +30,11 @@ type wirePart struct {
 	Text             string                   `json:"text,omitempty"`
 	ToolCallID       string                   `json:"toolCallId,omitempty"`
 	ToolName         string                   `json:"toolName,omitempty"`
-	Input            json.RawMessage          `json:"input,omitempty"`
-	Output           *wireOutput              `json:"output,omitempty"`
-	ProviderExecuted bool                     `json:"providerExecuted,omitempty"`
-	Data             json.RawMessage          `json:"data,omitempty"`
-	Image            json.RawMessage          `json:"image,omitempty"`
+	Input            jsontext.Value           `json:"input,omitzero"`
+	Output           *wireOutput              `json:"output,omitzero"`
+	ProviderExecuted bool                     `json:"providerExecuted,omitzero"`
+	Data             jsontext.Value           `json:"data,omitzero"`
+	Image            jsontext.Value           `json:"image,omitzero"`
 	URL              string                   `json:"url,omitempty"`
 	MediaType        string                   `json:"mediaType,omitempty"`
 	Filename         string                   `json:"filename,omitempty"`
@@ -42,13 +44,13 @@ type wirePart struct {
 // wireOutput is a tool result's typed output.
 type wireOutput struct {
 	Type            string                   `json:"type"`
-	Value           json.RawMessage          `json:"value,omitempty"`
+	Value           jsontext.Value           `json:"value,omitzero"`
 	Reason          string                   `json:"reason,omitempty"`
 	ProviderOptions provider.ProviderOptions `json:"providerOptions,omitempty"`
 }
 
 // EncodeContent turns a provider message into its role and stored content.
-func EncodeContent(msg provider.Message) (role string, content json.RawMessage, err error) {
+func EncodeContent(msg provider.Message) (role string, content jsontext.Value, err error) {
 	switch m := msg.(type) {
 	case provider.UserMessage:
 		// Text only → a plain string, which is how loop stores every prompt.
@@ -62,7 +64,7 @@ func EncodeContent(msg provider.Message) (role string, content json.RawMessage, 
 			}
 		}
 		if allText {
-			raw, err := json.Marshal(text.String())
+			raw, err := json.Marshal(text.String(), jsonopt.Write)
 			return "user", raw, err
 		}
 		parts := make([]wirePart, 0, len(m.Content))
@@ -73,7 +75,7 @@ func EncodeContent(msg provider.Message) (role string, content json.RawMessage, 
 			}
 			parts = append(parts, wp)
 		}
-		raw, err := json.Marshal(parts)
+		raw, err := json.Marshal(parts, jsonopt.Write)
 		return "user", raw, err
 	case provider.AssistantMessage:
 		parts := make([]wirePart, 0, len(m.Content))
@@ -84,7 +86,7 @@ func EncodeContent(msg provider.Message) (role string, content json.RawMessage, 
 			}
 			parts = append(parts, wp)
 		}
-		raw, err := json.Marshal(parts)
+		raw, err := json.Marshal(parts, jsonopt.Write)
 		return "assistant", raw, err
 	case provider.ToolMessage:
 		parts := make([]wirePart, 0, len(m.Content))
@@ -95,7 +97,7 @@ func EncodeContent(msg provider.Message) (role string, content json.RawMessage, 
 			}
 			parts = append(parts, wp)
 		}
-		raw, err := json.Marshal(parts)
+		raw, err := json.Marshal(parts, jsonopt.Write)
 		return "tool", raw, err
 	}
 	return "", nil, fmt.Errorf("session: cannot store a %T", msg)
@@ -108,12 +110,12 @@ func encodePart(part any) (wirePart, error) {
 	case provider.ReasoningPart:
 		return wirePart{Type: "reasoning", Text: p.Text, ProviderOptions: p.ProviderOptions}, nil
 	case provider.ToolCallPart:
-		input, err := json.Marshal(p.Input)
+		input, err := json.Marshal(p.Input, jsonopt.Write)
 		if err != nil {
 			return wirePart{}, err
 		}
 		if p.Input == nil {
-			input = json.RawMessage("{}")
+			input = jsontext.Value("{}")
 		}
 		return wirePart{Type: "tool-call", ToolCallID: p.ToolCallID, ToolName: p.ToolName, Input: input,
 			ProviderExecuted: p.ProviderExecuted, ProviderOptions: p.ProviderOptions}, nil
@@ -132,13 +134,13 @@ func encodePart(part any) (wirePart, error) {
 			if b64 == "" {
 				b64 = base64.StdEncoding.EncodeToString(d.Data)
 			}
-			wp.Data, _ = json.Marshal(b64)
+			wp.Data, _ = json.Marshal(b64, jsonopt.Write)
 		case provider.FileDataURL:
 			if d.URL != nil {
-				wp.Data, _ = json.Marshal(d.URL.String())
+				wp.Data, _ = json.Marshal(d.URL.String(), jsonopt.Write)
 			}
 		case provider.FileDataText:
-			wp.Data, _ = json.Marshal(d.Text)
+			wp.Data, _ = json.Marshal(d.Text, jsonopt.Write)
 		}
 		return wp, nil
 	}
@@ -146,8 +148,8 @@ func encodePart(part any) (wirePart, error) {
 }
 
 func encodeOutput(o provider.ToolResultOutput) (*wireOutput, error) {
-	val := func(v any) json.RawMessage {
-		raw, _ := json.Marshal(v)
+	val := func(v any) jsontext.Value {
+		raw, _ := json.Marshal(v, jsonopt.Write)
 		return raw
 	}
 	switch out := o.(type) {
@@ -186,12 +188,12 @@ func encodeOutput(o provider.ToolResultOutput) (*wireOutput, error) {
 
 // DecodeContent rebuilds a provider message from a stored role and content.
 // ok is false for content that holds nothing a provider message can carry.
-func DecodeContent(role string, raw json.RawMessage) (provider.Message, bool) {
+func DecodeContent(role string, raw jsontext.Value) (provider.Message, bool) {
 	var str string
-	isString := json.Unmarshal(raw, &str) == nil
+	isString := json.Unmarshal(raw, &str, jsonopt.Read) == nil
 	var parts []wirePart
 	if !isString {
-		_ = json.Unmarshal(raw, &parts)
+		_ = json.Unmarshal(raw, &parts, jsonopt.Read)
 	}
 	switch role {
 	case "user":
@@ -240,7 +242,7 @@ func decodePart(wp wirePart) any {
 	case "tool-call":
 		var input provider.JSONValue
 		if len(wp.Input) > 0 {
-			_ = json.Unmarshal(wp.Input, &input)
+			_ = json.Unmarshal(wp.Input, &input, jsonopt.Read)
 		}
 		return provider.ToolCallPart{ToolCallID: wp.ToolCallID, ToolName: wp.ToolName, Input: input,
 			ProviderExecuted: wp.ProviderExecuted, ProviderOptions: wp.ProviderOptions}
@@ -253,7 +255,7 @@ func decodePart(wp wirePart) any {
 			data = wp.Image
 		}
 		var s string
-		_ = json.Unmarshal(data, &s)
+		_ = json.Unmarshal(data, &s, jsonopt.Read)
 		if s == "" {
 			s = wp.URL
 		}
@@ -276,14 +278,14 @@ func decodeOutput(w *wireOutput) provider.ToolResultOutput {
 	}
 	str := func() string {
 		var s string
-		if json.Unmarshal(w.Value, &s) == nil {
+		if json.Unmarshal(w.Value, &s, jsonopt.Read) == nil {
 			return s
 		}
 		return string(w.Value)
 	}
 	value := func() provider.JSONValue {
 		var v provider.JSONValue
-		_ = json.Unmarshal(w.Value, &v)
+		_ = json.Unmarshal(w.Value, &v, jsonopt.Read)
 		return v
 	}
 	switch w.Type {
@@ -302,7 +304,7 @@ func decodeOutput(w *wireOutput) provider.ToolResultOutput {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		}
-		_ = json.Unmarshal(w.Value, &items)
+		_ = json.Unmarshal(w.Value, &items, jsonopt.Read)
 		var out provider.ToolOutputContent
 		for _, it := range items {
 			if it.Type == "text" {

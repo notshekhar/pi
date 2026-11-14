@@ -2,7 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/build"
 )
 
@@ -41,14 +43,14 @@ type Client struct {
 	// bindings are the modern era's x-mcp-header tool arguments, per tool.
 	bindings map[string][]headerBinding
 
-	onNotification func(method string, params json.RawMessage)
+	onNotification func(method string, params jsontext.Value)
 	onClose        func(err error)
 }
 
 // ConnectOptions are what the manager learns from a live connection.
 type ConnectOptions struct {
 	// OnNotification gets every notification the server sends.
-	OnNotification func(method string, params json.RawMessage)
+	OnNotification func(method string, params jsontext.Value)
 	// OnClose is called once if the connection dies on its own.
 	OnClose func(err error)
 	// Open is the browser opener for an interactive login; nil keeps a
@@ -165,14 +167,14 @@ func (c *Client) negotiate(ctx context.Context) error {
 		raw, err := c.request(ctx, "server/discover", nil, discoverTimeoutMs*time.Millisecond)
 		if err == nil {
 			var r discoverResult
-			if err := json.Unmarshal(raw, &r); err != nil {
+			if err := json.Unmarshal(raw, &r, jsonopt.Read); err != nil {
 				return fmt.Errorf("malformed server/discover result: %w", err)
 			}
 			if !slices.Contains(r.SupportedVersions, LatestProtocolVersion) {
 				return fmt.Errorf("server does not support the requested protocol version: %s", LatestProtocolVersion)
 			}
 			if raw := r.Meta[metaServerInfo]; raw != nil {
-				_ = json.Unmarshal(raw, &c.info)
+				_ = json.Unmarshal(raw, &c.info, jsonopt.Read)
 			}
 			c.caps, c.instructions = r.Capabilities, r.Instructions
 			return nil
@@ -195,7 +197,7 @@ func (c *Client) negotiate(ctx context.Context) error {
 		return fmt.Errorf("handshake: %w", err)
 	}
 	var r initializeResult
-	if err := json.Unmarshal(raw, &r); err != nil {
+	if err := json.Unmarshal(raw, &r, jsonopt.Read); err != nil {
 		return fmt.Errorf("server sent invalid initialize result: %w", err)
 	}
 	if !supportedVersion(r.ProtocolVersion) {
@@ -300,7 +302,7 @@ func (c *Client) dispatch(m *message) {
 func (c *Client) answer(m *message) {
 	reply := &message{ID: m.ID}
 	if m.Method == "ping" {
-		reply.Result = json.RawMessage(`{}`)
+		reply.Result = jsontext.Value(`{}`)
 	} else {
 		reply.Error = &RPCError{Code: codeMethodNotFound, Message: "Unsupported request method: " + m.Method}
 	}
@@ -311,7 +313,7 @@ func (c *Client) answer(m *message) {
 
 // request sends one request and waits for its own answer. A non-zero
 // timeout bounds it on top of ctx.
-func (c *Client) request(ctx context.Context, method string, params map[string]any, timeout time.Duration) (json.RawMessage, error) {
+func (c *Client) request(ctx context.Context, method string, params map[string]any, timeout time.Duration) (jsontext.Value, error) {
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -345,9 +347,9 @@ func (c *Client) request(ctx context.Context, method string, params map[string]a
 		merged[metaClientInfo] = clientInfo()
 		params["_meta"] = merged
 	}
-	m := &message{ID: json.RawMessage(strconv.FormatInt(id, 10)), Method: method}
+	m := &message{ID: jsontext.Value(strconv.FormatInt(id, 10)), Method: method}
 	if params != nil {
-		raw, err := json.Marshal(params)
+		raw, err := json.Marshal(params, jsonopt.Write)
 		if err != nil {
 			c.forget(id)
 			return nil, err
@@ -375,7 +377,7 @@ func (c *Client) request(ctx context.Context, method string, params map[string]a
 			var r struct {
 				ResultType *string `json:"resultType"`
 			}
-			_ = json.Unmarshal(resp.Result, &r)
+			_ = json.Unmarshal(resp.Result, &r, jsonopt.Read)
 			if r.ResultType == nil {
 				return nil, errors.New("modern MCP result is missing resultType")
 			}
@@ -412,7 +414,7 @@ func (c *Client) forget(id int64) {
 func (c *Client) notify(ctx context.Context, method string, params map[string]any) error {
 	m := &message{Method: method}
 	if params != nil {
-		raw, err := json.Marshal(params)
+		raw, err := json.Marshal(params, jsonopt.Write)
 		if err != nil {
 			return err
 		}
@@ -451,7 +453,7 @@ func (c *Client) ListTools(ctx context.Context) ([]ToolDef, error) {
 			return nil, err
 		}
 		var r listToolsResult
-		if err := json.Unmarshal(raw, &r); err != nil {
+		if err := json.Unmarshal(raw, &r, jsonopt.Read); err != nil {
 			return nil, fmt.Errorf("malformed tools/list result: %w", err)
 		}
 		all = append(all, r.Tools...)
@@ -466,11 +468,11 @@ func (c *Client) ListTools(ctx context.Context) ([]ToolDef, error) {
 }
 
 // CallTool invokes a tool.
-func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage) (CallToolResult, error) {
+func (c *Client) CallTool(ctx context.Context, name string, args jsontext.Value) (CallToolResult, error) {
 	params := map[string]any{"name": name}
 	if len(args) > 0 && string(args) != "null" {
 		var a any
-		if err := json.Unmarshal(args, &a); err != nil {
+		if err := json.Unmarshal(args, &a, jsonopt.Read); err != nil {
 			return CallToolResult{}, fmt.Errorf("arguments are not JSON: %w", err)
 		}
 		params["arguments"] = a
@@ -480,7 +482,7 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 		return CallToolResult{}, err
 	}
 	var r CallToolResult
-	if err := json.Unmarshal(raw, &r); err != nil {
+	if err := json.Unmarshal(raw, &r, jsonopt.Read); err != nil {
 		return CallToolResult{}, fmt.Errorf("malformed tools/call result: %w", err)
 	}
 	return r, nil
@@ -506,7 +508,7 @@ func (c *Client) setBindings(tools []ToolDef) {
 	out := map[string][]headerBinding{}
 	for _, t := range tools {
 		var schema any
-		if json.Unmarshal(t.InputSchema, &schema) != nil {
+		if json.Unmarshal(t.InputSchema, &schema, jsonopt.Read) != nil {
 			continue
 		}
 		if b, err := headerBindings(schema); err == nil && len(b) > 0 {

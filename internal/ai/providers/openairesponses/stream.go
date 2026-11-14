@@ -2,12 +2,13 @@ package openairesponses
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -97,9 +98,9 @@ func convertUsage(u *apiUsage) provider.Usage {
 		InputTokens:  provider.InputTokens{Total: &total, NoCache: &fresh, CacheRead: &cached, CacheWrite: write},
 		OutputTokens: provider.OutputTokens{Total: &out, Text: &text, Reasoning: &reasoning},
 	}
-	if raw, err := json.Marshal(u); err == nil {
+	if raw, err := json.Marshal(u, jsonopt.Write); err == nil {
 		var obj provider.JSONObject
-		if json.Unmarshal(raw, &obj) == nil {
+		if json.Unmarshal(raw, &obj, jsonopt.Read) == nil {
 			usage.Raw = obj
 		}
 	}
@@ -213,14 +214,14 @@ func (s *streamState) run(body io.ReadCloser) {
 			return s.ctx.Err()
 		}
 		var e event
-		if err := json.Unmarshal([]byte(ev.Data), &e); err != nil {
+		if err := json.Unmarshal([]byte(ev.Data), &e, jsonopt.Read); err != nil {
 			s.emit(provider.ErrorPart{Err: &provider.InvalidResponseError{
 				Message: "could not decode stream event", Response: ev.Data, Cause: err}})
 			return nil
 		}
 		if s.raw {
 			var v any
-			if json.Unmarshal([]byte(ev.Data), &v) == nil {
+			if json.Unmarshal([]byte(ev.Data), &v, jsonopt.Read) == nil {
 				s.emit(provider.Raw{RawValue: v})
 			}
 		}

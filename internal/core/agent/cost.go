@@ -19,7 +19,7 @@ type CostBreakdown struct {
 	OutputTokens      int64   `json:"outputTokens"`
 	CachedInputTokens int64   `json:"cachedInputTokens"`
 	USD               float64 `json:"usd"`
-	Estimated         bool    `json:"estimated,omitempty"`
+	Estimated         bool    `json:"estimated,omitzero"`
 }
 
 // CostStats is loop's CostStats (`cost.stats`).

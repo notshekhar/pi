@@ -2,7 +2,7 @@ package serve
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/rpc"
 )
 
@@ -38,7 +39,7 @@ func TestPairingTicketAndSocket(t *testing.T) {
 	// Environment is public.
 	r, _ := http.Get(base + "/.well-known/loop/environment")
 	var env map[string]any
-	_ = json.NewDecoder(r.Body).Decode(&env)
+	_ = json.UnmarshalRead(r.Body, &env, jsonopt.Read)
 	if env["environmentId"] != EnvironmentID(h.Token) || env["serverVersion"] != "9.9.9" {
 		t.Fatalf("env %v", env)
 	}
@@ -47,7 +48,7 @@ func TestPairingTicketAndSocket(t *testing.T) {
 	form := url.Values{"grant_type": {tokenExchangeGrant}, "subject_token": {code.Code[:3] + " " + code.Code[3:]}}
 	r, _ = http.PostForm(base+"/oauth/token", form)
 	var tok map[string]any
-	_ = json.NewDecoder(r.Body).Decode(&tok)
+	_ = json.UnmarshalRead(r.Body, &tok, jsonopt.Read)
 	if tok["access_token"] != h.Token {
 		t.Fatalf("code exchange: %v", tok)
 	}
@@ -60,7 +61,7 @@ func TestPairingTicketAndSocket(t *testing.T) {
 	req.Header.Set("authorization", "Bearer "+h.Token)
 	r, _ = http.DefaultClient.Do(req)
 	var ticket map[string]string
-	_ = json.NewDecoder(r.Body).Decode(&ticket)
+	_ = json.UnmarshalRead(r.Body, &ticket, jsonopt.Read)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	conn, _, err := websocket.Dial(ctx, "ws://127.0.0.1:47667/ws?wsTicket="+ticket["ticket"], nil)

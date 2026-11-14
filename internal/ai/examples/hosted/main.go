@@ -11,13 +11,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providers/anthropic"
 	"github.com/notshekhar/pi/internal/ai/providers/google"
@@ -116,7 +117,7 @@ func run(ctx context.Context, model provider.LanguageModel, tools []provider.Pro
 			fmt.Printf("\n\033[36m→ %s\033[0m \033[2m%s\033[0m\n", v.ToolName, oneLine(v.Input, 90))
 
 		case provider.ToolResult:
-			encoded, _ := json.Marshal(v.Result)
+			encoded, _ := json.Marshal(v.Result, jsonopt.Write)
 			marker := "←"
 			if v.IsError {
 				marker = "\033[31m← failed\033[0m"

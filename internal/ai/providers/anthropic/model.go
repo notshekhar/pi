@@ -2,13 +2,14 @@ package anthropic
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -396,12 +397,12 @@ func schemaForTool(t provider.FunctionTool) (any, error) {
 	}
 	// Round-trip through JSON so the wire body carries a plain document
 	// rather than the Go schema type's field layout.
-	raw, err := json.Marshal(t.InputSchema)
+	raw, err := json.Marshal(t.InputSchema, jsonopt.Write)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: encoding schema for tool %q: %w", t.Name, err)
 	}
 	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := json.Unmarshal(raw, &out, jsonopt.Read); err != nil {
 		return nil, fmt.Errorf("anthropic: decoding schema for tool %q: %w", t.Name, err)
 	}
 	// $schema is meaningful to validators but not to the API, and some
@@ -505,7 +506,7 @@ func (m *languageModel) DoGenerate(ctx context.Context, opts provider.CallOption
 		content = jsonToolAsText(content)
 	}
 
-	requestBody, _ := json.Marshal(req)
+	requestBody, _ := json.Marshal(req, jsonopt.Write)
 
 	return &provider.GenerateResult{
 		Content:      content,
@@ -640,9 +641,9 @@ func convertUsage(u anthropicUsage) provider.Usage {
 		usage.OutputTokens.Text = &text
 	}
 
-	if raw, err := json.Marshal(u); err == nil {
+	if raw, err := json.Marshal(u, jsonopt.Write); err == nil {
 		var obj provider.JSONObject
-		if json.Unmarshal(raw, &obj) == nil {
+		if json.Unmarshal(raw, &obj, jsonopt.Read) == nil {
 			usage.Raw = obj
 		}
 	}
@@ -701,9 +702,6 @@ func toInt64(v any) (int64, bool) {
 		return int64(n), true
 	case int64:
 		return n, true
-	case json.Number:
-		i, err := n.Int64()
-		return i, err == nil
 	case string:
 		i, err := strconv.ParseInt(n, 10, 64)
 		return i, err == nil

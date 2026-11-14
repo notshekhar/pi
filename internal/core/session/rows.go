@@ -2,12 +2,14 @@ package session
 
 import (
 	"database/sql"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/db"
 	"github.com/notshekhar/pi/internal/core/home"
 )
@@ -26,10 +28,10 @@ type Row struct {
 	ParentSession    string  `json:"parentSession,omitempty"`
 	Path             string  `json:"path"`
 	Mtime            float64 `json:"mtime"`
-	FirstUserMessage *string `json:"firstUserMessage,omitempty"`
-	Name             *string `json:"name,omitempty"`
+	FirstUserMessage *string `json:"firstUserMessage,omitzero"`
+	Name             *string `json:"name,omitzero"`
 	LastModel        string  `json:"lastModel,omitempty"`
-	ArchivedAt       int64   `json:"archivedAt,omitempty"`
+	ArchivedAt       int64   `json:"archivedAt,omitzero"`
 }
 
 // Page bounds a listing; a negative Limit means none.
@@ -53,11 +55,11 @@ func rowFromRecord(r Record) Row {
 	}
 	if r.FirstUserPayload != "" {
 		var m struct {
-			Content json.RawMessage `json:"content"`
+			Content jsontext.Value `json:"content"`
 		}
-		if json.Unmarshal([]byte(r.FirstUserPayload), &m) == nil {
+		if json.Unmarshal([]byte(r.FirstUserPayload), &m, jsonopt.Read) == nil {
 			var text string
-			if json.Unmarshal(m.Content, &text) == nil {
+			if json.Unmarshal(m.Content, &text, jsonopt.Read) == nil {
 				text = StripHookContext(text)
 			} else {
 				text = string(m.Content)

@@ -2,8 +2,11 @@ package openaicompat
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"strings"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // chatRequest is the body of POST /chat/completions.
@@ -13,24 +16,24 @@ type chatRequest struct {
 
 	// MaxTokens is the legacy field. Newer OpenAI models require
 	// max_completion_tokens instead, which UseMaxCompletionTokens selects.
-	MaxTokens           *int64 `json:"max_tokens,omitempty"`
-	MaxCompletionTokens *int64 `json:"max_completion_tokens,omitempty"`
+	MaxTokens           *int64 `json:"max_tokens,omitzero"`
+	MaxCompletionTokens *int64 `json:"max_completion_tokens,omitzero"`
 
-	Temperature      *float64 `json:"temperature,omitempty"`
-	TopP             *float64 `json:"top_p,omitempty"`
-	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
-	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
-	Seed             *int64   `json:"seed,omitempty"`
+	Temperature      *float64 `json:"temperature,omitzero"`
+	TopP             *float64 `json:"top_p,omitzero"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitzero"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitzero"`
+	Seed             *int64   `json:"seed,omitzero"`
 	Stop             []string `json:"stop,omitempty"`
 
 	Tools      []apiTool `json:"tools,omitempty"`
-	ToolChoice any       `json:"tool_choice,omitempty"`
+	ToolChoice any       `json:"tool_choice,omitzero"`
 
-	ResponseFormat  any    `json:"response_format,omitempty"`
+	ResponseFormat  any    `json:"response_format,omitzero"`
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 
-	Stream        bool           `json:"stream,omitempty"`
-	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	Stream        bool           `json:"stream,omitzero"`
+	StreamOptions *streamOptions `json:"stream_options,omitzero"`
 
 	// Extra carries provider-specific fields that are merged into the body.
 	Extra map[string]any `json:"-"`
@@ -49,11 +52,11 @@ type apiMessage struct {
 	// Content is a string for simple messages and a []contentPart for
 	// multi-modal ones. It is omitted entirely for an assistant message that
 	// only carries tool calls, because some gateways reject a null content.
-	Content any `json:"content,omitempty"`
+	Content any `json:"content,omitzero"`
 
 	// ReasoningContent replays an assistant turn's reasoning. A pointer, so
 	// a model that requires the field gets it even when empty.
-	ReasoningContent *string `json:"reasoning_content,omitempty"`
+	ReasoningContent *string `json:"reasoning_content,omitzero"`
 
 	// Reasoning and ReasoningDetails are OpenRouter's replay of a turn's
 	// reasoning and its signed details.
@@ -70,7 +73,7 @@ type apiMessage struct {
 	Name string `json:"name,omitempty"`
 
 	// Prefix marks a trailing assistant turn the model continues (Mistral).
-	Prefix bool `json:"prefix,omitempty"`
+	Prefix bool `json:"prefix,omitzero"`
 }
 
 // contentPart is one part of a multi-modal message.
@@ -79,11 +82,11 @@ type contentPart struct {
 
 	Text string `json:"text,omitempty"`
 
-	ImageURL *imageURL `json:"image_url,omitempty"`
-	File     *fileData `json:"file,omitempty"`
+	ImageURL *imageURL `json:"image_url,omitzero"`
+	File     *fileData `json:"file,omitzero"`
 
 	// CacheControl marks a prompt-cache breakpoint after this part.
-	CacheControl *cacheControl `json:"cache_control,omitempty"`
+	CacheControl *cacheControl `json:"cache_control,omitzero"`
 }
 
 // cacheControl is Anthropic's breakpoint, as gateways relay it.
@@ -110,7 +113,7 @@ type fileData struct {
 type apiToolCall struct {
 	// Index orders the call within a streaming delta. It is absent in
 	// non-streaming responses.
-	Index    *int            `json:"index,omitempty"`
+	Index    *int            `json:"index,omitzero"`
 	ID       string          `json:"id,omitempty"`
 	Type     string          `json:"type,omitempty"`
 	Function apiFunctionCall `json:"function"`
@@ -134,7 +137,7 @@ type apiFunction struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Parameters  any    `json:"parameters"`
-	Strict      *bool  `json:"strict,omitempty"`
+	Strict      *bool  `json:"strict,omitzero"`
 }
 
 // chatResponse is a non-streaming completion.
@@ -182,9 +185,9 @@ func (m *apiMessageOut) UnmarshalJSON(data []byte) error {
 	type plain apiMessageOut
 	var wire struct {
 		plain
-		Content json.RawMessage `json:"content"`
+		Content jsontext.Value `json:"content"`
 	}
-	if err := json.Unmarshal(data, &wire); err != nil {
+	if err := json.Unmarshal(data, &wire, jsonopt.Read); err != nil {
 		return err
 	}
 	*m = apiMessageOut(wire.plain)
@@ -192,7 +195,7 @@ func (m *apiMessageOut) UnmarshalJSON(data []byte) error {
 	switch {
 	case len(raw) == 0 || string(raw) == "null":
 	case raw[0] == '"':
-		return json.Unmarshal(raw, &m.Content)
+		return json.Unmarshal(raw, &m.Content, jsonopt.Read)
 	case raw[0] == '[':
 		var parts []struct {
 			Type     string `json:"type"`
@@ -202,7 +205,7 @@ func (m *apiMessageOut) UnmarshalJSON(data []byte) error {
 				Text string `json:"text"`
 			} `json:"thinking"`
 		}
-		if err := json.Unmarshal(raw, &parts); err != nil {
+		if err := json.Unmarshal(raw, &parts, jsonopt.Read); err != nil {
 			return err
 		}
 		var text, thinking strings.Builder
@@ -301,7 +304,7 @@ type streamChunk struct {
 // Extras are merged at the top level rather than nested, because gateways
 // expose their own knobs as sibling fields of the standard ones.
 func marshalRequest(req *chatRequest) ([]byte, error) {
-	base, err := json.Marshal(*req)
+	base, err := json.Marshal(*req, jsonopt.Write)
 	if err != nil {
 		return nil, err
 	}
@@ -310,11 +313,11 @@ func marshalRequest(req *chatRequest) ([]byte, error) {
 	}
 
 	var merged map[string]any
-	if err := json.Unmarshal(base, &merged); err != nil {
+	if err := json.Unmarshal(base, &merged, jsonopt.Read); err != nil {
 		return nil, err
 	}
 	for k, v := range req.Extra {
 		merged[k] = v
 	}
-	return json.Marshal(merged)
+	return json.Marshal(merged, jsonopt.Write)
 }

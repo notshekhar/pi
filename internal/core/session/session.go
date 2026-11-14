@@ -10,13 +10,15 @@
 package session
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/home"
 )
@@ -568,9 +570,9 @@ func ListScope(cwd string, scope Scope) ([]Meta, error) {
 		}
 		if r.FirstUserPayload != "" {
 			var e struct {
-				Content json.RawMessage `json:"content"`
+				Content jsontext.Value `json:"content"`
 			}
-			if json.Unmarshal([]byte(r.FirstUserPayload), &e) == nil {
+			if json.Unmarshal([]byte(r.FirstUserPayload), &e, jsonopt.Read) == nil {
 				m.Title = titleFrom(StripHookContext(TextContent(e.Content)))
 			}
 		}

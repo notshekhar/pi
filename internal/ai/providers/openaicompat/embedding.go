@@ -2,10 +2,12 @@ package openaicompat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"sort"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -43,7 +45,7 @@ type embeddingRequest struct {
 	Model string   `json:"model"`
 	Input []string `json:"input"`
 	// Dimensions truncates the vector on models that support it.
-	Dimensions *int `json:"dimensions,omitempty"`
+	Dimensions *int `json:"dimensions,omitzero"`
 	// EncodingFormat is left at the default "float": base64 would be smaller
 	// on the wire but needs a decode step for no real gain here.
 	EncodingFormat string `json:"encoding_format,omitempty"`
@@ -91,7 +93,7 @@ func (m *embeddingModel) DoEmbed(ctx context.Context, opts provider.EmbeddingCal
 	}
 
 	resp, err := providerutil.Retry(ctx, m.provider.retry, func(ctx context.Context) (*embeddingResponse, error) {
-		httpResp, err := m.provider.client.PostJSON(ctx, defaultEmbeddingsPath, json.RawMessage(body), opts.Headers)
+		httpResp, err := m.provider.client.PostJSON(ctx, defaultEmbeddingsPath, jsontext.Value(body), opts.Headers)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +129,7 @@ func (m *embeddingModel) DoEmbed(ctx context.Context, opts provider.EmbeddingCal
 // marshalEmbeddingRequest renders the body, merging provider extras as
 // siblings of the standard fields.
 func marshalEmbeddingRequest(req *embeddingRequest) ([]byte, error) {
-	encoded, err := json.Marshal(*req)
+	encoded, err := json.Marshal(*req, jsonopt.Write)
 	if err != nil {
 		return nil, err
 	}
@@ -136,11 +138,11 @@ func marshalEmbeddingRequest(req *embeddingRequest) ([]byte, error) {
 	}
 
 	var merged map[string]any
-	if err := json.Unmarshal(encoded, &merged); err != nil {
+	if err := json.Unmarshal(encoded, &merged, jsonopt.Read); err != nil {
 		return nil, err
 	}
 	for k, v := range req.Extra {
 		merged[k] = v
 	}
-	return json.Marshal(merged)
+	return json.Marshal(merged, jsonopt.Write)
 }

@@ -2,7 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // fakeHTTP is a remote MCP server for one protocol era. modern answers
@@ -38,7 +41,7 @@ func (f *fakeHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, _ := io.ReadAll(r.Body)
 	var req map[string]any
-	_ = json.Unmarshal(raw, &req)
+	_ = json.Unmarshal(raw, &req, jsonopt.Read)
 	f.mu.Lock()
 	f.seen, f.bodies = append(f.seen, r.Header.Clone()), append(f.bodies, req)
 	f.mu.Unlock()
@@ -53,7 +56,7 @@ func (f *fakeHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			v["resultType"] = "complete"
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": v})
+		_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]any{"jsonrpc": "2.0", "id": id, "result": v}, jsonopt.Write)
 	}
 	tools := []map[string]any{{"name": "lookup", "inputSchema": map[string]any{"type": "object",
 		"properties": map[string]any{"region": map[string]any{"type": "string", "x-mcp-header": "Region"}}}}}
@@ -133,7 +136,7 @@ func TestHTTPModernEra(t *testing.T) {
 	if _, err := c.ListTools(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	res, err := c.CallTool(context.Background(), "lookup", json.RawMessage(`{"region":"eu-west"}`))
+	res, err := c.CallTool(context.Background(), "lookup", jsontext.Value(`{"region":"eu-west"}`))
 	if err != nil || textOf(res) != "modern ok" {
 		t.Fatalf("call = %+v, %v", res, err)
 	}
@@ -212,7 +215,7 @@ func fakeSSE(t *testing.T) *httptest.Server {
 	})
 	mux.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		_ = json.UnmarshalRead(r.Body, &req, jsonopt.Read)
 		w.WriteHeader(http.StatusAccepted)
 		if req["id"] == nil {
 			return
@@ -226,7 +229,7 @@ func fakeSSE(t *testing.T) *httptest.Server {
 		default:
 			result = `{"content":[{"type":"text","text":"over sse"}]}`
 		}
-		id, _ := json.Marshal(req["id"])
+		id, _ := json.Marshal(req["id"], jsonopt.Write)
 		mu.Lock()
 		ch := stream
 		mu.Unlock()
@@ -284,7 +287,7 @@ func TestEncodeHeaderValue(t *testing.T) {
 
 func TestHeaderBindingsRejectUnreachable(t *testing.T) {
 	var schema any
-	_ = json.Unmarshal([]byte(`{"type":"object","properties":{"a":{"type":"array","items":{"type":"string","x-mcp-header":"A"}}}}`), &schema)
+	_ = json.Unmarshal([]byte(`{"type":"object","properties":{"a":{"type":"array","items":{"type":"string","x-mcp-header":"A"}}}}`), &schema, jsonopt.Read)
 	if _, err := headerBindings(schema); err == nil || !strings.Contains(err.Error(), "statically reachable") {
 		t.Errorf("err = %v", err)
 	}

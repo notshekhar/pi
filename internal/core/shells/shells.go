@@ -32,7 +32,7 @@ type Info struct {
 	ID        string   `json:"id"`
 	Command   string   `json:"command"`
 	CWD       string   `json:"cwd"`
-	PID       int      `json:"pid,omitempty"`
+	PID       int      `json:"pid,omitzero"`
 	Status    string   `json:"status"` // running | exited | killed | failed
 	ExitCode  *int     `json:"exitCode"`
 	StartedAt int64    `json:"startedAt"`

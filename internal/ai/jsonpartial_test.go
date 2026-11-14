@@ -1,8 +1,10 @@
 package ai
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"testing"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 func TestCompleteJSON(t *testing.T) {
@@ -67,5 +69,5 @@ func TestCompleteJSONAlwaysParses(t *testing.T) {
 // above stays readable.
 func jsonValid(s string) bool {
 	var v any
-	return json.Unmarshal([]byte(s), &v) == nil
+	return json.Unmarshal([]byte(s), &v, jsonopt.Read) == nil
 }

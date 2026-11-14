@@ -1,13 +1,14 @@
 package main
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/agent"
 )
 
@@ -117,11 +118,11 @@ func (s *reportState) resultObject(r runResult) runResultObject {
 // writeJSONLine writes v as one line. HTML escaping is off: JSON.stringify
 // leaves < and > alone, and a script comparing text must see the same bytes.
 func writeJSONLine(w io.Writer, v any) {
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		_ = enc.Encode(streamEvent{Type: "error", Data: err.Error()})
+	line, err := json.Marshal(v, jsonopt.Write)
+	if err != nil {
+		line, _ = json.Marshal(streamEvent{Type: "error", Data: err.Error()}, jsonopt.Write)
 	}
+	_, _ = w.Write(append(line, '\n'))
 }
 
 // textReporter is the human stream, plus the session id up front so a run
@@ -195,7 +196,7 @@ type streamJSONReporter struct{ *reportState }
 // streamEvent is one NDJSON line; a nil payload is loop's void event.
 type streamEvent struct {
 	Type string `json:"type"`
-	Data any    `json:"data,omitempty"`
+	Data any    `json:"data,omitzero"`
 }
 
 func (r *streamJSONReporter) emit(event string, data any) {
@@ -228,13 +229,11 @@ func (r *streamJSONReporter) end(res runResult) {
 
 // compactJSON is a tool input as one line, the way JSON.stringify prints it.
 func compactJSON(v any) string {
-	var b strings.Builder
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
+	b, err := json.Marshal(v, jsonopt.Write)
+	if err != nil {
 		return fmt.Sprint(v)
 	}
-	return strings.TrimSuffix(b.String(), "\n")
+	return string(b)
 }
 
 // errorText is an error payload as loop's String(err) shows it:

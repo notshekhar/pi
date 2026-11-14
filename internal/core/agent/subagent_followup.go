@@ -1,11 +1,12 @@
 package agent
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/session"
 )
@@ -57,7 +58,7 @@ const argSummaryMax = 70
 // argSummary is a one-line glimpse of a tool call's input.
 func argSummary(input string) string {
 	var args map[string]any
-	if json.Unmarshal([]byte(input), &args) != nil {
+	if json.Unmarshal([]byte(input), &args, jsonopt.Read) != nil {
 		return ""
 	}
 	for _, key := range []string{"command", "path", "file_path", "pattern", "prompt"} {
@@ -108,7 +109,7 @@ func followUpThread(branch []session.Entry, callID string) (agentName string, me
 // shows what was explored), else its report.
 func runTranscript(run session.Entry) string {
 	var activity Activity
-	_ = json.Unmarshal(run.Extra["activity"], &activity)
+	_ = json.Unmarshal(run.Extra["activity"], &activity, jsonopt.Read)
 	text := activity.Text()
 	if text == "" {
 		text = run.Result
@@ -124,7 +125,7 @@ func runTranscript(run session.Entry) string {
 
 func extraString(e session.Entry, key string) string {
 	var s string
-	_ = json.Unmarshal(e.Extra[key], &s)
+	_ = json.Unmarshal(e.Extra[key], &s, jsonopt.Read)
 	return s
 }
 

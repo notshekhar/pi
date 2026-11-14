@@ -15,7 +15,7 @@ const defaultLsLimit = 500
 
 type lsArgs struct {
 	Path  string `json:"path,omitempty"`
-	Limit int    `json:"limit,omitempty"`
+	Limit int    `json:"limit,omitzero"`
 }
 
 // Ls returns the ls tool.

@@ -1,11 +1,12 @@
 package agent
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/session"
 )
 
@@ -134,7 +135,7 @@ func collectToolUse(current []session.Entry) (files, commands []string) {
 				continue
 			}
 			var in map[string]any
-			_ = json.Unmarshal(p.Input, &in)
+			_ = json.Unmarshal(p.Input, &in, jsonopt.Read)
 			switch {
 			case handoffFileTools[p.ToolName]:
 				for _, k := range []string{"file_path", "path", "filePath"} {

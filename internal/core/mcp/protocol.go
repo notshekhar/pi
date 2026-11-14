@@ -10,7 +10,7 @@
 package mcp
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 )
@@ -59,12 +59,12 @@ const (
 // message is any JSON-RPC 2.0 message: a request (method + id), a
 // notification (method, no id) or a response (id + result or error).
 type message struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *RPCError       `json:"error,omitempty"`
+	JSONRPC string         `json:"jsonrpc"`
+	ID      jsontext.Value `json:"id,omitzero"`
+	Method  string         `json:"method,omitempty"`
+	Params  jsontext.Value `json:"params,omitzero"`
+	Result  jsontext.Value `json:"result,omitzero"`
+	Error   *RPCError      `json:"error,omitzero"`
 }
 
 func (m *message) isRequest() bool      { return m.Method != "" && len(m.ID) > 0 }
@@ -73,9 +73,9 @@ func (m *message) isResponse() bool     { return m.Method == "" && len(m.ID) > 0
 
 // RPCError is a JSON-RPC error object, returned as a Go error.
 type RPCError struct {
-	Code    int             `json:"code"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Code    int            `json:"code"`
+	Message string         `json:"message"`
+	Data    jsontext.Value `json:"data,omitzero"`
 }
 
 func (e *RPCError) Error() string {
@@ -97,16 +97,16 @@ type ServerInfo struct {
 // Capabilities are what a server declared. Only the parts this client acts
 // on are typed; the rest is kept raw.
 type Capabilities struct {
-	Tools       *listChangedCap `json:"tools,omitempty"`
-	Resources   *listChangedCap `json:"resources,omitempty"`
-	Prompts     *listChangedCap `json:"prompts,omitempty"`
-	Logging     json.RawMessage `json:"logging,omitempty"`
-	Completions json.RawMessage `json:"completions,omitempty"`
+	Tools       *listChangedCap `json:"tools,omitzero"`
+	Resources   *listChangedCap `json:"resources,omitzero"`
+	Prompts     *listChangedCap `json:"prompts,omitzero"`
+	Logging     jsontext.Value  `json:"logging,omitzero"`
+	Completions jsontext.Value  `json:"completions,omitzero"`
 }
 
 type listChangedCap struct {
-	ListChanged bool `json:"listChanged,omitempty"`
-	Subscribe   bool `json:"subscribe,omitempty"`
+	ListChanged bool `json:"listChanged,omitzero"`
+	Subscribe   bool `json:"subscribe,omitzero"`
 }
 
 type initializeResult struct {
@@ -117,18 +117,18 @@ type initializeResult struct {
 }
 
 type discoverResult struct {
-	SupportedVersions []string                   `json:"supportedVersions"`
-	Capabilities      Capabilities               `json:"capabilities"`
-	Instructions      string                     `json:"instructions,omitempty"`
-	Meta              map[string]json.RawMessage `json:"_meta,omitempty"`
+	SupportedVersions []string                  `json:"supportedVersions"`
+	Capabilities      Capabilities              `json:"capabilities"`
+	Instructions      string                    `json:"instructions,omitempty"`
+	Meta              map[string]jsontext.Value `json:"_meta,omitzero"`
 }
 
 // ToolDef is a tool the server offers.
 type ToolDef struct {
-	Name        string          `json:"name"`
-	Title       string          `json:"title,omitempty"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name        string         `json:"name"`
+	Title       string         `json:"title,omitempty"`
+	Description string         `json:"description,omitempty"`
+	InputSchema jsontext.Value `json:"inputSchema"`
 }
 
 type listToolsResult struct {
@@ -138,9 +138,9 @@ type listToolsResult struct {
 
 // CallToolResult is a tool's output.
 type CallToolResult struct {
-	Content           []Content       `json:"content"`
-	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
-	IsError           bool            `json:"isError,omitempty"`
+	Content           []Content      `json:"content"`
+	StructuredContent jsontext.Value `json:"structuredContent,omitzero"`
+	IsError           bool           `json:"isError,omitzero"`
 }
 
 // Content is one piece of a tool result.
@@ -153,7 +153,7 @@ type Content struct {
 	URI  string `json:"uri,omitempty"`
 	Name string `json:"name,omitempty"`
 	// resource (embedded)
-	Resource *embeddedResource `json:"resource,omitempty"`
+	Resource *embeddedResource `json:"resource,omitzero"`
 }
 
 type embeddedResource struct {

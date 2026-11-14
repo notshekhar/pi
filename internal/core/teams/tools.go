@@ -2,13 +2,15 @@ package teams
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/agents"
 	"github.com/notshekhar/pi/internal/core/session"
 	"github.com/notshekhar/pi/internal/core/tools"
@@ -405,7 +407,7 @@ func sendMessage(c ToolContext, a sendArgs) string {
 type boardArgs struct {
 	Action  string  `json:"action"`
 	Key     string  `json:"key,omitempty"`
-	Content *string `json:"content,omitempty"`
+	Content *string `json:"content,omitzero"`
 }
 
 func boardTool(c ToolContext) ai.Tool {
@@ -517,14 +519,14 @@ func Reported(calls []string) bool {
 }
 
 // decodeUntil reads wait_for_team's until: "all", "any", or a list of ids.
-func decodeUntil(raw json.RawMessage) (mode string, ids []string) {
+func decodeUntil(raw jsontext.Value) (mode string, ids []string) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return "all", nil
 	}
-	if json.Unmarshal(raw, &mode) == nil {
+	if json.Unmarshal(raw, &mode, jsonopt.Read) == nil {
 		return mode, nil
 	}
-	_ = json.Unmarshal(raw, &ids)
+	_ = json.Unmarshal(raw, &ids, jsonopt.Read)
 	var kept []string
 	for _, id := range ids {
 		if id = strings.TrimSpace(id); id != "" {

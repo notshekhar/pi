@@ -5,8 +5,10 @@ package docs
 
 import (
 	_ "embed"
-	"encoding/json"
+	json "encoding/json/v2"
 	"strings"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 //go:embed data/docs.json
@@ -21,7 +23,7 @@ type Entry struct {
 
 var all = func() []Entry {
 	var out []Entry
-	_ = json.Unmarshal(docsJSON, &out)
+	_ = json.Unmarshal(docsJSON, &out, jsonopt.Read)
 	return out
 }()
 

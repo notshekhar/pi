@@ -1,10 +1,12 @@
 package tools
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/sandbox"
 	"github.com/notshekhar/pi/internal/core/shells"
@@ -88,16 +90,16 @@ func settingConfig(s *config.SandboxSetting) sandbox.Config {
 
 // settingNetwork reads loop's SandboxNetwork: "allow", "deny", or
 // { allow, deny } — absent means "deny".
-func settingNetwork(raw json.RawMessage) sandbox.Network {
+func settingNetwork(raw jsontext.Value) sandbox.Network {
 	var mode string
-	if json.Unmarshal(raw, &mode) == nil && (mode == "allow" || mode == "deny") {
+	if json.Unmarshal(raw, &mode, jsonopt.Read) == nil && (mode == "allow" || mode == "deny") {
 		return sandbox.Network{Mode: mode}
 	}
 	var list struct {
 		Allow []string `json:"allow"`
 		Deny  []string `json:"deny"`
 	}
-	if json.Unmarshal(raw, &list) == nil && list.Allow != nil {
+	if json.Unmarshal(raw, &list, jsonopt.Read) == nil && list.Allow != nil {
 		return sandbox.Network{Mode: "list", Allow: list.Allow, Deny: list.Deny}
 	}
 	return sandbox.Network{Mode: "deny"}

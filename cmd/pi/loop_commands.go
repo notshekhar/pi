@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/session"
 	"github.com/notshekhar/pi/internal/tui"
 )
@@ -398,7 +399,7 @@ func (t *repl) importSession(rest string) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if !json.Valid([]byte(line)) {
+		if !jsontext.Value(line).IsValid(jsonopt.Read) {
 			t.fail("import: %s line %d is not JSON", filepath.Base(path), i+1)
 			return
 		}

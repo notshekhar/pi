@@ -5,10 +5,11 @@
 package trace
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/session"
 )
 
@@ -19,7 +20,7 @@ type Usage struct {
 	CacheRead  int64    `json:"cacheRead"`
 	CacheWrite int64    `json:"cacheWrite"`
 	Reasoning  int64    `json:"reasoning"`
-	USD        *float64 `json:"usd,omitempty"`
+	USD        *float64 `json:"usd,omitzero"`
 	Estimated  bool     `json:"estimated"`
 	// accum marks a sum (turn/total): loop builds those from emptyUsage and
 	// adds usd later, so "estimated" precedes "usd" in its JSON.
@@ -40,12 +41,12 @@ func (u Usage) MarshalJSON() ([]byte, error) {
 		return marshal(struct {
 			flat
 			Estimated bool     `json:"estimated"`
-			USD       *float64 `json:"usd,omitempty"`
+			USD       *float64 `json:"usd,omitzero"`
 		}{f, u.Estimated, u.USD})
 	}
 	return marshal(struct {
 		flat
-		USD       *float64 `json:"usd,omitempty"`
+		USD       *float64 `json:"usd,omitzero"`
 		Estimated bool     `json:"estimated"`
 	}{f, u.USD, u.Estimated})
 }
@@ -106,15 +107,15 @@ type Subagent struct {
 	Agent      string   `json:"agent"`
 	Prompt     string   `json:"prompt"`
 	Result     string   `json:"result"`
-	Steps      *float64 `json:"steps,omitempty"`
-	DurationMs *float64 `json:"durationMs,omitempty"`
-	Usage      *Usage   `json:"usage,omitempty"`
+	Steps      *float64 `json:"steps,omitzero"`
+	DurationMs *float64 `json:"durationMs,omitzero"`
+	Usage      *Usage   `json:"usage,omitzero"`
 }
 
 // ToolTiming is a recorded tool bar.
 type ToolTiming struct {
 	StartedAt float64  `json:"startedAt"`
-	EndedAt   *float64 `json:"endedAt,omitempty"`
+	EndedAt   *float64 `json:"endedAt,omitzero"`
 }
 
 // Tool is loop's TraceTool.
@@ -122,11 +123,11 @@ type Tool struct {
 	ToolCallID  string      `json:"toolCallId"`
 	Name        string      `json:"name"`
 	Input       string      `json:"input"`
-	Output      *string     `json:"output,omitempty"`
-	OutputChars *int        `json:"outputChars,omitempty"`
+	Output      *string     `json:"output,omitzero"`
+	OutputChars *int        `json:"outputChars,omitzero"`
 	Error       bool        `json:"error"`
-	Timing      *ToolTiming `json:"timing,omitempty"`
-	Subagent    *Subagent   `json:"subagent,omitempty"`
+	Timing      *ToolTiming `json:"timing,omitzero"`
+	Subagent    *Subagent   `json:"subagent,omitzero"`
 	// synthetic is a tool loop built from a subagent entry alone, whose
 	// object literal puts output before error.
 	synthetic bool
@@ -140,10 +141,10 @@ func (t Tool) MarshalJSON() ([]byte, error) {
 			ToolCallID  string    `json:"toolCallId"`
 			Name        string    `json:"name"`
 			Input       string    `json:"input"`
-			Output      *string   `json:"output,omitempty"`
-			OutputChars *int      `json:"outputChars,omitempty"`
+			Output      *string   `json:"output,omitzero"`
+			OutputChars *int      `json:"outputChars,omitzero"`
 			Error       bool      `json:"error"`
-			Subagent    *Subagent `json:"subagent,omitempty"`
+			Subagent    *Subagent `json:"subagent,omitzero"`
 		}{t.ToolCallID, t.Name, t.Input, t.Output, t.OutputChars, t.Error, t.Subagent})
 	}
 	return marshal(struct {
@@ -151,21 +152,21 @@ func (t Tool) MarshalJSON() ([]byte, error) {
 		Name        string      `json:"name"`
 		Input       string      `json:"input"`
 		Error       bool        `json:"error"`
-		Timing      *ToolTiming `json:"timing,omitempty"`
-		Output      *string     `json:"output,omitempty"`
-		OutputChars *int        `json:"outputChars,omitempty"`
-		Subagent    *Subagent   `json:"subagent,omitempty"`
+		Timing      *ToolTiming `json:"timing,omitzero"`
+		Output      *string     `json:"output,omitzero"`
+		OutputChars *int        `json:"outputChars,omitzero"`
+		Subagent    *Subagent   `json:"subagent,omitzero"`
 	}{t.ToolCallID, t.Name, t.Input, t.Error, t.Timing, t.Output, t.OutputChars, t.Subagent})
 }
 
 // StepTiming is loop's TraceStepTiming (kind recorded | derived | none).
 type StepTiming struct {
 	Kind         string   `json:"kind"`
-	StartedAt    *float64 `json:"startedAt,omitempty"`
-	FirstTokenAt *float64 `json:"firstTokenAt,omitempty"`
-	ModelEndedAt *float64 `json:"modelEndedAt,omitempty"`
+	StartedAt    *float64 `json:"startedAt,omitzero"`
+	FirstTokenAt *float64 `json:"firstTokenAt,omitzero"`
+	ModelEndedAt *float64 `json:"modelEndedAt,omitzero"`
 	EndedAt      float64  `json:"endedAt"`
-	RetryWaitMs  *float64 `json:"retryWaitMs,omitempty"`
+	RetryWaitMs  *float64 `json:"retryWaitMs,omitzero"`
 }
 
 // MarshalJSON keeps loop's key order per kind.
@@ -175,10 +176,10 @@ func (t StepTiming) MarshalJSON() ([]byte, error) {
 		return marshal(struct {
 			Kind         string   `json:"kind"`
 			StartedAt    float64  `json:"startedAt"`
-			FirstTokenAt *float64 `json:"firstTokenAt,omitempty"`
+			FirstTokenAt *float64 `json:"firstTokenAt,omitzero"`
 			ModelEndedAt float64  `json:"modelEndedAt"`
 			EndedAt      float64  `json:"endedAt"`
-			RetryWaitMs  *float64 `json:"retryWaitMs,omitempty"`
+			RetryWaitMs  *float64 `json:"retryWaitMs,omitzero"`
 		}{t.Kind, deref(t.StartedAt), t.FirstTokenAt, deref(t.ModelEndedAt), t.EndedAt, t.RetryWaitMs})
 	case "derived":
 		return marshal(struct {
@@ -193,15 +194,9 @@ func (t StepTiming) MarshalJSON() ([]byte, error) {
 	}{t.Kind, t.EndedAt})
 }
 
-// marshal is json.Marshal without HTML escaping (JSON.stringify's output).
+// marshal is JSON.stringify's output: no HTML escaping, which is v2's default.
 func marshal(v any) ([]byte, error) {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(b.Bytes(), "\n"), nil
+	return json.Marshal(v, jsonopt.Write)
 }
 
 func deref(p *float64) float64 {
@@ -220,7 +215,7 @@ type Step struct {
 	Reasoning   string     `json:"reasoning"`
 	ReasoningMs []int64    `json:"reasoningMs,omitempty"`
 	Tools       []*Tool    `json:"tools"`
-	Usage       *Usage     `json:"usage,omitempty"`
+	Usage       *Usage     `json:"usage,omitzero"`
 	Interrupted bool       `json:"interrupted"`
 	Timing      StepTiming `json:"timing"`
 }
@@ -406,7 +401,7 @@ func timingOf(e session.Entry) *recorded {
 		return nil
 	}
 	var r recorded
-	if json.Unmarshal(raw, &r) != nil {
+	if json.Unmarshal(raw, &r, jsonopt.Read) != nil {
 		return nil
 	}
 	return &r
@@ -494,7 +489,7 @@ func extraFloat(e session.Entry, key string) *float64 {
 		return nil
 	}
 	var v float64
-	if json.Unmarshal(raw, &v) != nil {
+	if json.Unmarshal(raw, &v, jsonopt.Read) != nil {
 		return nil
 	}
 	return &v
@@ -503,7 +498,7 @@ func extraFloat(e session.Entry, key string) *float64 {
 func extraString(e session.Entry, key string) string {
 	var v string
 	if raw, ok := e.Extra[key]; ok {
-		_ = json.Unmarshal(raw, &v)
+		_ = json.Unmarshal(raw, &v, jsonopt.Read)
 	}
 	return v
 }
@@ -565,9 +560,9 @@ func (b *builder) advance(ts float64) {
 	b.anchor = &a
 }
 
-func readAssistant(raw json.RawMessage) (string, string, []*Tool) {
+func readAssistant(raw jsontext.Value) (string, string, []*Tool) {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return s, "", []*Tool{}
 	}
 	text, reasoning := "", ""

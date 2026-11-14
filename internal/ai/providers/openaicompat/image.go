@@ -2,9 +2,11 @@ package openaicompat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -38,7 +40,7 @@ func (m *imageModel) MaxImagesPerCall() int        { return maxImagesPerCall }
 type imageRequest struct {
 	Model  string `json:"model"`
 	Prompt string `json:"prompt"`
-	N      int    `json:"n,omitempty"`
+	N      int    `json:"n,omitzero"`
 	Size   string `json:"size,omitempty"`
 	// ResponseFormat asks for inline bytes. gpt-image-1 always returns base64
 	// and rejects the field, so it is only sent when the caller's gateway
@@ -98,7 +100,7 @@ func (m *imageModel) DoGenerate(ctx context.Context, opts provider.ImageCallOpti
 	}
 
 	resp, err := providerutil.Retry(ctx, m.provider.retry, func(ctx context.Context) (*imageResponse, error) {
-		httpResp, err := m.provider.client.PostJSON(ctx, imagesPath, json.RawMessage(body), opts.Headers)
+		httpResp, err := m.provider.client.PostJSON(ctx, imagesPath, jsontext.Value(body), opts.Headers)
 		if err != nil {
 			return nil, err
 		}
@@ -129,7 +131,7 @@ func (m *imageModel) DoGenerate(ctx context.Context, opts provider.ImageCallOpti
 // marshalImageRequest renders the body, merging provider extras as siblings
 // of the standard fields.
 func marshalImageRequest(req *imageRequest) ([]byte, error) {
-	encoded, err := json.Marshal(*req)
+	encoded, err := json.Marshal(*req, jsonopt.Write)
 	if err != nil {
 		return nil, err
 	}
@@ -138,13 +140,13 @@ func marshalImageRequest(req *imageRequest) ([]byte, error) {
 	}
 
 	var merged map[string]any
-	if err := json.Unmarshal(encoded, &merged); err != nil {
+	if err := json.Unmarshal(encoded, &merged, jsonopt.Read); err != nil {
 		return nil, err
 	}
 	for k, v := range req.Extra {
 		merged[k] = v
 	}
-	return json.Marshal(merged)
+	return json.Marshal(merged, jsonopt.Write)
 }
 
 // mediaTypeFor reports the type of a returned image, which the endpoint leaves

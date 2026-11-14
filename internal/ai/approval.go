@@ -2,9 +2,10 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -32,14 +33,14 @@ type ApprovalDecision struct {
 	// Ignored when Approved is false, and when it is not valid JSON for the
 	// tool — a bad rewrite must leave the original call alone rather than
 	// failing it.
-	UpdatedInput json.RawMessage
+	UpdatedInput jsontext.Value
 }
 
 // Approve allows a tool call.
 func Approve() ApprovalDecision { return ApprovalDecision{Approved: true} }
 
 // ApproveWith allows a tool call, running it with different arguments.
-func ApproveWith(input json.RawMessage) ApprovalDecision {
+func ApproveWith(input jsontext.Value) ApprovalDecision {
 	return ApprovalDecision{Approved: true, UpdatedInput: input}
 }
 
@@ -59,7 +60,7 @@ type ApprovalTool interface {
 
 	// NeedsApproval reports whether this particular call must be approved.
 	// input is the raw JSON the model produced.
-	NeedsApproval(ctx context.Context, input json.RawMessage) bool
+	NeedsApproval(ctx context.Context, input jsontext.Value) bool
 }
 
 // RequireApproval wraps a tool so that every call to it needs approval.
@@ -71,7 +72,7 @@ func RequireApproval(tool Tool) Tool {
 type alwaysApprove struct{ Tool }
 
 // NeedsApproval implements ApprovalTool.
-func (alwaysApprove) NeedsApproval(context.Context, json.RawMessage) bool { return true }
+func (alwaysApprove) NeedsApproval(context.Context, jsontext.Value) bool { return true }
 
 // ErrNoApprover is returned when a call needs approval but Options.ApproveTool
 // is nil.
@@ -155,7 +156,7 @@ func (r *runner) resolveApprovals(
 			// A rewrite has to be valid JSON, or the tool would be handed
 			// something it cannot decode and fail a call the approver meant
 			// to allow.
-			if len(decision.UpdatedInput) > 0 && json.Valid(decision.UpdatedInput) {
+			if len(decision.UpdatedInput) > 0 && decision.UpdatedInput.IsValid(jsonopt.Read) {
 				resolved[i].Input = decision.UpdatedInput
 			}
 			continue

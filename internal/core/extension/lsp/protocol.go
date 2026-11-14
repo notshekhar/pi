@@ -45,7 +45,7 @@ type Range struct {
 // Diagnostic is one reported problem.
 type Diagnostic struct {
 	Range    Range  `json:"range"`
-	Severity int    `json:"severity,omitempty"`
+	Severity int    `json:"severity,omitzero"`
 	Source   string `json:"source,omitempty"`
 	Message  string `json:"message"`
 }
@@ -66,7 +66,7 @@ type Location struct {
 type LocationLink struct {
 	TargetURI            string `json:"targetUri"`
 	TargetRange          Range  `json:"targetRange"`
-	TargetSelectionRange *Range `json:"targetSelectionRange,omitempty"`
+	TargetSelectionRange *Range `json:"targetSelectionRange,omitzero"`
 }
 
 // SymbolInformation is the flat symbol shape (workspace/symbol, and older

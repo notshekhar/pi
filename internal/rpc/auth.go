@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/catalog"
 	"github.com/notshekhar/pi/internal/core/config"
 )
@@ -91,7 +92,7 @@ func describeCustomAuth(a config.CustomAuth) string {
 		var opts struct {
 			Issuer string `json:"issuer"`
 		}
-		_ = json.Unmarshal(a.OAuth, &opts)
+		_ = json.Unmarshal(a.OAuth, &opts, jsonopt.Read)
 		if opts.Issuer != "" {
 			return "oauth: " + opts.Issuer
 		}
@@ -254,7 +255,7 @@ func runFlow(ctx context.Context, f *authFlow, method string) error {
 					Name string `json:"name"`
 				} `json:"models"`
 			}
-			if json.NewDecoder(resp.Body).Decode(&body) != nil || len(body.Models) == 0 {
+			if json.UnmarshalRead(resp.Body, &body, jsonopt.Read) != nil || len(body.Models) == 0 {
 				return errors.New("Ollama is running but no models are installed. Pull one, e.g. `ollama pull llama3.2`.")
 			}
 			if err := config.SaveKey("ollama", "local"); err != nil {
@@ -345,7 +346,7 @@ func parseCustomAuth(v any, existing *config.CustomProvider) (config.CustomAuth,
 	case "oauth":
 		a := config.CustomAuth{Kind: "oauth"}
 		if opts, ok := m["oauth"].(map[string]any); ok && len(opts) > 0 {
-			a.OAuth, _ = json.Marshal(opts)
+			a.OAuth, _ = json.Marshal(opts, jsonopt.Write)
 		}
 		return a, nil
 	case "none":

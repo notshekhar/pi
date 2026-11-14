@@ -8,13 +8,16 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // pollTimeout is how long Telegram holds an empty request open. Long, because
@@ -54,9 +57,9 @@ type Message struct {
 }
 
 type apiResponse struct {
-	OK          bool            `json:"ok"`
-	Result      json.RawMessage `json:"result"`
-	Description string          `json:"description"`
+	OK          bool           `json:"ok"`
+	Result      jsontext.Value `json:"result"`
+	Description string         `json:"description"`
 }
 
 type update struct {
@@ -87,7 +90,7 @@ func (t *Telegram) Poll(ctx context.Context) ([]Message, error) {
 		return nil, err
 	}
 	var updates []update
-	if err := json.Unmarshal(raw, &updates); err != nil {
+	if err := json.Unmarshal(raw, &updates, jsonopt.Read); err != nil {
 		return nil, fmt.Errorf("telegram: malformed updates: %w", err)
 	}
 
@@ -152,7 +155,7 @@ func split(text string, limit int) []string {
 }
 
 // call performs one API request.
-func (t *Telegram) call(ctx context.Context, method string, params url.Values) (json.RawMessage, error) {
+func (t *Telegram) call(ctx context.Context, method string, params url.Values) (jsontext.Value, error) {
 	endpoint := "https://api.telegram.org/bot" + t.token + "/" + method
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
 		strings.NewReader(params.Encode()))
@@ -172,7 +175,7 @@ func (t *Telegram) call(ctx context.Context, method string, params url.Values) (
 		return nil, err
 	}
 	var api apiResponse
-	if err := json.Unmarshal(body, &api); err != nil {
+	if err := json.Unmarshal(body, &api, jsonopt.Read); err != nil {
 		return nil, fmt.Errorf("telegram: %s returned unparseable JSON", method)
 	}
 	if !api.OK {

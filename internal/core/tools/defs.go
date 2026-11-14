@@ -3,11 +3,12 @@ package tools
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"sync"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 )
 
@@ -29,7 +30,7 @@ type Def struct {
 
 var loadDefs = sync.OnceValue(func() map[string]Def {
 	defs := map[string]Def{}
-	if err := json.Unmarshal(loopDefsJSON, &defs); err != nil {
+	if err := json.Unmarshal(loopDefsJSON, &defs, jsonopt.Read); err != nil {
 		panic(fmt.Sprintf("tools: defs/loop-tools.json is not valid: %v", err))
 	}
 	return defs

@@ -1,11 +1,14 @@
 package tui
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"math"
 	"strings"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // The /tree selector — loop's ui/tree-selector.ts with ui/tree/{layout,
@@ -17,7 +20,7 @@ type TreeItem struct {
 	ID, ParentID string
 	Type         string // message | subagent | compact | branch-summary | model-change | session-info | custom | label
 	Role         string
-	Content      json.RawMessage
+	Content      jsontext.Value
 	// UserText is a user message's text with hook context stripped.
 	UserText string
 	Agent    string
@@ -740,7 +743,7 @@ func buildToolCallMap(roots []*TreeItem) map[string]toolCallInfo {
 						name = "tool"
 					}
 					input := map[string]any{}
-					_ = json.Unmarshal(p.Input, &input)
+					_ = json.Unmarshal(p.Input, &input, jsonopt.Read)
 					m[p.ToolCallID] = toolCallInfo{name: name, input: input}
 				}
 			}
@@ -751,16 +754,16 @@ func buildToolCallMap(roots []*TreeItem) map[string]toolCallInfo {
 }
 
 type contentPart struct {
-	Type       string          `json:"type"`
-	Text       string          `json:"text"`
-	ToolCallID string          `json:"toolCallId"`
-	ToolName   string          `json:"toolName"`
-	Input      json.RawMessage `json:"input"`
+	Type       string         `json:"type"`
+	Text       string         `json:"text"`
+	ToolCallID string         `json:"toolCallId"`
+	ToolName   string         `json:"toolName"`
+	Input      jsontext.Value `json:"input"`
 }
 
-func contentParts(raw json.RawMessage) []contentPart {
+func contentParts(raw jsontext.Value) []contentPart {
 	var ps []contentPart
-	if json.Unmarshal(raw, &ps) != nil {
+	if json.Unmarshal(raw, &ps, jsonopt.Read) != nil {
 		return nil
 	}
 	return ps
@@ -791,7 +794,7 @@ func FormatToolInvocation(name string, args map[string]any, cwd string) string {
 	return name
 }
 
-func (s *TreeSelector) describeTools(raw json.RawMessage) string {
+func (s *TreeSelector) describeTools(raw jsontext.Value) string {
 	var labels []string
 	for _, p := range contentParts(raw) {
 		switch p.Type {
@@ -801,7 +804,7 @@ func (s *TreeSelector) describeTools(raw json.RawMessage) string {
 				name = "tool"
 			}
 			input := map[string]any{}
-			_ = json.Unmarshal(p.Input, &input)
+			_ = json.Unmarshal(p.Input, &input, jsonopt.Read)
 			labels = append(labels, FormatToolInvocation(name, input, s.cwd))
 		case "tool-result":
 			if c, ok := s.toolCalls[p.ToolCallID]; ok && p.ToolCallID != "" {
@@ -834,9 +837,9 @@ func sliceUTF16(s string, n int) string {
 	return s
 }
 
-func extractContent(raw json.RawMessage) string {
+func extractContent(raw jsontext.Value) string {
 	var str string
-	if json.Unmarshal(raw, &str) == nil {
+	if json.Unmarshal(raw, &str, jsonopt.Read) == nil {
 		return sliceUTF16(str, treeMaxContent)
 	}
 	out := ""
@@ -851,9 +854,9 @@ func extractContent(raw json.RawMessage) string {
 	return out
 }
 
-func hasTextContent(raw json.RawMessage) bool {
+func hasTextContent(raw jsontext.Value) bool {
 	var str string
-	if json.Unmarshal(raw, &str) == nil {
+	if json.Unmarshal(raw, &str, jsonopt.Read) == nil {
 		return strings.TrimSpace(str) != ""
 	}
 	for _, p := range contentParts(raw) {

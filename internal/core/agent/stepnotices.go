@@ -2,10 +2,11 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"slices"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/shells"
 	"github.com/notshekhar/pi/internal/core/tools"
@@ -72,7 +73,7 @@ func planDelivered(step ai.Step) bool {
 		var args struct {
 			Plan string `json:"plan"`
 		}
-		if json.Unmarshal(c.Input, &args) == nil && tools.IsDeliveredPlan(args.Plan) {
+		if json.Unmarshal(c.Input, &args, jsonopt.Read) == nil && tools.IsDeliveredPlan(args.Plan) {
 			return true
 		}
 	}

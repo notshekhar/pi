@@ -5,7 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/home"
 	"github.com/notshekhar/pi/internal/core/jsonstore"
 )
@@ -41,7 +43,7 @@ type StoredAuth struct {
 	Tokens              map[string]any       `json:"tokens,omitempty"`
 	CodeVerifier        string               `json:"codeVerifier,omitempty"`
 	State               string               `json:"state,omitempty"`
-	AuthorizationServer *authorizationServer `json:"authorizationServer,omitempty"`
+	AuthorizationServer *authorizationServer `json:"authorizationServer,omitzero"`
 }
 
 func (a StoredAuth) empty() bool {
@@ -92,14 +94,14 @@ func readAuthLocked(server string) StoredAuth {
 	path := authPath(server)
 	raw := s.Raw(path[0])
 	for _, key := range path[1:] {
-		var m map[string]json.RawMessage
-		if json.Unmarshal(raw, &m) != nil {
+		var m map[string]jsontext.Value
+		if json.Unmarshal(raw, &m, jsonopt.Read) != nil {
 			return StoredAuth{}
 		}
 		raw = m[key]
 	}
 	var out StoredAuth
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonopt.Read)
 	return out
 }
 
@@ -115,7 +117,7 @@ func writeAuthLocked(server string, a *StoredAuth) error {
 			return
 		}
 		var root map[string]any
-		_ = json.Unmarshal(o.Raw(path[0]), &root)
+		_ = json.Unmarshal(o.Raw(path[0]), &root, jsonopt.Read)
 		if root == nil {
 			root = map[string]any{}
 		}
@@ -132,9 +134,9 @@ func writeAuthLocked(server string, a *StoredAuth) error {
 		if a == nil {
 			delete(node, last)
 		} else {
-			raw, _ := json.Marshal(a)
+			raw, _ := json.Marshal(a, jsonopt.Write)
 			var v any
-			_ = json.Unmarshal(raw, &v)
+			_ = json.Unmarshal(raw, &v, jsonopt.Read)
 			node[last] = v
 		}
 		_ = o.Set(path[0], root)
@@ -592,7 +594,7 @@ func discoverResourceMetadata(ctx context.Context, server, metaURL *url.URL) (*r
 		return nil, fmt.Errorf("HTTP %d loading OAuth protected resource metadata", resp.StatusCode)
 	}
 	var md resourceMetadata
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&md); err != nil {
+	if err := json.UnmarshalRead(io.LimitReader(resp.Body, 1<<20), &md, jsonopt.Read); err != nil {
 		return nil, err
 	}
 	return &md, nil
@@ -664,7 +666,7 @@ func discoverASMetadata(ctx context.Context, as *url.URL) (*asMetadata, error) {
 			return nil, fmt.Errorf("HTTP %d trying to load OAuth metadata from %s", resp.StatusCode, c.u)
 		}
 		var md asMetadata
-		err = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&md)
+		err = json.UnmarshalRead(io.LimitReader(resp.Body, 1<<20), &md, jsonopt.Read)
 		drain(resp)
 		if err != nil {
 			return nil, fmt.Errorf("malformed OAuth metadata from %s: %w", c.u, err)
@@ -837,7 +839,7 @@ func registerClient(ctx context.Context, as *url.URL, md *asMetadata, clientMD m
 	}
 	// A loopback redirect is a native app (RFC 8252).
 	body["application_type"] = "native"
-	raw, _ := json.Marshal(body)
+	raw, _ := json.Marshal(body, jsonopt.Write)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), strings.NewReader(string(raw)))
 	if err != nil {
 		return nil, err
@@ -930,14 +932,14 @@ func oauthJSON(req *http.Request) (map[string]any, error) {
 			Error       string `json:"error"`
 			Description string `json:"error_description"`
 		}
-		if json.Unmarshal(body, &e) == nil && e.Error != "" {
+		if json.Unmarshal(body, &e, jsonopt.Read) == nil && e.Error != "" {
 			return nil, &OAuthError{Code: e.Error, Description: e.Description, Status: resp.StatusCode}
 		}
 		return nil, &OAuthError{Code: "server_error", Status: resp.StatusCode,
 			Description: fmt.Sprintf("HTTP %d: invalid OAuth error response. Raw body: %s", resp.StatusCode, strings.TrimSpace(string(body)))}
 	}
 	var out map[string]any
-	if err := json.Unmarshal(body, &out); err != nil {
+	if err := json.Unmarshal(body, &out, jsonopt.Read); err != nil {
 		return nil, fmt.Errorf("malformed OAuth response: %w", err)
 	}
 	return out, nil

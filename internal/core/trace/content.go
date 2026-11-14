@@ -2,7 +2,8 @@ package trace
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"io"
 	"math"
 	"sort"
@@ -10,23 +11,25 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf16"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // OutputCap is loop's OUTPUT_CAP: tool outputs keep their head.
 const OutputCap = 6_000
 
 type part struct {
-	Type       string          `json:"type"`
-	Text       string          `json:"text"`
-	ToolCallID string          `json:"toolCallId"`
-	ToolName   string          `json:"toolName"`
-	Input      json.RawMessage `json:"input"`
-	Output     json.RawMessage `json:"output"`
+	Type       string         `json:"type"`
+	Text       string         `json:"text"`
+	ToolCallID string         `json:"toolCallId"`
+	ToolName   string         `json:"toolName"`
+	Input      jsontext.Value `json:"input"`
+	Output     jsontext.Value `json:"output"`
 }
 
-func partsOf(raw json.RawMessage) []part {
+func partsOf(raw jsontext.Value) []part {
 	var parts []part
-	if json.Unmarshal(raw, &parts) != nil {
+	if json.Unmarshal(raw, &parts, jsonopt.Read) != nil {
 		return nil
 	}
 	return parts
@@ -73,9 +76,9 @@ func oneLineString(s string, max int) string {
 }
 
 // oneLine is loop's oneLine over a raw JSON value.
-func oneLine(raw json.RawMessage, max int) string {
+func oneLine(raw jsontext.Value, max int) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return oneLineString(s, max)
 	}
 	return oneLineString(safeJSON(raw, false), max)
@@ -154,9 +157,8 @@ func jsString(b *bytes.Buffer, s string) {
 
 // stringify re-encodes raw JSON as JSON.stringify would (key order kept,
 // JS number and string forms, optional two-space indent).
-func stringify(raw json.RawMessage, pretty bool) (string, bool) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+func stringify(raw jsontext.Value, pretty bool) (string, bool) {
+	dec := jsontext.NewDecoder(bytes.NewReader(raw), jsonopt.Read)
 	var b bytes.Buffer
 	var walk func(depth int) error
 	nl := func(depth int) {
@@ -166,26 +168,25 @@ func stringify(raw json.RawMessage, pretty bool) (string, bool) {
 		}
 	}
 	walk = func(depth int) error {
-		tok, err := dec.Token()
+		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		switch v := tok.(type) {
-		case json.Delim:
-			closing := map[json.Delim]byte{'{': '}', '[': ']'}[v]
-			b.WriteByte(byte(v))
+		switch kind := tok.Kind(); kind {
+		case '{', '[':
+			b.WriteByte(byte(kind))
 			n := 0
-			for dec.More() {
+			for next := dec.PeekKind(); next != '}' && next != ']'; next = dec.PeekKind() {
 				if n > 0 {
 					b.WriteByte(',')
 				}
 				nl(depth + 1)
-				if v == '{' {
-					k, err := dec.Token()
+				if kind == '{' {
+					k, err := dec.ReadToken()
 					if err != nil {
 						return err
 					}
-					jsString(&b, k.(string))
+					jsString(&b, k.String())
 					b.WriteByte(':')
 					if pretty {
 						b.WriteByte(' ')
@@ -196,24 +197,25 @@ func stringify(raw json.RawMessage, pretty bool) (string, bool) {
 				}
 				n++
 			}
-			if _, err := dec.Token(); err != nil {
+			end, err := dec.ReadToken()
+			if err != nil {
 				return err
 			}
 			if n > 0 {
 				nl(depth)
 			}
-			b.WriteByte(closing)
-		case string:
-			jsString(&b, v)
-		case json.Number:
-			f, err := v.Float64()
+			b.WriteByte(byte(end.Kind()))
+		case '"':
+			jsString(&b, tok.String())
+		case '0':
+			f, err := tok.Float()
 			if err != nil {
 				return err
 			}
 			b.WriteString(jsNumber(f))
-		case bool:
-			b.WriteString(strconv.FormatBool(v))
-		case nil:
+		case 't', 'f':
+			b.WriteString(strconv.FormatBool(tok.Bool()))
+		case 'n':
 			b.WriteString("null")
 		}
 		return nil
@@ -227,39 +229,39 @@ func stringify(raw json.RawMessage, pretty bool) (string, bool) {
 	return b.String(), true
 }
 
-func safeJSON(raw json.RawMessage, pretty bool) string {
+func safeJSON(raw jsontext.Value, pretty bool) string {
 	s, _ := stringify(raw, pretty)
 	return s
 }
 
-func isNull(raw json.RawMessage) bool {
+func isNull(raw jsontext.Value) bool {
 	t := bytes.TrimSpace(raw)
 	return len(t) == 0 || string(t) == "null"
 }
 
 // toolOutputText is loop's: a tool-result output in the AI SDK's tagged
 // shape, as printable text.
-func toolOutputText(raw json.RawMessage) string {
+func toolOutputText(raw jsontext.Value) string {
 	if isNull(raw) {
 		return ""
 	}
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return s
 	}
-	var o map[string]json.RawMessage
-	if json.Unmarshal(raw, &o) != nil {
+	var o map[string]jsontext.Value
+	if json.Unmarshal(raw, &o, jsonopt.Read) != nil {
 		return safeJSON(raw, true)
 	}
 	var typ string
 	value, hasValue := o["value"]
-	if json.Unmarshal(o["type"], &typ) != nil || !hasValue {
+	if json.Unmarshal(o["type"], &typ, jsonopt.Read) != nil || !hasValue {
 		return safeJSON(raw, true)
 	}
 	switch typ {
 	case "text", "error-text":
 		var v string
-		if json.Unmarshal(value, &v) == nil {
+		if json.Unmarshal(value, &v, jsonopt.Read) == nil {
 			return v
 		}
 		if isNull(value) {
@@ -269,8 +271,8 @@ func toolOutputText(raw json.RawMessage) string {
 	case "json", "error-json":
 		return safeJSON(value, true)
 	case "content":
-		var items []json.RawMessage
-		if json.Unmarshal(value, &items) != nil {
+		var items []jsontext.Value
+		if json.Unmarshal(value, &items, jsonopt.Read) != nil {
 			return safeJSON(value, true)
 		}
 		var out []string
@@ -279,7 +281,7 @@ func toolOutputText(raw json.RawMessage) string {
 				Type string `json:"type"`
 				Text any    `json:"text"`
 			}
-			if json.Unmarshal(it, &p) == nil && p.Type == "text" && p.Text != nil {
+			if json.Unmarshal(it, &p, jsonopt.Read) == nil && p.Type == "text" && p.Text != nil {
 				if t, ok := p.Text.(string); ok && t != "" {
 					out = append(out, t)
 				}
@@ -290,11 +292,11 @@ func toolOutputText(raw json.RawMessage) string {
 	return safeJSON(raw, true)
 }
 
-func isErrorOutput(raw json.RawMessage) bool {
+func isErrorOutput(raw jsontext.Value) bool {
 	var o struct {
 		Type string `json:"type"`
 	}
-	_ = json.Unmarshal(raw, &o)
+	_ = json.Unmarshal(raw, &o, jsonopt.Read)
 	return o.Type == "error-text" || o.Type == "error-json"
 }
 
@@ -311,7 +313,7 @@ func rank(k string) int {
 
 // toolInputLine is loop's: the call's arguments as one readable line, the
 // argument a human would name the call by first and unlabelled.
-func toolInputLine(raw json.RawMessage, max int) string {
+func toolInputLine(raw jsontext.Value, max int) string {
 	if isNull(raw) {
 		return ""
 	}
@@ -319,26 +321,27 @@ func toolInputLine(raw json.RawMessage, max int) string {
 	if t[0] != '{' {
 		return oneLine(raw, max)
 	}
-	dec := json.NewDecoder(bytes.NewReader(t))
-	if _, err := dec.Token(); err != nil {
+	dec := jsontext.NewDecoder(bytes.NewReader(t), jsonopt.Read)
+	if _, err := dec.ReadToken(); err != nil {
 		return oneLine(raw, max)
 	}
 	type kv struct {
 		k string
-		v json.RawMessage
+		v jsontext.Value
 	}
 	var keys []kv
 	seen := map[string]int{}
-	for dec.More() {
-		k, err := dec.Token()
+	for dec.PeekKind() != '}' {
+		k, err := dec.ReadToken()
 		if err != nil {
 			return oneLine(raw, max)
 		}
-		var v json.RawMessage
-		if dec.Decode(&v) != nil {
+		ks := k.String() // a token or value is only valid until the next read
+		v, err := dec.ReadValue()
+		if err != nil {
 			return oneLine(raw, max)
 		}
-		ks := k.(string)
+		v = v.Clone()
 		if i, dup := seen[ks]; dup {
 			keys[i].v = v
 			continue
@@ -362,7 +365,7 @@ func toolInputLine(raw json.RawMessage, max int) string {
 	for i, p := range kept {
 		var s string
 		text := ""
-		if json.Unmarshal(p.v, &s) == nil {
+		if json.Unmarshal(p.v, &s, jsonopt.Read) == nil {
 			text = s
 		} else {
 			text = safeJSON(p.v, false)

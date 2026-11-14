@@ -2,13 +2,14 @@ package bedrock
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -66,7 +67,7 @@ func (m *languageModel) DoStream(ctx context.Context, opts provider.CallOptions)
 		s.run(resp.body)
 	}()
 
-	requestBody, _ := json.Marshal(built.body)
+	requestBody, _ := json.Marshal(built.body, jsonopt.Write)
 
 	return &provider.StreamResult{
 		Stream:   out,
@@ -171,7 +172,7 @@ func (s *streamState) run(body io.ReadCloser) {
 
 		if s.raw {
 			var payload any
-			if json.Unmarshal(msg.Payload, &payload) == nil {
+			if json.Unmarshal(msg.Payload, &payload, jsonopt.Read) == nil {
 				s.emit(provider.Raw{RawValue: map[string]any{
 					"eventType": msg.eventType(),
 					"payload":   payload,
@@ -185,7 +186,7 @@ func (s *streamState) run(body io.ReadCloser) {
 		}
 
 		var event streamEvent
-		if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		if err := json.Unmarshal(msg.Payload, &event, jsonopt.Read); err != nil {
 			s.emit(provider.ErrorPart{Err: &provider.InvalidResponseError{
 				Message:  "could not decode stream event",
 				Response: string(msg.Payload),
@@ -205,7 +206,7 @@ func (s *streamState) handleException(msg eventMessage) {
 	s.finish = provider.FinishReason{Unified: provider.FinishError}
 
 	var event streamEvent
-	_ = json.Unmarshal(msg.Payload, &event)
+	_ = json.Unmarshal(msg.Payload, &event, jsonopt.Read)
 	message := event.Message
 	if message == "" {
 		message = msg.exceptionType()

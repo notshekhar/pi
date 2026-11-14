@@ -2,13 +2,15 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/sandbox"
@@ -23,7 +25,7 @@ func runBash(t *testing.T, c *Context, args map[string]any) (string, bool) {
 // runTool runs one call through a tool; the bool reports an error result.
 func runTool(t *testing.T, tool ai.Tool, args map[string]any) (string, bool) {
 	t.Helper()
-	input, _ := json.Marshal(args)
+	input, _ := json.Marshal(args, jsonopt.Write)
 	res, err := tool.Execute(context.Background(), input)
 	if err != nil {
 		return err.Error(), true
@@ -100,7 +102,7 @@ func TestSettingNetwork(t *testing.T) {
 		`{"allow":["*.github.com"]}`: {Mode: "list", Allow: []string{"*.github.com"}},
 	}
 	for raw, want := range cases {
-		got := settingNetwork(json.RawMessage(raw))
+		got := settingNetwork(jsontext.Value(raw))
 		if got.Mode != want.Mode || strings.Join(got.Allow, ",") != strings.Join(want.Allow, ",") {
 			t.Errorf("settingNetwork(%s) = %+v, want %+v", raw, got, want)
 		}

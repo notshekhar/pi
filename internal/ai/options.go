@@ -2,7 +2,7 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 
 	"github.com/notshekhar/pi/internal/ai/provider"
@@ -179,7 +179,7 @@ type ToolCall struct {
 	ToolCallID string
 	ToolName   string
 	// Input is the raw JSON arguments, exactly as the model produced them.
-	Input json.RawMessage
+	Input jsontext.Value
 }
 
 // ToolExecution is the outcome of running one tool.

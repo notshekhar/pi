@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/cmux"
 	"github.com/notshekhar/pi/internal/core/shells"
 	"github.com/notshekhar/pi/internal/core/sound"
@@ -708,7 +709,7 @@ func (t *repl) part(part ai.StreamPart) error {
 // not parse still renders — with no summary rather than no row.
 func decodeArgs(input string) map[string]any {
 	var args map[string]any
-	if err := json.Unmarshal([]byte(input), &args); err != nil {
+	if err := json.Unmarshal([]byte(input), &args, jsonopt.Read); err != nil {
 		return nil
 	}
 	return args

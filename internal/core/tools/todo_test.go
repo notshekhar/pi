@@ -2,10 +2,11 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -13,7 +14,7 @@ import (
 func callTodo(t *testing.T, c *Context, todos []Todo) (string, bool) {
 	t.Helper()
 	tool := Todos(c)
-	input, err := json.Marshal(todoArgs{Todos: todos})
+	input, err := json.Marshal(todoArgs{Todos: todos}, jsonopt.Write)
 	if err != nil {
 		t.Fatal(err)
 	}

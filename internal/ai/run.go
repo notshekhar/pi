@@ -2,11 +2,13 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -91,7 +93,7 @@ func (o *stepOutput) toolCalls() []ToolCall {
 		calls = append(calls, ToolCall{
 			ToolCallID: id,
 			ToolName:   call.ToolName,
-			Input:      json.RawMessage(input),
+			Input:      jsontext.Value(input),
 		})
 	}
 	return calls
@@ -152,7 +154,7 @@ func (o *stepOutput) assistantMessage() provider.AssistantMessage {
 			// Input is the model's raw JSON; decode it so the replayed part
 			// carries a value rather than a string containing JSON.
 			var decoded any
-			if err := json.Unmarshal([]byte(v.Input), &decoded); err != nil {
+			if err := json.Unmarshal([]byte(v.Input), &decoded, jsonopt.Read); err != nil {
 				decoded = v.Input
 			}
 			parts = append(parts, provider.ToolCallPart{

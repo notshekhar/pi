@@ -2,7 +2,10 @@ package catalog
 
 import (
 	_ "embed"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // loop's own model tables, exported by scripts/sync-catalog/export.ts:
@@ -34,21 +37,21 @@ type orderedModels struct {
 
 func decodeGenerated() orderedModels {
 	out := orderedModels{byID: map[string]Model{}}
-	var raw map[string]json.RawMessage
-	if json.Unmarshal(generatedJSON, &raw) != nil {
+	var raw map[string]jsontext.Value
+	if json.Unmarshal(generatedJSON, &raw, jsonopt.Read) != nil {
 		return out
 	}
-	// Recover file order: encoding/json maps lose it.
-	dec := json.NewDecoder(bytesReader(generatedJSON))
-	if tok, err := dec.Token(); err == nil && tok == json.Delim('{') {
-		for dec.More() {
-			tok, err := dec.Token()
+	// Recover file order: a Go map loses it.
+	dec := jsontext.NewDecoder(bytesReader(generatedJSON), jsonopt.Read)
+	if tok, err := dec.ReadToken(); err == nil && tok.Kind() == '{' {
+		for dec.PeekKind() != '}' {
+			tok, err := dec.ReadToken()
 			if err != nil {
 				break
 			}
-			id, _ := tok.(string)
+			id := tok.String()
 			var m Model
-			if dec.Decode(&m) != nil {
+			if json.UnmarshalDecode(dec, &m) != nil {
 				break
 			}
 			out.order = append(out.order, id)
@@ -60,7 +63,7 @@ func decodeGenerated() orderedModels {
 
 func decodeFallbacks() fallbacks {
 	var f fallbacks
-	_ = json.Unmarshal(fallbacksJSON, &f)
+	_ = json.Unmarshal(fallbacksJSON, &f, jsonopt.Read)
 	for i := range f.Fallback {
 		f.Fallback[i] = f.Fallback[i].withShort()
 	}

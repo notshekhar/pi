@@ -4,7 +4,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/rpc"
 )
 
@@ -112,7 +114,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	cors(w.Header())
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), body, jsonopt.Write)
 }
 
 func bearerToken(r *http.Request) string {

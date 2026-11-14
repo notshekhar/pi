@@ -3,7 +3,8 @@ package lsp
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // One language-server process, driven over stdio.
@@ -24,15 +27,16 @@ import (
 
 // message is a JSON-RPC frame.
 type message struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      *json.Number    `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *struct {
+	JSONRPC string `json:"jsonrpc"`
+	// ID is a number or a string, kept raw so a reply echoes it verbatim.
+	ID     jsontext.Value `json:"id,omitzero"`
+	Method string         `json:"method,omitempty"`
+	Params jsontext.Value `json:"params,omitzero"`
+	Result jsontext.Value `json:"result,omitzero"`
+	Error  *struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
-	} `json:"error,omitempty"`
+	} `json:"error,omitzero"`
 }
 
 // Spec is what it takes to launch a server.
@@ -164,7 +168,7 @@ func (c *Client) Start(ctx context.Context) error {
 	var initialized struct {
 		Capabilities map[string]any `json:"capabilities"`
 	}
-	_ = json.Unmarshal(result, &initialized)
+	_ = json.Unmarshal(result, &initialized, jsonopt.Read)
 
 	c.mu.Lock()
 	c.capabilities = initialized.Capabilities
@@ -233,7 +237,7 @@ func (c *Client) sync(absPath, content string) {
 // Errors and crashes come back as nil rather than an error: one unsupported
 // operation must not take down a tool call that other servers may still
 // answer.
-func (c *Client) Send(ctx context.Context, method string, params any, timeout time.Duration) json.RawMessage {
+func (c *Client) Send(ctx context.Context, method string, params any, timeout time.Duration) jsontext.Value {
 	if !c.Alive() {
 		return nil
 	}
@@ -267,7 +271,7 @@ func (c *Client) Diagnose(ctx context.Context, absPath, content string, timeout 
 			Items []Diagnostic `json:"items"`
 		}
 		if len(raw) > 0 {
-			_ = json.Unmarshal(raw, &report)
+			_ = json.Unmarshal(raw, &report, jsonopt.Read)
 		}
 		c.mu.Lock()
 		pushed := c.diagnostics[uri]
@@ -345,7 +349,7 @@ func (c *Client) Shutdown() {
 
 // ── wire plumbing ───────────────────────────────────────────────────────────
 
-func (c *Client) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
+func (c *Client) request(ctx context.Context, method string, params any) (jsontext.Value, error) {
 	c.mu.Lock()
 	if c.dead || c.stdin == nil {
 		c.mu.Unlock()
@@ -393,7 +397,7 @@ func (c *Client) notify(method string, params any) {
 }
 
 func (c *Client) write(msg any) error {
-	body, err := json.Marshal(msg)
+	body, err := json.Marshal(msg, jsonopt.Write)
 	if err != nil {
 		return err
 	}
@@ -436,7 +440,7 @@ func (c *Client) read(stdout io.Reader) {
 			return
 		}
 		var msg message
-		if err := json.Unmarshal(body, &msg); err != nil {
+		if err := json.Unmarshal(body, &msg, jsonopt.Read); err != nil {
 			continue // an unparseable frame is skipped, not fatal
 		}
 		c.dispatch(msg)
@@ -445,8 +449,8 @@ func (c *Client) read(stdout io.Reader) {
 
 func (c *Client) dispatch(msg message) {
 	// A response: it has an id and a result or an error.
-	if msg.ID != nil && (msg.Result != nil || msg.Error != nil) {
-		id := msg.ID.String()
+	if msg.hasID() && (msg.Result != nil || msg.Error != nil) {
+		id := msg.idKey()
 		c.mu.Lock()
 		ch := c.pending[id]
 		delete(c.pending, id)
@@ -459,7 +463,7 @@ func (c *Client) dispatch(msg message) {
 
 	if msg.Method == "textDocument/publishDiagnostics" {
 		var params PublishDiagnosticsParams
-		if err := json.Unmarshal(msg.Params, &params); err == nil {
+		if err := json.Unmarshal(msg.Params, &params, jsonopt.Read); err == nil {
 			c.mu.Lock()
 			c.diagnostics[params.URI] = params.Diagnostics
 			waiters := c.waiters[params.URI]
@@ -478,13 +482,22 @@ func (c *Client) dispatch(msg message) {
 	// A server-to-client REQUEST (it has an id and a method) must be
 	// answered, or a server that asks for configuration blocks forever
 	// waiting. A null result is a valid answer to everything asked here.
-	if msg.ID != nil && msg.Method != "" {
-		var id any
-		if n, err := msg.ID.Int64(); err == nil {
-			id = n
-		} else {
-			id = msg.ID.String()
-		}
-		_ = c.write(map[string]any{"jsonrpc": "2.0", "id": id, "result": nil})
+	if msg.hasID() && msg.Method != "" {
+		_ = c.write(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": nil})
 	}
+}
+
+// hasID reports whether the frame carries an id; a notification has none,
+// and a null id is no id.
+func (m message) hasID() bool { return len(m.ID) > 0 && m.ID.Kind() != 'n' }
+
+// idKey is the id as `pending` keys it: a number's digits, a string unquoted.
+func (m message) idKey() string {
+	if m.ID.Kind() == '"' {
+		var s string
+		if json.Unmarshal(m.ID, &s, jsonopt.Read) == nil {
+			return s
+		}
+	}
+	return string(m.ID)
 }

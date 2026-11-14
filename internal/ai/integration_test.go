@@ -2,7 +2,7 @@ package ai_test
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providers/anthropic"
 	"github.com/notshekhar/pi/internal/ai/providers/google"
@@ -172,7 +173,7 @@ func TestEndToEndAnthropic(t *testing.T) {
 			} `json:"content"`
 		} `json:"messages"`
 	}
-	if err := json.Unmarshal(script.body(1), &second); err != nil {
+	if err := json.Unmarshal(script.body(1), &second, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 
@@ -243,7 +244,7 @@ func TestEndToEndOpenAICompatible(t *testing.T) {
 			ToolCallID string `json:"tool_call_id"`
 		} `json:"messages"`
 	}
-	if err := json.Unmarshal(script.body(1), &second); err != nil {
+	if err := json.Unmarshal(script.body(1), &second, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 
@@ -301,7 +302,7 @@ func TestEndToEndGoogle(t *testing.T) {
 			} `json:"parts"`
 		} `json:"contents"`
 	}
-	if err := json.Unmarshal(script.body(1), &second); err != nil {
+	if err := json.Unmarshal(script.body(1), &second, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 

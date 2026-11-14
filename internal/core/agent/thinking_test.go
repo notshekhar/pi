@@ -1,9 +1,10 @@
 package agent
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -32,7 +33,7 @@ func TestReasoningParams(t *testing.T) {
 		{"deepseek", "deepseek-v4-flash", "high", true, "high", `null`},
 	} {
 		effort, opts := reasoningParams(c.prov, c.prov, c.model, c.level, true, c.known)
-		raw, _ := json.Marshal(opts)
+		raw, _ := json.Marshal(opts, jsonopt.Write, json.FormatNilMapAsNull(true)) // nil options, not empty ones
 		if effort != c.effort || string(raw) != c.opts {
 			t.Errorf("%s/%s %s: effort %q opts %s, want %q %s", c.prov, c.model, c.level, effort, raw, c.effort, c.opts)
 		}

@@ -2,10 +2,11 @@ package anthropic
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -251,7 +252,7 @@ func (c *promptConverter) assistantBlocks(m provider.AssistantMessage) ([]apiBlo
 			blocks = append(blocks, block)
 
 		case provider.ToolCallPart:
-			input, err := json.Marshal(p.Input)
+			input, err := json.Marshal(p.Input, jsonopt.Write)
 			if err != nil {
 				return nil, &provider.InvalidPromptError{
 					Message: fmt.Sprintf("encoding input for tool call %s", p.ToolCallID),
@@ -378,7 +379,7 @@ func (c *promptConverter) toolResultBlock(p provider.ToolResultPart) (*apiBlock,
 		block.IsError = isError()
 
 	case provider.ToolOutputJSON:
-		encoded, err := json.Marshal(out.Value)
+		encoded, err := json.Marshal(out.Value, jsonopt.Write)
 		if err != nil {
 			return nil, &provider.InvalidPromptError{
 				Message: fmt.Sprintf("encoding result for tool call %s", p.ToolCallID),
@@ -388,7 +389,7 @@ func (c *promptConverter) toolResultBlock(p provider.ToolResultPart) (*apiBlock,
 		block.Content = string(encoded)
 
 	case provider.ToolOutputErrorJSON:
-		encoded, err := json.Marshal(out.Value)
+		encoded, err := json.Marshal(out.Value, jsonopt.Write)
 		if err != nil {
 			return nil, &provider.InvalidPromptError{
 				Message: fmt.Sprintf("encoding error for tool call %s", p.ToolCallID),

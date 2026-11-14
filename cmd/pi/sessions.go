@@ -1,8 +1,9 @@
 package main
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/agent"
 	"strconv"
@@ -240,7 +241,7 @@ func latestCompaction(branch []session.Entry) (session.Entry, bool) {
 
 func compactionOf(e session.Entry) tui.Compaction {
 	var focus string
-	_ = json.Unmarshal(e.Extra["focus"], &focus)
+	_ = json.Unmarshal(e.Extra["focus"], &focus, jsonopt.Read)
 	return tui.Compaction{Summary: e.Summary, Handoff: e.Handoff, Focus: focus, TokensBefore: e.TokensBefore}
 }
 

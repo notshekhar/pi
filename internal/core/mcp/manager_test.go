@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 	"testing"
 	"time"
@@ -67,13 +67,13 @@ func TestManagerReconnectsADroppedServer(t *testing.T) {
 	configs := []ServerConfig{fakeConfig(t, "fake")}
 	m := managerWith(t, &configs)
 	die := toolNamed(m, "mcp__fake__die")
-	res, _ := die.Execute(context.Background(), json.RawMessage(`{}`))
+	res, _ := die.Execute(context.Background(), jsontext.Value(`{}`))
 	if res.Output() == nil {
 		t.Fatal("no result for a dying call")
 	}
 	eventually(t, "the server to come back", func() bool { return state(m, "fake") == StateReady })
 	echo := toolNamed(m, "mcp__fake__echo")
-	out, _ := echo.Execute(context.Background(), json.RawMessage(`{"text":"back"}`))
+	out, _ := echo.Execute(context.Background(), jsontext.Value(`{"text":"back"}`))
 	if textResult(out) != "back" {
 		t.Errorf("after reconnect: %v", out.Output())
 	}
@@ -85,7 +85,7 @@ func TestManagerFollowsListChanged(t *testing.T) {
 	m := managerWith(t, &configs)
 	changes := make(chan struct{}, 16)
 	m.OnChange(func() { changes <- struct{}{} })
-	_, _ = toolNamed(m, "mcp__fake__grow").Execute(context.Background(), json.RawMessage(`{}`))
+	_, _ = toolNamed(m, "mcp__fake__grow").Execute(context.Background(), jsontext.Value(`{}`))
 	eventually(t, "the new tool", func() bool { return toolNamed(m, "mcp__fake__extra") != nil })
 	if len(changes) == 0 {
 		t.Error("no change was announced")
@@ -148,7 +148,7 @@ func TestBridgedToolOnAGoneServer(t *testing.T) {
 	m := managerWith(t, &configs)
 	echo := toolNamed(m, "mcp__fake__echo")
 	m.Forget("fake")
-	out, err := echo.Execute(context.Background(), json.RawMessage(`{"text":"x"}`))
+	out, err := echo.Execute(context.Background(), jsontext.Value(`{"text":"x"}`))
 	if err != nil || !isToolError(out) {
 		t.Errorf("call on a forgotten server: %v %v", out.Output(), err)
 	}

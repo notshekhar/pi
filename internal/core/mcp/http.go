@@ -3,7 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // httpTransport is streamable HTTP (@ai-sdk/mcp's HttpMCPTransport): one
@@ -288,7 +290,7 @@ func standardRequestHeaders(m *message) map[string]string {
 		Name string `json:"name"`
 		URI  string `json:"uri"`
 	}
-	_ = json.Unmarshal(m.Params, &p)
+	_ = json.Unmarshal(m.Params, &p, jsonopt.Read)
 	name := p.Name
 	switch m.Method {
 	case "resources/read":

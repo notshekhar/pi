@@ -3,7 +3,7 @@ package tools
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 const (
@@ -24,10 +25,10 @@ type grepArgs struct {
 	Pattern    string `json:"pattern"`
 	Path       string `json:"path,omitempty"`
 	Glob       string `json:"glob,omitempty"`
-	IgnoreCase bool   `json:"ignoreCase,omitempty"`
-	Literal    bool   `json:"literal,omitempty"`
-	Context    int    `json:"context,omitempty"`
-	Limit      int    `json:"limit,omitempty"`
+	IgnoreCase bool   `json:"ignoreCase,omitzero"`
+	Literal    bool   `json:"literal,omitzero"`
+	Context    int    `json:"context,omitzero"`
+	Limit      int    `json:"limit,omitzero"`
 }
 
 // grepMatch is one matching line.
@@ -78,9 +79,13 @@ func grepMatches(ctx context.Context, root string, a grepArgs, limit int) ([]gre
 type rgEvent struct {
 	Type string `json:"type"`
 	Data struct {
-		Path       struct{ Text string }  `json:"path"`
-		LineNumber int                    `json:"line_number"`
-		Lines      struct{ Text *string } `json:"lines"`
+		Path struct {
+			Text string `json:"text"`
+		} `json:"path"`
+		LineNumber int `json:"line_number"`
+		Lines      struct {
+			Text *string `json:"text"`
+		} `json:"lines"`
 	} `json:"data"`
 }
 
@@ -134,7 +139,7 @@ func readRipgrepMatches(stdout interface{ Read([]byte) (int, error) }, limit int
 	scanner.Buffer(nil, 16<<20)
 	for len(matches) < limit && scanner.Scan() {
 		var event rgEvent
-		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "match" || event.Data.Path.Text == "" {
+		if json.Unmarshal(scanner.Bytes(), &event, jsonopt.Read) != nil || event.Type != "match" || event.Data.Path.Text == "" {
 			continue
 		}
 		match := grepMatch{file: event.Data.Path.Text, line: event.Data.LineNumber}

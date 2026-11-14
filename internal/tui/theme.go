@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"math"
 	"os"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/home"
 )
 
@@ -114,19 +115,19 @@ type ColorValue struct {
 // UnmarshalJSON reads a string or a number.
 func (c *ColorValue) UnmarshalJSON(b []byte) error {
 	var n float64
-	if json.Unmarshal(b, &n) == nil {
+	if json.Unmarshal(b, &n, jsonopt.Read) == nil {
 		*c = ColorValue{Index: int(n), IsNum: true}
 		return nil
 	}
-	return json.Unmarshal(b, &c.Hex)
+	return json.Unmarshal(b, &c.Hex, jsonopt.Read)
 }
 
 // MarshalJSON writes it back the same way.
 func (c ColorValue) MarshalJSON() ([]byte, error) {
 	if c.IsNum {
-		return json.Marshal(c.Index)
+		return json.Marshal(c.Index, jsonopt.Write)
 	}
-	return json.Marshal(c.Hex)
+	return json.Marshal(c.Hex, jsonopt.Write)
 }
 
 // ThemeJSON is loop's ThemeJson.
@@ -506,7 +507,7 @@ func loadThemeJSON(name string) (ThemeJSON, error) {
 		return ThemeJSON{}, err
 	}
 	var j ThemeJSON
-	if err := json.Unmarshal(raw, &j); err != nil {
+	if err := json.Unmarshal(raw, &j, jsonopt.Read); err != nil {
 		return ThemeJSON{}, err
 	}
 	if j.Name == "" {

@@ -2,10 +2,11 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"strings"
 	"sync"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
@@ -88,7 +89,7 @@ func StreamObjectWithSchema[T any](ctx context.Context, opts Options, schema *js
 			lastValid = candidate
 
 			var snapshot T
-			if err := json.Unmarshal([]byte(candidate), &snapshot); err != nil {
+			if err := json.Unmarshal([]byte(candidate), &snapshot, jsonopt.Read); err != nil {
 				// A prefix that closes into valid JSON can still mismatch T,
 				// for instance a number that has only its minus sign so far.
 				continue

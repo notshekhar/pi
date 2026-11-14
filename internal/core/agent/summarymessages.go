@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/session"
@@ -49,13 +51,13 @@ func toSummaryMessages(span []session.Entry) []summaryMessage {
 	return out
 }
 
-func toSummaryMessage(role string, raw json.RawMessage) (summaryMessage, bool) {
+func toSummaryMessage(role string, raw jsontext.Value) (summaryMessage, bool) {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return summaryMessage{role: role, text: s}, role != "tool" && strings.TrimSpace(s) != ""
 	}
 	var parts []map[string]any
-	if json.Unmarshal(raw, &parts) != nil {
+	if json.Unmarshal(raw, &parts, jsonopt.Read) != nil {
 		return summaryMessage{}, false
 	}
 	var keep []map[string]any
@@ -79,7 +81,7 @@ func summaryPart(role string, p map[string]any) (map[string]any, bool) {
 	case role == "assistant" && typ == "tool-call":
 		return map[string]any{"type": "tool-call", "toolCallId": p["toolCallId"], "toolName": p["toolName"], "input": p["input"]}, true
 	case role == "tool" && typ == "tool-result":
-		raw, _ := json.Marshal(p["output"])
+		raw, _ := json.Marshal(p["output"], jsonopt.Write)
 		kind := "text"
 		if out, _ := p["output"].(map[string]any); out["type"] == "error-text" || out["type"] == "error-json" {
 			kind = "error-text"
@@ -99,7 +101,7 @@ func (m summaryMessage) size() int {
 	if m.parts == nil {
 		return len(m.text)
 	}
-	raw, _ := json.Marshal(m.parts)
+	raw, _ := json.Marshal(m.parts, jsonopt.Write)
 	return len(raw)
 }
 
@@ -132,9 +134,9 @@ func (m summaryMessage) clipped(max int) summaryMessage {
 func (m summaryMessage) message() (provider.Message, bool) {
 	var raw []byte
 	if m.parts == nil {
-		raw, _ = json.Marshal(m.text)
+		raw, _ = json.Marshal(m.text, jsonopt.Write)
 	} else {
-		raw, _ = json.Marshal(m.parts)
+		raw, _ = json.Marshal(m.parts, jsonopt.Write)
 	}
 	return session.DecodeContent(m.role, raw)
 }
@@ -260,6 +262,6 @@ func (t stubTool) InputSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: jsonschema.Object}
 }
 
-func (t stubTool) Execute(context.Context, json.RawMessage) (ai.ToolResult, error) {
+func (t stubTool) Execute(context.Context, jsontext.Value) (ai.ToolResult, error) {
 	return ai.ToolError("tools are not available while summarizing"), nil
 }

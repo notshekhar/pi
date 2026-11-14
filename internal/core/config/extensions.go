@@ -1,7 +1,7 @@
 package config
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 
 	"github.com/notshekhar/pi/internal/core/jsonstore"
 )
@@ -81,6 +81,6 @@ func mutateObjectKey(s *jsonstore.Store, key string, change func(*jsonstore.Obje
 		}
 		change(inner)
 		raw, _ := inner.MarshalJSON()
-		o.SetRaw(key, json.RawMessage(raw))
+		o.SetRaw(key, jsontext.Value(raw))
 	})
 }

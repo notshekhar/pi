@@ -2,13 +2,14 @@ package config
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/catalog"
 )
 
@@ -121,7 +122,7 @@ func decodeOpenAIModels(body []byte) []CustomModel {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if json.Unmarshal(body, &doc) != nil {
+	if json.Unmarshal(body, &doc, jsonopt.Read) != nil {
 		return nil
 	}
 	out := make([]CustomModel, 0, len(doc.Data))
@@ -142,7 +143,7 @@ func decodeAnthropicModels(body []byte) []CustomModel {
 			MaxTokens   int    `json:"max_tokens"`
 		} `json:"data"`
 	}
-	if json.Unmarshal(body, &doc) != nil {
+	if json.Unmarshal(body, &doc, jsonopt.Read) != nil {
 		return nil
 	}
 	out := make([]CustomModel, 0, len(doc.Data))
@@ -167,7 +168,7 @@ func decodeGoogleModels(body []byte) []CustomModel {
 			OutputLimit int    `json:"outputTokenLimit"`
 		} `json:"models"`
 	}
-	if json.Unmarshal(body, &doc) != nil {
+	if json.Unmarshal(body, &doc, jsonopt.Read) != nil {
 		return nil
 	}
 	out := make([]CustomModel, 0, len(doc.Models))

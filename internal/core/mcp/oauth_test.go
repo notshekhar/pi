@@ -4,7 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // fakeOAuth is a protected MCP server and its authorization server on one
@@ -88,7 +91,7 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 			return
 		}
 		var req map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		_ = json.UnmarshalRead(r.Body, &req, jsonopt.Read)
 		if req["id"] == nil {
 			w.WriteHeader(http.StatusAccepted)
 			return
@@ -113,7 +116,7 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), v, jsonopt.Write)
 }
 
 // isolateAuth points HOME at a scratch directory and the login callback at
@@ -175,7 +178,7 @@ func TestOAuthLoginRefreshAndLoopShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	var file map[string]map[string]any
-	if json.Unmarshal(raw, &file) != nil || file["locked"]["tokens"] == nil {
+	if json.Unmarshal(raw, &file, jsonopt.Read) != nil || file["locked"]["tokens"] == nil {
 		t.Fatalf("token file = %s", raw)
 	}
 
@@ -228,7 +231,7 @@ func TestOAuthDottedNamesNest(t *testing.T) {
 	}
 	raw, _ := os.ReadFile(AuthStorePath())
 	var file map[string]map[string]map[string]any
-	if err := json.Unmarshal(raw, &file); err != nil || file["a"]["b"]["tokens"] == nil {
+	if err := json.Unmarshal(raw, &file, jsonopt.Read); err != nil || file["a"]["b"]["tokens"] == nil {
 		t.Fatalf("file = %s (%v)", raw, err)
 	}
 	if !HasStoredTokens("a.b") {

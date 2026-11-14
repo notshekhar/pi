@@ -2,11 +2,13 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/datasources"
 )
 
@@ -75,7 +77,7 @@ func formatRows(rows []datasources.Row) (string, error) {
 	if len(rows) == 0 {
 		return "(0 rows)", nil
 	}
-	body, err := json.MarshalIndent(rows, "", "  ")
+	body, err := json.Marshal(rows, jsonopt.Write, jsontext.WithIndent("  "))
 	if err != nil {
 		return "", err
 	}

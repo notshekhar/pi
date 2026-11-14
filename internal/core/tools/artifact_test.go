@@ -2,10 +2,12 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/artifacts"
 )
 
@@ -15,7 +17,7 @@ func TestArtifactCreateThenRetitle(t *testing.T) {
 	artifacts.SetDirForTests(t.TempDir())
 	t.Cleanup(func() { artifacts.SetDirForTests("") })
 	c := &Context{SessionID: "s1"}
-	res, err := Artifact(c).Execute(context.Background(), json.RawMessage(`{"title":"Report","kind":"markdown"}`))
+	res, err := Artifact(c).Execute(context.Background(), jsontext.Value(`{"title":"Report","kind":"markdown"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,11 +28,11 @@ func TestArtifactCreateThenRetitle(t *testing.T) {
 	display, _ := res.Display()
 	card, _, _ := strings.Cut(strings.SplitN(display.(string), artifactResultSeparator, 2)[1], "\n")
 	var payload artifactPayload
-	if json.Unmarshal([]byte(card), &payload) != nil || !strings.HasPrefix(payload.URL, "file://") || payload.Title != "Report" {
+	if json.Unmarshal([]byte(card), &payload, jsonopt.Read) != nil || !strings.HasPrefix(payload.URL, "file://") || payload.Title != "Report" {
 		t.Fatalf("card = %q", card)
 	}
 
-	input, _ := json.Marshal(map[string]string{"title": "Final report", "id": payload.ID})
+	input, _ := json.Marshal(map[string]string{"title": "Final report", "id": payload.ID}, jsonopt.Write)
 	res, _ = Artifact(c).Execute(context.Background(), input)
 	if !strings.HasPrefix(resultText(res), `Updated artifact "Final report"`) {
 		t.Errorf("retitle = %q", resultText(res))

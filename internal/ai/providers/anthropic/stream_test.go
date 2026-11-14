@@ -2,13 +2,14 @@ package anthropic
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providertest"
@@ -238,7 +239,7 @@ func TestStreamToolCall(t *testing.T) {
 	var args struct {
 		Path string `json:"path"`
 	}
-	if err := json.Unmarshal([]byte(call.Input), &args); err != nil {
+	if err := json.Unmarshal([]byte(call.Input), &args, jsonopt.Read); err != nil {
 		t.Fatalf("input is not valid json: %v", err)
 	}
 	if args.Path != "/tmp/a.txt" {
@@ -385,7 +386,7 @@ func TestEmptyReasoningReplaysWithThinkingField(t *testing.T) {
 			Content []map[string]any `json:"content"`
 		} `json:"messages"`
 	}
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 
@@ -415,7 +416,7 @@ func TestAdaptiveThinkingRequestShape(t *testing.T) {
 	collect(t, res)
 
 	var sent messagesRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if sent.Thinking == nil || sent.Thinking.Type != "adaptive" {
@@ -448,7 +449,7 @@ func TestBudgetThinkingRequestShape(t *testing.T) {
 	collect(t, res)
 
 	var sent messagesRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if sent.Thinking == nil || sent.Thinking.Type != "enabled" {
@@ -491,7 +492,7 @@ func TestSamplingParametersDroppedForOpus5(t *testing.T) {
 	}
 
 	var sent messagesRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	// Sending temperature to this model is a 400, so it must be absent.
@@ -534,7 +535,7 @@ func TestStructuredOutputUsesForcedTool(t *testing.T) {
 
 	// The request side: the schema becomes the only tool, and it is forced.
 	var sent messagesRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if len(sent.Tools) != 1 || sent.Tools[0].Name != jsonToolName {
@@ -575,7 +576,7 @@ func TestStructuredOutputWithToolsWarns(t *testing.T) {
 	// The caller's own tool must survive: dropping it silently would break the
 	// run in a way that looks like the model refusing to call anything.
 	var sent messagesRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if len(sent.Tools) != 1 || sent.Tools[0].Name != "read_file" {
@@ -674,7 +675,7 @@ func TestHostedWebSearchRequestShape(t *testing.T) {
 	var sent struct {
 		Tools []map[string]any `json:"tools"`
 	}
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if len(sent.Tools) != 1 {
@@ -803,7 +804,7 @@ func TestHostedToolResultReplaysAsItsOwnBlockType(t *testing.T) {
 			Content []map[string]any `json:"content"`
 		} `json:"messages"`
 	}
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 

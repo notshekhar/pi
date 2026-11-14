@@ -2,11 +2,12 @@ package bedrock
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -33,7 +34,7 @@ func TestEmbedTitan(t *testing.T) {
 	}
 
 	var req map[string]any
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if req["inputText"] != "hello" {
@@ -54,7 +55,7 @@ func TestEmbedCohereBatch(t *testing.T) {
 	}
 
 	var req map[string]any
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if req["input_type"] != "search_query" {
@@ -78,7 +79,7 @@ func TestEmbedNova(t *testing.T) {
 	}
 
 	var req map[string]any
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if req["taskType"] != "SINGLE_EMBEDDING" {

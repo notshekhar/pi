@@ -31,18 +31,18 @@ type SubagentStep struct {
 	Type  string `json:"type"` // text | reasoning | tool
 	Text  string `json:"text,omitempty"`
 	Name  string `json:"name,omitempty"`
-	Input any    `json:"input,omitempty"`
+	Input any    `json:"input,omitzero"`
 }
 
 // SubagentRun is the run a `task` call started.
 type SubagentRun struct {
 	Agent      string         `json:"agent"`
 	Steps      []SubagentStep `json:"steps"`
-	StepCount  *int           `json:"stepCount,omitempty"`
-	USD        *float64       `json:"usd,omitempty"`
-	DurationMs *int64         `json:"durationMs,omitempty"`
+	StepCount  *int           `json:"stepCount,omitzero"`
+	USD        *float64       `json:"usd,omitzero"`
+	DurationMs *int64         `json:"durationMs,omitzero"`
 	Current    string         `json:"current,omitempty"`
-	Dropped    int            `json:"dropped,omitempty"`
+	Dropped    int            `json:"dropped,omitzero"`
 	Finished   bool           `json:"finished"`
 }
 
@@ -53,19 +53,19 @@ type SubagentRun struct {
 type Part struct {
 	Type string `json:"type"`
 
-	Text       *string `json:"text,omitempty"`
+	Text       *string `json:"text,omitzero"`
 	State      string  `json:"state,omitempty"`
-	DurationMs *int64  `json:"durationMs,omitempty"`
-	StartedAt  *int64  `json:"startedAt,omitempty"`
+	DurationMs *int64  `json:"durationMs,omitzero"`
+	StartedAt  *int64  `json:"startedAt,omitzero"`
 
 	ToolCallID     string       `json:"toolCallId,omitempty"`
 	ToolName       string       `json:"toolName,omitempty"`
-	Input          any          `json:"input,omitempty"`
-	InputText      *string      `json:"inputText,omitempty"`
-	InputRewritten bool         `json:"inputRewritten,omitempty"`
-	Output         any          `json:"output,omitempty"`
+	Input          any          `json:"input,omitzero"`
+	InputText      *string      `json:"inputText,omitzero"`
+	InputRewritten bool         `json:"inputRewritten,omitzero"`
+	Output         any          `json:"output,omitzero"`
 	ErrorText      string       `json:"errorText,omitempty"`
-	Subagent       *SubagentRun `json:"subagent,omitempty"`
+	Subagent       *SubagentRun `json:"subagent,omitzero"`
 
 	URL       string `json:"url,omitempty"`
 	MediaType string `json:"mediaType,omitempty"`
@@ -88,7 +88,7 @@ func strPtr(s string) *string { return &s }
 // Metadata is a message's metadata.
 type Metadata struct {
 	CreatedAt   int64 `json:"createdAt"`
-	Interrupted bool  `json:"interrupted,omitempty"`
+	Interrupted bool  `json:"interrupted,omitzero"`
 }
 
 // Message is one transcript message: user, assistant, or system (markers

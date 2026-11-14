@@ -2,12 +2,14 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/session"
@@ -112,7 +114,7 @@ func (t *teamTurn) noteActivity(call ToolCallEvent) {
 	if !ok || (team.State != teams.StateRunning && team.State != teams.StateStarting) {
 		return
 	}
-	input, _ := json.Marshal(call.Input)
+	input, _ := json.Marshal(call.Input, jsonopt.Write)
 	if teams.SetActivity(t.sessionID, call.ToolName+argSummary(string(input))) {
 		teams.Emit(teams.Change{TeamID: team.TeamID, Kind: teams.ChangeActivity, SessionID: t.sessionID})
 	}
@@ -139,15 +141,15 @@ func (t *teamTurn) end(ctx context.Context, err error) {
 }
 
 // teamEntryExtra is the opening entry's `team` key, loop's shape.
-func teamEntryExtra(meta *teams.TurnMeta) map[string]json.RawMessage {
+func teamEntryExtra(meta *teams.TurnMeta) map[string]jsontext.Value {
 	if meta == nil {
 		return nil
 	}
-	raw, err := json.Marshal(meta)
+	raw, err := json.Marshal(meta, jsonopt.Write)
 	if err != nil {
 		return nil
 	}
-	return map[string]json.RawMessage{"team": raw}
+	return map[string]jsontext.Value{"team": raw}
 }
 
 // TeamMessageEvent is mid-turn team mail, saved as its own entry.

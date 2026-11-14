@@ -1,7 +1,6 @@
 package bedrock
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 	"unicode"
@@ -86,9 +85,6 @@ func toInt64(v any) (int64, bool) {
 		return int64(n), true
 	case int64:
 		return n, true
-	case json.Number:
-		i, err := n.Int64()
-		return i, err == nil
 	case string:
 		i, err := strconv.ParseInt(n, 10, 64)
 		return i, err == nil

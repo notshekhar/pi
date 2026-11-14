@@ -20,7 +20,7 @@ type Cost struct {
 	Output     float64  `json:"output"`
 	CacheRead  float64  `json:"cacheRead"`
 	CacheWrite float64  `json:"cacheWrite"`
-	Reasoning  *float64 `json:"reasoning,omitempty"`
+	Reasoning  *float64 `json:"reasoning,omitzero"`
 }
 
 // Model is loop's ModelInfo.

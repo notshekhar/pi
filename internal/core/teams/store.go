@@ -15,11 +15,12 @@ package teams
 
 import (
 	"database/sql"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"strings"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/db"
 	"github.com/notshekhar/pi/internal/core/session"
 )
@@ -281,7 +282,7 @@ func firstLine(payload string) string {
 	var msg struct {
 		Content any `json:"content"`
 	}
-	if json.Unmarshal([]byte(payload), &msg) != nil {
+	if json.Unmarshal([]byte(payload), &msg, jsonopt.Read) != nil {
 		return ""
 	}
 	text, _ := msg.Content.(string)

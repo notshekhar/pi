@@ -2,12 +2,14 @@ package bedrock
 
 import (
 	"encoding/binary"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
 	"sort"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // Bedrock streams with the AWS event-stream framing rather than SSE, so the
@@ -237,7 +239,7 @@ func encodeExceptionMessage(exceptionType, message string) []byte {
 		":message-type":   "exception",
 		":exception-type": exceptionType,
 	})
-	payload, _ := json.Marshal(map[string]string{"message": message})
+	payload, _ := json.Marshal(map[string]string{"message": message}, jsonopt.Write)
 
 	totalLength := uint32(preludeLength + len(headers) + len(payload) + messageCRCLength)
 	prelude := make([]byte, preludeLength)

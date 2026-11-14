@@ -1,6 +1,8 @@
 package session
 
-import "encoding/json"
+import (
+	"encoding/json/jsontext"
+)
 
 // Usage is loop's UsageBlock: what one billed round-trip consumed, in the
 // AI SDK v7 shape, plus the dollars it was billed at.
@@ -8,38 +10,38 @@ import "encoding/json"
 // Fields loop writes that pi has no use for (`raw`, the provider's own usage
 // payload) are kept in Extra and written back untouched.
 type Usage struct {
-	InputTokens  *int64 `json:"inputTokens,omitempty"`
-	OutputTokens *int64 `json:"outputTokens,omitempty"`
-	TotalTokens  *int64 `json:"totalTokens,omitempty"`
+	InputTokens  *int64 `json:"inputTokens,omitzero"`
+	OutputTokens *int64 `json:"outputTokens,omitzero"`
+	TotalTokens  *int64 `json:"totalTokens,omitzero"`
 	// Flat v6 fields: readers prefer the nested details and fall back to these.
-	CachedInputTokens *int64   `json:"cachedInputTokens,omitempty"`
-	ReasoningTokens   *int64   `json:"reasoningTokens,omitempty"`
-	Cost              *float64 `json:"cost,omitempty"`
+	CachedInputTokens *int64   `json:"cachedInputTokens,omitzero"`
+	ReasoningTokens   *int64   `json:"reasoningTokens,omitzero"`
+	Cost              *float64 `json:"cost,omitzero"`
 
-	InputTokenDetails  *InputTokenDetails  `json:"inputTokenDetails,omitempty"`
-	OutputTokenDetails *OutputTokenDetails `json:"outputTokenDetails,omitempty"`
+	InputTokenDetails  *InputTokenDetails  `json:"inputTokenDetails,omitzero"`
+	OutputTokenDetails *OutputTokenDetails `json:"outputTokenDetails,omitzero"`
 
 	// Estimated marks a guess, not a provider report (an interrupted turn's
 	// in-flight request). /cost never bills these.
-	Estimated bool `json:"estimated,omitempty"`
+	Estimated bool `json:"estimated,omitzero"`
 	// USD is what the block was billed at when it ran.
-	USD        *float64    `json:"usd,omitempty"`
-	USDDetails *USDDetails `json:"usdDetails,omitempty"`
+	USD        *float64    `json:"usd,omitzero"`
+	USDDetails *USDDetails `json:"usdDetails,omitzero"`
 
-	Raw json.RawMessage `json:"raw,omitempty"`
+	Raw jsontext.Value `json:"raw,omitzero"`
 }
 
 // InputTokenDetails splits input by how it was billed.
 type InputTokenDetails struct {
-	NoCacheTokens    *int64 `json:"noCacheTokens,omitempty"`
-	CacheReadTokens  *int64 `json:"cacheReadTokens,omitempty"`
-	CacheWriteTokens *int64 `json:"cacheWriteTokens,omitempty"`
+	NoCacheTokens    *int64 `json:"noCacheTokens,omitzero"`
+	CacheReadTokens  *int64 `json:"cacheReadTokens,omitzero"`
+	CacheWriteTokens *int64 `json:"cacheWriteTokens,omitzero"`
 }
 
 // OutputTokenDetails splits output into text and reasoning.
 type OutputTokenDetails struct {
-	TextTokens      *int64 `json:"textTokens,omitempty"`
-	ReasoningTokens *int64 `json:"reasoningTokens,omitempty"`
+	TextTokens      *int64 `json:"textTokens,omitzero"`
+	ReasoningTokens *int64 `json:"reasoningTokens,omitzero"`
 }
 
 // USDDetails is the billed dollars by component.

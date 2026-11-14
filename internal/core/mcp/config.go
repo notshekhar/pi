@@ -24,7 +24,7 @@ type ServerConfig struct {
 	// reveal it with a 401, which works the same.
 	Auth string `json:"auth,omitempty"`
 	// Enabled defaults true; false keeps the entry but skips connecting.
-	Enabled      *bool    `json:"enabled,omitempty"`
+	Enabled      *bool    `json:"enabled,omitzero"`
 	AllowedTools []string `json:"allowedTools,omitempty"`
 	DeniedTools  []string `json:"deniedTools,omitempty"`
 	// A pre-registered OAuth client, for servers that refuse dynamic

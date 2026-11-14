@@ -2,12 +2,13 @@ package openairesponses
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -152,7 +153,7 @@ func convertPrompt(prompt provider.Prompt, key string, reasoningModel, xai bool)
 					}
 
 				case provider.ToolCallPart:
-					args, err := json.Marshal(p.Input)
+					args, err := json.Marshal(p.Input, jsonopt.Write)
 					if err != nil {
 						return nil, nil, &provider.InvalidPromptError{Message: "encoding input for tool call " + p.ToolCallID, Cause: err}
 					}
@@ -204,7 +205,7 @@ func convertPrompt(prompt provider.Prompt, key string, reasoningModel, xai bool)
 // for a result carrying images (the read tool's screenshots).
 func toolOutput(output provider.ToolResultOutput) any {
 	jsonText := func(v any) string {
-		raw, err := json.Marshal(v)
+		raw, err := json.Marshal(v, jsonopt.Write)
 		if err != nil {
 			return fmt.Sprintf("could not encode the result: %v", err)
 		}
@@ -247,7 +248,7 @@ func xaiToolOutput(output provider.ToolResultOutput) any {
 	case provider.ToolOutputErrorText:
 		return o.Value
 	case provider.ToolOutputErrorJSON:
-		raw, _ := json.Marshal(o.Value)
+		raw, _ := json.Marshal(o.Value, jsonopt.Write)
 		return string(raw)
 	case provider.ToolOutputExecutionDenied:
 		if o.Reason != "" {

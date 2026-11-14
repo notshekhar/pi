@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/permissions"
 )
 
@@ -74,7 +76,7 @@ func (r *Run) approvalHooks() (
 		// actually run — anything else makes the rewrite seam a way around
 		// the permission rules.
 		if rewritten {
-			if encoded, err := json.Marshal(args); err == nil {
+			if encoded, err := json.Marshal(args, jsonopt.Write); err == nil {
 				call.Input = encoded
 			} else {
 				// Unencodable — run the original rather than a half-applied
@@ -132,12 +134,12 @@ func (r *Run) policy() permissions.Policy {
 // decodeArgs turns a call's raw JSON into the map the policy matches on.
 // Unparseable input yields nil, which matches no pattern — so a malformed
 // call falls through to the policy's default rather than dodging a rule.
-func decodeArgs(input json.RawMessage) map[string]any {
+func decodeArgs(input jsontext.Value) map[string]any {
 	if len(input) == 0 {
 		return nil
 	}
 	var args map[string]any
-	if err := json.Unmarshal(input, &args); err != nil {
+	if err := json.Unmarshal(input, &args, jsonopt.Read); err != nil {
 		return nil
 	}
 	return args

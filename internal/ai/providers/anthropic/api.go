@@ -1,6 +1,11 @@
 package anthropic
 
-import "encoding/json"
+import (
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
+)
 
 // messagesRequest is the body of POST /v1/messages.
 type messagesRequest struct {
@@ -10,18 +15,18 @@ type messagesRequest struct {
 	System   []systemBlock `json:"system,omitempty"`
 	Messages []apiMessage  `json:"messages"`
 
-	Temperature   *float64 `json:"temperature,omitempty"`
-	TopP          *float64 `json:"top_p,omitempty"`
-	TopK          *int64   `json:"top_k,omitempty"`
+	Temperature   *float64 `json:"temperature,omitzero"`
+	TopP          *float64 `json:"top_p,omitzero"`
+	TopK          *int64   `json:"top_k,omitzero"`
 	StopSequences []string `json:"stop_sequences,omitempty"`
 
 	Tools      []apiTool   `json:"tools,omitempty"`
-	ToolChoice *toolChoice `json:"tool_choice,omitempty"`
+	ToolChoice *toolChoice `json:"tool_choice,omitzero"`
 
-	Thinking     *thinkingConfig `json:"thinking,omitempty"`
-	OutputConfig *outputConfig   `json:"output_config,omitempty"`
+	Thinking     *thinkingConfig `json:"thinking,omitzero"`
+	OutputConfig *outputConfig   `json:"output_config,omitzero"`
 
-	Stream bool `json:"stream,omitempty"`
+	Stream bool `json:"stream,omitzero"`
 }
 
 // systemBlock is one block of the system prompt. Anthropic accepts a bare
@@ -29,7 +34,7 @@ type messagesRequest struct {
 type systemBlock struct {
 	Type         string        `json:"type"`
 	Text         string        `json:"text"`
-	CacheControl *cacheControl `json:"cache_control,omitempty"`
+	CacheControl *cacheControl `json:"cache_control,omitzero"`
 }
 
 // cacheControl marks a prompt prefix as cacheable. Anthropic allows at most
@@ -48,7 +53,7 @@ type cacheControl struct {
 // those is rejected.
 type thinkingConfig struct {
 	Type         string `json:"type"`
-	BudgetTokens *int64 `json:"budget_tokens,omitempty"`
+	BudgetTokens *int64 `json:"budget_tokens,omitzero"`
 	Display      string `json:"display,omitempty"`
 }
 
@@ -73,35 +78,35 @@ type apiBlock struct {
 	Text string `json:"text,omitempty"`
 
 	// image, document
-	Source *blockSource `json:"source,omitempty"`
+	Source *blockSource `json:"source,omitzero"`
 	Title  string       `json:"title,omitempty"`
 	// Context is document metadata passed to the model but excluded from
 	// citations.
 	Context   string     `json:"context,omitempty"`
-	Citations *citations `json:"citations,omitempty"`
+	Citations *citations `json:"citations,omitzero"`
 
 	// thinking. Thinking is a pointer because the API requires the field to be
 	// present on every thinking block, and a model can legitimately return a
 	// signed block whose text is empty — omitempty on a string would drop it
 	// and the replay 400s with "missing field `thinking`".
-	Thinking  *string `json:"thinking,omitempty"`
+	Thinking  *string `json:"thinking,omitzero"`
 	Signature string  `json:"signature,omitempty"`
 
 	// redacted_thinking
 	Data string `json:"data,omitempty"`
 
 	// tool_use
-	ID    string          `json:"id,omitempty"`
-	Name  string          `json:"name,omitempty"`
-	Input json.RawMessage `json:"input,omitempty"`
+	ID    string         `json:"id,omitempty"`
+	Name  string         `json:"name,omitempty"`
+	Input jsontext.Value `json:"input,omitzero"`
 
 	// tool_result
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	// Content is a string or a []apiBlock, which is why it is typed as any.
-	Content any   `json:"content,omitempty"`
-	IsError *bool `json:"is_error,omitempty"`
+	Content any   `json:"content,omitzero"`
+	IsError *bool `json:"is_error,omitzero"`
 
-	CacheControl *cacheControl `json:"cache_control,omitempty"`
+	CacheControl *cacheControl `json:"cache_control,omitzero"`
 }
 
 // blockSource carries file bytes, text, or a URL for image and document blocks.
@@ -130,7 +135,7 @@ func (c *citations) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	type plain citations
-	return json.Unmarshal(data, (*plain)(c))
+	return json.Unmarshal(data, (*plain)(c), jsonopt.Read)
 }
 
 // apiTool is a client-executed tool definition.
@@ -140,25 +145,25 @@ type apiTool struct {
 	Description string `json:"description,omitempty"`
 	// InputSchema is omitted for provider-hosted tools: their shape is fixed
 	// by the dated Type, and sending a schema for one is rejected.
-	InputSchema any `json:"input_schema,omitempty"`
+	InputSchema any `json:"input_schema,omitzero"`
 	// CacheControl on the last tool caches the whole tool block.
-	CacheControl *cacheControl `json:"cache_control,omitempty"`
+	CacheControl *cacheControl `json:"cache_control,omitzero"`
 
 	// Fields below belong to provider-hosted tools only.
 
 	// MaxUses caps how many times the model may call a hosted tool per turn.
-	MaxUses          *int     `json:"max_uses,omitempty"`
+	MaxUses          *int     `json:"max_uses,omitzero"`
 	AllowedDomains   []string `json:"allowed_domains,omitempty"`
 	BlockedDomains   []string `json:"blocked_domains,omitempty"`
-	MaxContentTokens *int     `json:"max_content_tokens,omitempty"`
+	MaxContentTokens *int     `json:"max_content_tokens,omitzero"`
 	// UserLocation biases web search results geographically.
 	UserLocation map[string]any `json:"user_location,omitempty"`
-	Citations    *citations     `json:"citations,omitempty"`
+	Citations    *citations     `json:"citations,omitzero"`
 
 	// Computer-use display geometry.
-	DisplayWidthPx  *int `json:"display_width_px,omitempty"`
-	DisplayHeightPx *int `json:"display_height_px,omitempty"`
-	DisplayNumber   *int `json:"display_number,omitempty"`
+	DisplayWidthPx  *int `json:"display_width_px,omitzero"`
+	DisplayHeightPx *int `json:"display_height_px,omitzero"`
+	DisplayNumber   *int `json:"display_number,omitzero"`
 }
 
 // toolChoice constrains tool selection. Anthropic spells "required" as "any".
@@ -166,7 +171,7 @@ type toolChoice struct {
 	Type string `json:"type"`
 	Name string `json:"name,omitempty"`
 	// DisableParallelToolUse forces at most one tool call per turn.
-	DisableParallelToolUse *bool `json:"disable_parallel_tool_use,omitempty"`
+	DisableParallelToolUse *bool `json:"disable_parallel_tool_use,omitzero"`
 }
 
 // messagesResponse is a non-streaming completion.

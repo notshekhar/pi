@@ -2,13 +2,14 @@ package bedrock
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"math"
 	"net/http"
 	"regexp"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -490,12 +491,12 @@ func schemaForTool(t provider.FunctionTool) (any, error) {
 	if t.InputSchema == nil {
 		return emptyObjectSchema, nil
 	}
-	raw, err := json.Marshal(t.InputSchema)
+	raw, err := json.Marshal(t.InputSchema, jsonopt.Write)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: encoding schema for tool %q: %w", t.Name, err)
 	}
 	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := json.Unmarshal(raw, &out, jsonopt.Read); err != nil {
 		return nil, fmt.Errorf("bedrock: decoding schema for tool %q: %w", t.Name, err)
 	}
 	delete(out, "$schema")
@@ -637,7 +638,7 @@ func (m *languageModel) DoGenerate(ctx context.Context, opts provider.CallOption
 		content = jsonToolAsText(content)
 	}
 
-	requestBody, _ := json.Marshal(built.body)
+	requestBody, _ := json.Marshal(built.body, jsonopt.Write)
 
 	return &provider.GenerateResult{
 		Content:      content,
@@ -653,7 +654,7 @@ func (m *languageModel) DoGenerate(ctx context.Context, opts provider.CallOption
 
 // postJSON signs and sends a JSON body.
 func (m *languageModel) postJSON(ctx context.Context, path string, body any, extra provider.Headers) (*http.Response, error) {
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(body, jsonopt.Write)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: encoding request body: %w", err)
 	}
@@ -673,7 +674,7 @@ func (m *languageModel) convertContent(blocks []apiBlock) []provider.Content {
 			out = append(out, convertReasoning(*block.ReasoningContent))
 
 		case block.ToolUse != nil:
-			raw, _ := json.Marshal(block.ToolUse.Input)
+			raw, _ := json.Marshal(block.ToolUse.Input, jsonopt.Write)
 			if len(raw) == 0 {
 				raw = []byte("{}")
 			}
@@ -783,9 +784,9 @@ func convertUsage(u *apiUsage) provider.Usage {
 		OutputTokens: provider.OutputTokens{Total: &output, Text: &output},
 	}
 
-	if raw, err := json.Marshal(u); err == nil {
+	if raw, err := json.Marshal(u, jsonopt.Write); err == nil {
 		var obj provider.JSONObject
-		if json.Unmarshal(raw, &obj) == nil {
+		if json.Unmarshal(raw, &obj, jsonopt.Read) == nil {
 			usage.Raw = obj
 		}
 	}

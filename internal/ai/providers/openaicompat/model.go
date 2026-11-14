@@ -2,11 +2,13 @@ package openaicompat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -188,12 +190,12 @@ func schemaForTool(t provider.FunctionTool) (any, error) {
 	if t.InputSchema == nil {
 		return emptyObjectSchema, nil
 	}
-	raw, err := json.Marshal(t.InputSchema)
+	raw, err := json.Marshal(t.InputSchema, jsonopt.Write)
 	if err != nil {
 		return nil, fmt.Errorf("openaicompat: encoding schema for tool %q: %w", t.Name, err)
 	}
 	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := json.Unmarshal(raw, &out, jsonopt.Read); err != nil {
 		return nil, fmt.Errorf("openaicompat: decoding schema for tool %q: %w", t.Name, err)
 	}
 	delete(out, "$schema")
@@ -218,12 +220,12 @@ func (m *languageModel) applyResponseFormat(req *chatRequest, opts provider.Call
 		return m.applySchemaViaPrompt(req, opts)
 	}
 
-	raw, err := json.Marshal(opts.ResponseFormat.Schema)
+	raw, err := json.Marshal(opts.ResponseFormat.Schema, jsonopt.Write)
 	if err != nil {
 		return []provider.Warning{provider.Unsupported("responseFormat schema", err.Error())}
 	}
 	var schema map[string]any
-	if err := json.Unmarshal(raw, &schema); err != nil {
+	if err := json.Unmarshal(raw, &schema, jsonopt.Read); err != nil {
 		return []provider.Warning{provider.Unsupported("responseFormat schema", err.Error())}
 	}
 	delete(schema, "$schema")
@@ -252,7 +254,7 @@ func (m *languageModel) applyResponseFormat(req *chatRequest, opts provider.Call
 // It is weaker than a real json_schema — nothing enforces the shape — which is
 // why it is opt-in per provider rather than a silent default.
 func (m *languageModel) applySchemaViaPrompt(req *chatRequest, opts provider.CallOptions) []provider.Warning {
-	raw, err := json.MarshalIndent(opts.ResponseFormat.Schema, "", "  ")
+	raw, err := json.Marshal(opts.ResponseFormat.Schema, jsonopt.Write, jsontext.WithIndent("  "))
 	if err != nil {
 		return []provider.Warning{provider.Unsupported("responseFormat schema", err.Error())}
 	}
@@ -288,7 +290,7 @@ func (m *languageModel) DoGenerate(ctx context.Context, opts provider.CallOption
 	}
 
 	resp, err := providerutil.Retry(ctx, m.provider.retry, func(ctx context.Context) (*chatResponse, error) {
-		httpResp, err := m.provider.client.PostJSON(ctx, m.provider.chatPath, json.RawMessage(body), opts.Headers)
+		httpResp, err := m.provider.client.PostJSON(ctx, m.provider.chatPath, jsontext.Value(body), opts.Headers)
 		if err != nil {
 			return nil, err
 		}

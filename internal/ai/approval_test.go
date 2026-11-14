@@ -2,12 +2,14 @@ package ai_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -28,9 +30,9 @@ func newShellTool(ran *[]string) ai.Tool {
 // writeOnlyApproval is a tool that asks for approval only for calls that write.
 type writeOnlyApproval struct{ ai.Tool }
 
-func (writeOnlyApproval) NeedsApproval(_ context.Context, input json.RawMessage) bool {
+func (writeOnlyApproval) NeedsApproval(_ context.Context, input jsontext.Value) bool {
 	var a dangerousArgs
-	if err := json.Unmarshal(input, &a); err != nil {
+	if err := json.Unmarshal(input, &a, jsonopt.Read); err != nil {
 		// An unparseable call is treated as dangerous; the safe reading of
 		// "I could not tell" is not "let it run".
 		return true
@@ -40,7 +42,7 @@ func (writeOnlyApproval) NeedsApproval(_ context.Context, input json.RawMessage)
 
 // callTool scripts a model that calls shell once with the given command.
 func callTool(command string) mockTurn {
-	input, _ := json.Marshal(dangerousArgs{Command: command})
+	input, _ := json.Marshal(dangerousArgs{Command: command}, jsonopt.Write)
 	return mockTurn{parts: []provider.StreamPart{
 		provider.ToolCall{ToolCallID: "c1", ToolName: "shell", Input: string(input)},
 		provider.Finish{FinishReason: provider.FinishReason{Unified: provider.FinishToolCalls}},
@@ -254,8 +256,8 @@ func TestApprovalsAreAskedInCallOrder(t *testing.T) {
 	var ran []string
 	var asked []string
 
-	first, _ := json.Marshal(dangerousArgs{Command: "one"})
-	second, _ := json.Marshal(dangerousArgs{Command: "two"})
+	first, _ := json.Marshal(dangerousArgs{Command: "one"}, jsonopt.Write)
+	second, _ := json.Marshal(dangerousArgs{Command: "two"}, jsonopt.Write)
 
 	_, err := ai.GenerateText(context.Background(), ai.Options{
 		Model: &mockModel{turns: []mockTurn{
@@ -268,7 +270,7 @@ func TestApprovalsAreAskedInCallOrder(t *testing.T) {
 		Tools: []ai.Tool{ai.RequireApproval(newShellTool(&ran))},
 		ApproveTool: func(_ context.Context, call ai.ToolCall) (ai.ApprovalDecision, error) {
 			var a dangerousArgs
-			json.Unmarshal(call.Input, &a)
+			json.Unmarshal(call.Input, &a, jsonopt.Read)
 			asked = append(asked, a.Command)
 			// Refuse the second, so the pairing of answer to question matters.
 			return ai.ApprovalDecision{Approved: a.Command == "one"}, nil
@@ -295,7 +297,7 @@ func TestApproverCanRewriteTheInput(t *testing.T) {
 		Model: &mockModel{turns: []mockTurn{callTool("git status"), {}}},
 		Tools: []ai.Tool{ai.RequireApproval(newShellTool(&ran))},
 		ApproveTool: func(context.Context, ai.ToolCall) (ai.ApprovalDecision, error) {
-			return ai.ApproveWith(json.RawMessage(`{"command":"rtk git status"}`)), nil
+			return ai.ApproveWith(jsontext.Value(`{"command":"rtk git status"}`)), nil
 		},
 	})
 	if err != nil {
@@ -319,7 +321,7 @@ func TestInvalidRewriteIsIgnored(t *testing.T) {
 		Model: &mockModel{turns: []mockTurn{callTool("git status"), {}}},
 		Tools: []ai.Tool{ai.RequireApproval(newShellTool(&ran))},
 		ApproveTool: func(context.Context, ai.ToolCall) (ai.ApprovalDecision, error) {
-			return ai.ApproveWith(json.RawMessage("not json")), nil
+			return ai.ApproveWith(jsontext.Value("not json")), nil
 		},
 	})
 	if err != nil {
@@ -338,7 +340,7 @@ func TestRewriteOnDenialChangesNothing(t *testing.T) {
 		Tools: []ai.Tool{ai.RequireApproval(newShellTool(&ran))},
 		ApproveTool: func(context.Context, ai.ToolCall) (ai.ApprovalDecision, error) {
 			d := ai.Deny("no")
-			d.UpdatedInput = json.RawMessage(`{"command":"rtk git status"}`)
+			d.UpdatedInput = jsontext.Value(`{"command":"rtk git status"}`)
 			return d, nil
 		},
 	})

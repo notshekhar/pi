@@ -1,12 +1,14 @@
 package main
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // A word that is not a command is refused with a suggestion, instead of
@@ -178,7 +180,7 @@ func TestBuiltinExtensionsToggleFromTheShell(t *testing.T) {
 func runJSON(t *testing.T, r piResult) map[string]any {
 	t.Helper()
 	var out map[string]any
-	if err := json.Unmarshal([]byte(r.stdout), &out); err != nil || strings.Count(r.stdout, "\n") != 1 {
+	if err := json.Unmarshal([]byte(r.stdout), &out, jsonopt.Read); err != nil || strings.Count(r.stdout, "\n") != 1 {
 		t.Fatalf("stdout is not one JSON line: %q (%v)", r.stdout, err)
 	}
 	return out
@@ -214,7 +216,7 @@ func TestRunStreamJSONIsOneEventPerLine(t *testing.T) {
 	var types []string
 	for _, line := range strings.Split(strings.TrimSpace(r.stdout), "\n") {
 		var ev map[string]any
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+		if err := json.Unmarshal([]byte(line), &ev, jsonopt.Read); err != nil {
 			t.Fatalf("not JSON: %q", line)
 		}
 		types = append(types, ev["type"].(string))

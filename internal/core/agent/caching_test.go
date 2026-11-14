@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/config"
 )
@@ -76,7 +77,7 @@ func (g *gateway) requests() []map[string]any {
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
 	var body map[string]any
-	_ = json.Unmarshal(raw, &body)
+	_ = json.Unmarshal(raw, &body, jsonopt.Read)
 	g.mu.Lock()
 	g.bodies = append(g.bodies, body)
 	n := len(g.bodies)
@@ -126,7 +127,7 @@ func withGateway(t *testing.T, sdk string, g http.Handler) config.Config {
 	auth := map[string]any{"providers": map[string]any{}, "customProviders": map[string]any{
 		"gw": map[string]any{"sdk": sdk, "baseURL": srv.URL, "apiKey": "k", "models": []map[string]any{{"id": "claude-x", "contextWindow": 1000}}},
 	}}
-	raw, _ := json.Marshal(auth)
+	raw, _ := json.Marshal(auth, jsonopt.Write)
 	if err := os.MkdirAll(filepath.Join(dir, ".loop"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +253,7 @@ func stripped(body map[string]any) []string {
 		for _, b := range content {
 			delete(b.(map[string]any), "cache_control")
 		}
-		raw, _ := json.Marshal(m)
+		raw, _ := json.Marshal(m, jsonopt.Write)
 		out = append(out, string(raw))
 	}
 	return out

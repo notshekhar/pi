@@ -59,7 +59,7 @@ type SearchResult struct {
 
 type searchArgs struct {
 	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
+	Limit int    `json:"limit,omitzero"`
 }
 
 // WebSearch returns the websearch tool. Failures come back as bracketed text

@@ -1,12 +1,15 @@
 package jsonschema
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // Reflector derives JSON Schemas from Go types.
@@ -67,7 +70,7 @@ type reflectState struct {
 var (
 	jsonMarshalerType = reflect.TypeFor[json.Marshaler]()
 	timeType          = reflect.TypeFor[time.Time]()
-	rawMessageType    = reflect.TypeFor[json.RawMessage]()
+	rawMessageType    = reflect.TypeFor[jsontext.Value]()
 )
 
 // schemaFor builds the schema for a type, applying field-level tag options.
@@ -447,7 +450,7 @@ func parseInt(s string) *int {
 
 // String renders the schema as indented JSON, for debugging.
 func (s *Schema) String() string {
-	b, err := json.MarshalIndent(s, "", "  ")
+	b, err := json.Marshal(s, jsonopt.Write, jsontext.WithIndent("  "))
 	if err != nil {
 		return fmt.Sprintf("<invalid schema: %v>", err)
 	}

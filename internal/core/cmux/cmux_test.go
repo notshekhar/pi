@@ -3,7 +3,7 @@ package cmux
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/hooks"
 	"github.com/notshekhar/pi/internal/core/status"
 )
@@ -65,7 +66,7 @@ func (f *fakeCmux) serve(c net.Conn) {
 			continue
 		}
 		var frame map[string]any
-		json.Unmarshal([]byte(line), &frame)
+		json.Unmarshal([]byte(line), &frame, jsonopt.Read)
 		f.mu.Lock()
 		f.frames = append(f.frames, frame)
 		ev := frame["params"].(map[string]any)["event"].(map[string]any)

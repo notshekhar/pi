@@ -6,7 +6,8 @@ package artifacts
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/home"
 )
 
@@ -100,7 +102,7 @@ func readRecord(dir string) (Record, bool) {
 		return Record{}, false
 	}
 	var r Record
-	if json.Unmarshal(raw, &r) != nil || r.ID != filepath.Base(dir) || r.File == "" {
+	if json.Unmarshal(raw, &r, jsonopt.Read) != nil || r.ID != filepath.Base(dir) || r.File == "" {
 		return Record{}, false
 	}
 	return r, true
@@ -114,7 +116,7 @@ func writeRecord(r Record) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	raw, _ := json.MarshalIndent(r, "", "  ")
+	raw, _ := json.Marshal(r, jsonopt.Write, jsontext.WithIndent("  "))
 	return os.WriteFile(filepath.Join(dir, "meta.json"), append(raw, '\n'), 0o644)
 }
 

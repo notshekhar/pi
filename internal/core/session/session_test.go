@@ -1,13 +1,15 @@
 package session
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/db"
 )
@@ -79,13 +81,13 @@ func TestEntryRoundTripKeepsUnknownKeys(t *testing.T) {
 		`"usage":{"inputTokens":10,"inputTokenDetails":{"cacheReadTokens":4},"raw":{"z":1},"usd":0.5},` +
 		`"model":"xai/grok","id":"abcd1234","parentId":"00000000"}`
 	var e Entry
-	if err := json.Unmarshal([]byte(in), &e); err != nil {
+	if err := json.Unmarshal([]byte(in), &e, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := json.Marshal(e)
+	out, _ := json.Marshal(e, jsonopt.Write)
 	var a, b any
-	_ = json.Unmarshal([]byte(in), &a)
-	_ = json.Unmarshal(out, &b)
+	_ = json.Unmarshal([]byte(in), &a, jsonopt.Read)
+	_ = json.Unmarshal(out, &b, jsonopt.Read)
 	if !reflect.DeepEqual(a, b) {
 		t.Errorf("round trip changed the entry:\n in %s\nout %s", in, out)
 	}
@@ -210,8 +212,8 @@ func TestInterruptedAndNativeAgent(t *testing.T) {
 	withSessionHome(t)
 	s := New("m/x", "/repo")
 	_ = s.Add(user("go"))
-	_ = s.AppendAll(Entry{Type: TypeMessage, Role: "assistant", Content: json.RawMessage(`""`), Interrupted: true})
-	_ = s.AppendAll(Entry{Type: TypeMessage, Role: "assistant", Content: json.RawMessage(
+	_ = s.AppendAll(Entry{Type: TypeMessage, Role: "assistant", Content: jsontext.Value(`""`), Interrupted: true})
+	_ = s.AppendAll(Entry{Type: TypeMessage, Role: "assistant", Content: jsontext.Value(
 		`[{"type":"tool-call","toolCallId":"t","toolName":"bash","input":{"command":"ls"},"providerExecuted":true,"providerOptions":{"nativeAgent":{"provider":"claude-code"}}},` +
 			`{"type":"tool-result","toolCallId":"t","toolName":"bash","output":{"type":"text","value":"a.go"},"providerOptions":{"nativeAgent":{"provider":"claude-code"}}}]`)})
 	msgs := s.ModelMessages()
@@ -277,13 +279,13 @@ func TestRealLoopDatabase(t *testing.T) {
 			_ = rows.Scan(&payload)
 			entries++
 			var e Entry
-			if json.Unmarshal([]byte(payload), &e) != nil {
+			if json.Unmarshal([]byte(payload), &e, jsonopt.Read) != nil {
 				continue
 			}
-			out, _ := json.Marshal(e)
+			out, _ := json.Marshal(e, jsonopt.Write)
 			var a, b any
-			_ = json.Unmarshal([]byte(payload), &a)
-			_ = json.Unmarshal(out, &b)
+			_ = json.Unmarshal([]byte(payload), &a, jsonopt.Read)
+			_ = json.Unmarshal(out, &b, jsonopt.Read)
 			if !reflect.DeepEqual(a, b) {
 				mismatched++
 				if mismatched <= 3 {

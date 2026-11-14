@@ -2,11 +2,12 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
@@ -126,7 +127,7 @@ func decodeObject[T any](text string) (T, error) {
 		return value, &ObjectParseError{Text: text, Err: errors.New("the model returned no output")}
 	}
 
-	if err := json.Unmarshal([]byte(cleaned), &value); err != nil {
+	if err := json.Unmarshal([]byte(cleaned), &value, jsonopt.Read); err != nil {
 		return value, &ObjectParseError{Text: text, Err: err}
 	}
 	return value, nil

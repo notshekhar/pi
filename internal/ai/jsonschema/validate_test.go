@@ -1,9 +1,11 @@
 package jsonschema
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"strings"
 	"testing"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 const todoSchema = `{"type":"object","properties":{"todos":{"type":"array","items":{"type":"object",
@@ -13,7 +15,7 @@ const todoSchema = `{"type":"object","properties":{"todos":{"type":"array","item
 
 func TestValidate(t *testing.T) {
 	var s Schema
-	if err := json.Unmarshal([]byte(todoSchema), &s); err != nil {
+	if err := json.Unmarshal([]byte(todoSchema), &s, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	cases := map[string]string{
@@ -30,7 +32,7 @@ func TestValidate(t *testing.T) {
 	}
 	for input, want := range cases {
 		var v any
-		if err := json.Unmarshal([]byte(input), &v); err != nil {
+		if err := json.Unmarshal([]byte(input), &v, jsonopt.Read); err != nil {
 			t.Fatal(err)
 		}
 		err := s.Validate(v)
@@ -45,7 +47,7 @@ func TestValidate(t *testing.T) {
 
 func TestValidateAnyOf(t *testing.T) {
 	var s Schema
-	if err := json.Unmarshal([]byte(`{"anyOf":[{"type":"string"},{"type":"number"}]}`), &s); err != nil {
+	if err := json.Unmarshal([]byte(`{"anyOf":[{"type":"string"},{"type":"number"}]}`), &s, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if s.Validate("x") != nil || s.Validate(1.0) != nil {

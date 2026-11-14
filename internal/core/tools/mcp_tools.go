@@ -2,12 +2,14 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // `mcp_tools` — loop's tool-search mode (tools/mcp-tools.ts). With more MCP
@@ -21,10 +23,10 @@ const maxSearchResultsMCP = 25
 const summaryChars = 160
 
 type mcpToolsArgs struct {
-	Action    string          `json:"action"`
-	Query     string          `json:"query,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Arguments json.RawMessage `json:"arguments,omitempty"`
+	Action    string         `json:"action"`
+	Query     string         `json:"query,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Arguments jsontext.Value `json:"arguments,omitzero"`
 }
 
 // MCPToolSearch returns the mcp_tools tool over the live MCP tool set.
@@ -43,7 +45,7 @@ func MCPToolSearch(list func() []ai.Tool) ai.Tool {
 		}
 		args := a.Arguments
 		if len(args) == 0 {
-			args = json.RawMessage("{}")
+			args = jsontext.Value("{}")
 		}
 		return tool.Execute(ctx, args)
 	})
@@ -156,7 +158,7 @@ func describeMCPTool(t ai.Tool) string {
 	}
 	schema := "(no parameters)"
 	if t.InputSchema() != nil {
-		if raw, err := json.MarshalIndent(t.InputSchema(), "", "  "); err == nil {
+		if raw, err := json.Marshal(t.InputSchema(), jsonopt.Write, jsontext.WithIndent("  ")); err == nil {
 			schema = string(raw)
 		}
 	}

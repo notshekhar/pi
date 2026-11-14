@@ -10,7 +10,10 @@ package jsonschema
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // Type is a JSON Schema primitive type name.
@@ -44,42 +47,42 @@ type Schema struct {
 
 	// Properties and Required describe object shapes. Properties preserves
 	// declaration order when marshalled.
-	Properties *Properties `json:"properties,omitempty"`
+	Properties *Properties `json:"properties,omitzero"`
 	Required   []string    `json:"required,omitempty"`
 	// AdditionalProperties is either a bool or a *Schema. Providers in strict
 	// mode require it to be false.
-	AdditionalProperties any `json:"additionalProperties,omitempty"`
+	AdditionalProperties any `json:"additionalProperties,omitzero"`
 
 	// Items describes array elements.
-	Items *Schema `json:"items,omitempty"`
+	Items *Schema `json:"items,omitzero"`
 
 	// Enum restricts a value to a fixed set. Const restricts it to one value.
 	Enum  []any `json:"enum,omitempty"`
-	Const any   `json:"const,omitempty"`
+	Const any   `json:"const,omitzero"`
 
 	// AnyOf, OneOf, AllOf and Not compose subschemas.
 	AnyOf []*Schema `json:"anyOf,omitempty"`
 	OneOf []*Schema `json:"oneOf,omitempty"`
 	AllOf []*Schema `json:"allOf,omitempty"`
-	Not   *Schema   `json:"not,omitempty"`
+	Not   *Schema   `json:"not,omitzero"`
 
 	// Format is a draft-07 semantic hint such as "date-time" or "uri".
 	Format string `json:"format,omitempty"`
 
-	Minimum          *float64 `json:"minimum,omitempty"`
-	ExclusiveMinimum *float64 `json:"exclusiveMinimum,omitempty"`
-	Maximum          *float64 `json:"maximum,omitempty"`
-	MinLength        *int     `json:"minLength,omitempty"`
-	MaxLength        *int     `json:"maxLength,omitempty"`
+	Minimum          *float64 `json:"minimum,omitzero"`
+	ExclusiveMinimum *float64 `json:"exclusiveMinimum,omitzero"`
+	Maximum          *float64 `json:"maximum,omitzero"`
+	MinLength        *int     `json:"minLength,omitzero"`
+	MaxLength        *int     `json:"maxLength,omitzero"`
 	Pattern          string   `json:"pattern,omitempty"`
-	MinItems         *int     `json:"minItems,omitempty"`
-	MaxItems         *int     `json:"maxItems,omitempty"`
+	MinItems         *int     `json:"minItems,omitzero"`
+	MaxItems         *int     `json:"maxItems,omitzero"`
 
 	// UniqueItems constrains arrays to distinct elements.
-	UniqueItems bool `json:"uniqueItems,omitempty"`
+	UniqueItems bool `json:"uniqueItems,omitzero"`
 
 	// Default is an example value shown to the model.
-	Default any `json:"default,omitempty"`
+	Default any `json:"default,omitzero"`
 }
 
 // Property is one named entry of an object schema.
@@ -156,11 +159,11 @@ func (p *Properties) MarshalJSON() ([]byte, error) {
 		if i > 0 {
 			buf = append(buf, ',')
 		}
-		name, err := json.Marshal(e.Name)
+		name, err := json.Marshal(e.Name, jsonopt.Write)
 		if err != nil {
 			return nil, err
 		}
-		val, err := json.Marshal(e.Schema)
+		val, err := json.Marshal(e.Schema, jsonopt.Write)
 		if err != nil {
 			return nil, err
 		}
@@ -175,7 +178,7 @@ func (p *Properties) MarshalJSON() ([]byte, error) {
 // the source document.
 func (p *Properties) UnmarshalJSON(data []byte) error {
 	var raw map[string]*Schema
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := json.Unmarshal(data, &raw, jsonopt.Read); err != nil {
 		return err
 	}
 	order, err := objectKeyOrder(data)
@@ -192,25 +195,19 @@ func (p *Properties) UnmarshalJSON(data []byte) error {
 
 // objectKeyOrder returns the keys of a JSON object in document order.
 func objectKeyOrder(data []byte) ([]string, error) {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	// Consume the opening brace.
-	if _, err := dec.Token(); err != nil {
+	dec := jsontext.NewDecoder(bytes.NewReader(data), jsonopt.Read)
+	open, err := dec.ReadToken()
+	if err != nil || open.Kind() != '{' {
 		return nil, err
 	}
 	var keys []string
-	for dec.More() {
-		tok, err := dec.Token()
+	for dec.PeekKind() != '}' {
+		key, err := dec.ReadToken()
 		if err != nil {
 			return nil, err
 		}
-		key, ok := tok.(string)
-		if !ok {
-			continue
-		}
-		keys = append(keys, key)
-		// Skip the value.
-		var skip json.RawMessage
-		if err := dec.Decode(&skip); err != nil {
+		keys = append(keys, key.String())
+		if err := dec.SkipValue(); err != nil {
 			return nil, err
 		}
 	}

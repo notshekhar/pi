@@ -1,7 +1,8 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/home"
 	"github.com/notshekhar/pi/internal/core/schedule"
 	"github.com/notshekhar/pi/internal/tui"
@@ -83,7 +85,7 @@ func loadReminders() []Reminder {
 		return nil
 	}
 	var out []Reminder
-	if err := json.Unmarshal(data, &out); err != nil {
+	if err := json.Unmarshal(data, &out, jsonopt.Read); err != nil {
 		return nil
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
@@ -95,7 +97,7 @@ func saveReminders(list []Reminder) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(list, "", "  ")
+	data, err := json.Marshal(list, jsonopt.Write, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}

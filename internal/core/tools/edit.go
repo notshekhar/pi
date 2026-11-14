@@ -2,35 +2,37 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // editArgs accepts the shapes models actually send: edits as an array, edits
 // as a JSON string holding that array (Opus 4.6, GLM-5.1), and the older flat
 // oldText/newText pair.
 type editArgs struct {
-	Path    string          `json:"path"`
-	Edits   json.RawMessage `json:"edits"`
-	OldText *string         `json:"oldText"`
-	NewText *string         `json:"newText"`
+	Path    string         `json:"path"`
+	Edits   jsontext.Value `json:"edits"`
+	OldText *string        `json:"oldText"`
+	NewText *string        `json:"newText"`
 }
 
 func (a editArgs) replacements() ([]Replacement, error) {
 	var edits []Replacement
 	raw := a.Edits
 	var asString string
-	if json.Unmarshal(raw, &asString) == nil {
-		raw = json.RawMessage(asString)
+	if json.Unmarshal(raw, &asString, jsonopt.Read) == nil {
+		raw = jsontext.Value(asString)
 	}
 	// A value that is not an array of edits leaves the list empty, and the
 	// check below reports it.
-	_ = json.Unmarshal(raw, &edits)
+	_ = json.Unmarshal(raw, &edits, jsonopt.Read)
 	if a.OldText != nil && a.NewText != nil {
 		edits = append(edits, Replacement{OldText: *a.OldText, NewText: *a.NewText})
 	}

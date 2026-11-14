@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,7 +28,7 @@ func call(t *testing.T, c *Client, tool, text string) CallToolResult {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	res, err := c.CallTool(ctx, tool, json.RawMessage(`{"text":`+strconv.Quote(text)+`}`))
+	res, err := c.CallTool(ctx, tool, jsontext.Value(`{"text":`+strconv.Quote(text)+`}`))
 	if err != nil {
 		t.Fatalf("%s: %v", tool, err)
 	}
@@ -59,7 +59,7 @@ func TestStdioHandshake(t *testing.T) {
 // taken for the reply — and must not cost the next call its answer.
 func TestStdioIgnoresNoiseAndRoutesByID(t *testing.T) {
 	var notes []string
-	c := connectFake(t, ConnectOptions{OnNotification: func(method string, _ json.RawMessage) { notes = append(notes, method) }})
+	c := connectFake(t, ConnectOptions{OnNotification: func(method string, _ jsontext.Value) { notes = append(notes, method) }})
 	if got := textOf(call(t, c, "noisy", "")); got != "quiet now" {
 		t.Errorf("noisy = %q", got)
 	}
@@ -87,7 +87,7 @@ func TestStdioConcurrentCalls(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		go func(i int) {
 			want := "n" + strconv.Itoa(i)
-			res, err := c.CallTool(context.Background(), "echo", json.RawMessage(`{"text":"`+want+`"}`))
+			res, err := c.CallTool(context.Background(), "echo", jsontext.Value(`{"text":"`+want+`"}`))
 			switch {
 			case err != nil:
 				errs <- err.Error()
@@ -194,7 +194,7 @@ func TestStdioResolvesEnvSecrets(t *testing.T) {
 }
 
 func TestToolResultMapping(t *testing.T) {
-	structured := toolResult(CallToolResult{StructuredContent: json.RawMessage(`{"a":1}`)})
+	structured := toolResult(CallToolResult{StructuredContent: jsontext.Value(`{"a":1}`)})
 	if out, ok := structured.Output().(provider.ToolOutputText); !ok || !strings.Contains(out.Value, `"a": 1`) {
 		t.Errorf("structuredContent dropped: %#v", structured.Output())
 	}

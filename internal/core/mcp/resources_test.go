@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
 	"testing"
 )
@@ -56,6 +56,6 @@ func TestManagerFollowsResourceListChanged(t *testing.T) {
 	configs := []ServerConfig{fakeConfig(t, "fake")}
 	m := managerWith(t, &configs)
 	eventually(t, "the resource listing", func() bool { return len(m.Resources()) == 2 })
-	_, _ = toolNamed(m, "mcp__fake__publish").Execute(context.Background(), json.RawMessage(`{}`))
+	_, _ = toolNamed(m, "mcp__fake__publish").Execute(context.Background(), jsontext.Value(`{}`))
 	eventually(t, "the new resource", func() bool { return len(m.Resources()) == 3 })
 }

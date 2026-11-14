@@ -10,48 +10,47 @@ package jsonstore
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // Object is a JSON object that remembers its key order.
 type Object struct {
 	keys   []string
-	values map[string]json.RawMessage
+	values map[string]jsontext.Value
 }
 
 // NewObject is an empty object.
-func NewObject() *Object { return &Object{values: map[string]json.RawMessage{}} }
+func NewObject() *Object { return &Object{values: map[string]jsontext.Value{}} }
 
 // ParseObject reads a JSON object, keeping key order.
 func ParseObject(data []byte) (*Object, error) {
-	o := NewObject()
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	tok, err := dec.Token()
+	dec := jsontext.NewDecoder(bytes.NewReader(data), jsonopt.Read)
+	tok, err := dec.ReadToken()
 	if err != nil {
 		return nil, err
 	}
-	if d, ok := tok.(json.Delim); !ok || d != '{' {
+	if tok.Kind() != '{' {
 		return nil, fmt.Errorf("jsonstore: not a JSON object")
 	}
-	for dec.More() {
-		tok, err := dec.Token()
+	o := NewObject()
+	for dec.PeekKind() != '}' {
+		key, err := dec.ReadToken()
 		if err != nil {
 			return nil, err
 		}
-		key, ok := tok.(string)
-		if !ok {
-			return nil, fmt.Errorf("jsonstore: bad key")
-		}
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
+		name := key.String() // a token is only valid until the next read
+		raw, err := dec.ReadValue()
+		if err != nil {
 			return nil, err
 		}
-		o.SetRaw(key, raw)
+		o.SetRaw(name, raw) // SetRaw copies, so raw may be reused
 	}
 	return o, nil
 }
@@ -63,7 +62,7 @@ func (o *Object) Keys() []string { return append([]string(nil), o.keys...) }
 func (o *Object) Has(key string) bool { _, ok := o.values[key]; return ok }
 
 // Raw is a key's JSON, nil when absent.
-func (o *Object) Raw(key string) json.RawMessage { return o.values[key] }
+func (o *Object) Raw(key string) jsontext.Value { return o.values[key] }
 
 // Get decodes a key into v; false when absent, null or undecodable.
 func (o *Object) Get(key string, v any) bool {
@@ -71,16 +70,16 @@ func (o *Object) Get(key string, v any) bool {
 	if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return false
 	}
-	return json.Unmarshal(raw, v) == nil
+	return json.Unmarshal(raw, v, jsonopt.Read) == nil
 }
 
 // SetRaw stores a key's JSON. An existing key keeps its position, a new one
 // goes last — the order a JS object gives.
-func (o *Object) SetRaw(key string, raw json.RawMessage) {
+func (o *Object) SetRaw(key string, raw jsontext.Value) {
 	if _, ok := o.values[key]; !ok {
 		o.keys = append(o.keys, key)
 	}
-	o.values[key] = append(json.RawMessage(nil), raw...)
+	o.values[key] = append(jsontext.Value(nil), raw...)
 }
 
 // Set stores a Go value under key.
@@ -151,22 +150,17 @@ func (o *Object) Encode() []byte {
 
 // Indent formats JSON the way JSON.stringify(v, undefined, "\t") does.
 func Indent(compact []byte) []byte {
-	var out bytes.Buffer
-	if err := json.Indent(&out, compact, "", "\t"); err != nil {
+	out := jsontext.Value(bytes.Clone(compact))
+	if err := out.Indent(jsontext.WithIndent("\t")); err != nil {
 		return compact
 	}
-	return out.Bytes()
+	return out
 }
 
-// Marshal is json.Marshal without HTML escaping, matching JSON.stringify.
+// Marshal is a Go value as JSON.stringify writes it: compact, no HTML
+// escaping (v2's default), keys of a map sorted as v1 sorted them.
 func Marshal(v any) ([]byte, error) {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(b.Bytes(), "\n"), nil
+	return json.Marshal(v, jsonopt.Write)
 }
 
 // Store is one JSON object file, cached in memory.
@@ -264,10 +258,10 @@ func (s *Store) Get(key string, v any) bool {
 }
 
 // Raw is key's JSON, nil when absent.
-func (s *Store) Raw(key string) json.RawMessage {
+func (s *Store) Raw(key string) jsontext.Value {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append(json.RawMessage(nil), s.load().Raw(key)...)
+	return append(jsontext.Value(nil), s.load().Raw(key)...)
 }
 
 // Has reports whether key is present.

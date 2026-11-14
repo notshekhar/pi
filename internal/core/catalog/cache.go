@@ -2,12 +2,13 @@ package catalog
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"net/http"
 	"regexp"
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/home"
 	"github.com/notshekhar/pi/internal/core/jsonstore"
 )
@@ -324,7 +325,7 @@ func getJSON(ctx context.Context, url string, headers map[string]string, into an
 	if resp.StatusCode/100 != 2 {
 		return false
 	}
-	return json.NewDecoder(resp.Body).Decode(into) == nil
+	return json.UnmarshalRead(resp.Body, into, jsonopt.Read) == nil
 }
 
 func sortedKeys[V any](m map[string]V) []string {

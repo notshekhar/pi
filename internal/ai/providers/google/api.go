@@ -3,10 +3,10 @@ package google
 // generateRequest is the body of :generateContent and :streamGenerateContent.
 type generateRequest struct {
 	Contents          []content         `json:"contents"`
-	SystemInstruction *content          `json:"systemInstruction,omitempty"`
+	SystemInstruction *content          `json:"systemInstruction,omitzero"`
 	Tools             []apiTool         `json:"tools,omitempty"`
-	ToolConfig        *toolConfig       `json:"toolConfig,omitempty"`
-	GenerationConfig  *generationConfig `json:"generationConfig,omitempty"`
+	ToolConfig        *toolConfig       `json:"toolConfig,omitzero"`
+	GenerationConfig  *generationConfig `json:"generationConfig,omitzero"`
 	SafetySettings    []safetySetting   `json:"safetySettings,omitempty"`
 	CachedContent     string            `json:"cachedContent,omitempty"`
 }
@@ -25,22 +25,22 @@ type part struct {
 	Text string `json:"text,omitempty"`
 
 	// Thought marks a text part as reasoning rather than answer.
-	Thought bool `json:"thought,omitempty"`
+	Thought bool `json:"thought,omitzero"`
 	// ThoughtSignature authenticates replayed reasoning. It must survive a
 	// round trip or the model rejects the history.
 	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 
-	InlineData *inlineData `json:"inlineData,omitempty"`
-	FileData   *fileData   `json:"fileData,omitempty"`
+	InlineData *inlineData `json:"inlineData,omitzero"`
+	FileData   *fileData   `json:"fileData,omitzero"`
 
-	FunctionCall     *functionCall     `json:"functionCall,omitempty"`
-	FunctionResponse *functionResponse `json:"functionResponse,omitempty"`
+	FunctionCall     *functionCall     `json:"functionCall,omitzero"`
+	FunctionResponse *functionResponse `json:"functionResponse,omitzero"`
 
 	// ExecutableCode and CodeExecutionResult are the hosted code execution
 	// tool: Google reports what it ran and what came back as ordinary parts
 	// rather than as a function call.
-	ExecutableCode      *executableCode      `json:"executableCode,omitempty"`
-	CodeExecutionResult *codeExecutionResult `json:"codeExecutionResult,omitempty"`
+	ExecutableCode      *executableCode      `json:"executableCode,omitzero"`
+	CodeExecutionResult *codeExecutionResult `json:"codeExecutionResult,omitzero"`
 }
 
 // executableCode is code the hosted tool ran.
@@ -93,11 +93,11 @@ type apiTool struct {
 	//
 	// They are pointers because omitempty treats an empty map as absent, which
 	// would silently drop every tool that takes no configuration.
-	GoogleSearch  *hostedToolArgs `json:"googleSearch,omitempty"`
-	CodeExecution *hostedToolArgs `json:"codeExecution,omitempty"`
-	URLContext    *hostedToolArgs `json:"urlContext,omitempty"`
+	GoogleSearch  *hostedToolArgs `json:"googleSearch,omitzero"`
+	CodeExecution *hostedToolArgs `json:"codeExecution,omitzero"`
+	URLContext    *hostedToolArgs `json:"urlContext,omitzero"`
 	// GoogleSearchRetrieval is the pre-Gemini-2 spelling of search grounding.
-	GoogleSearchRetrieval *hostedToolArgs `json:"googleSearchRetrieval,omitempty"`
+	GoogleSearchRetrieval *hostedToolArgs `json:"googleSearchRetrieval,omitzero"`
 }
 
 // hostedToolArgs is a hosted tool's configuration. Nil means the tool was not
@@ -109,12 +109,12 @@ type hostedToolArgs map[string]any
 type functionDeclaration struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	Parameters  any    `json:"parameters,omitempty"`
+	Parameters  any    `json:"parameters,omitzero"`
 }
 
 // toolConfig constrains tool selection.
 type toolConfig struct {
-	FunctionCallingConfig *functionCallingConfig `json:"functionCallingConfig,omitempty"`
+	FunctionCallingConfig *functionCallingConfig `json:"functionCallingConfig,omitzero"`
 }
 
 // functionCallingConfig selects the tool-choice mode. Google spells the modes
@@ -126,21 +126,21 @@ type functionCallingConfig struct {
 
 // generationConfig carries the sampling and output settings.
 type generationConfig struct {
-	MaxOutputTokens *int64   `json:"maxOutputTokens,omitempty"`
-	Temperature     *float64 `json:"temperature,omitempty"`
-	TopP            *float64 `json:"topP,omitempty"`
-	TopK            *int64   `json:"topK,omitempty"`
-	Seed            *int64   `json:"seed,omitempty"`
+	MaxOutputTokens *int64   `json:"maxOutputTokens,omitzero"`
+	Temperature     *float64 `json:"temperature,omitzero"`
+	TopP            *float64 `json:"topP,omitzero"`
+	TopK            *int64   `json:"topK,omitzero"`
+	Seed            *int64   `json:"seed,omitzero"`
 	StopSequences   []string `json:"stopSequences,omitempty"`
 
 	// PresencePenalty and FrequencyPenalty are supported on newer models only.
-	PresencePenalty  *float64 `json:"presencePenalty,omitempty"`
-	FrequencyPenalty *float64 `json:"frequencyPenalty,omitempty"`
+	PresencePenalty  *float64 `json:"presencePenalty,omitzero"`
+	FrequencyPenalty *float64 `json:"frequencyPenalty,omitzero"`
 
 	ResponseMimeType string `json:"responseMimeType,omitempty"`
-	ResponseSchema   any    `json:"responseSchema,omitempty"`
+	ResponseSchema   any    `json:"responseSchema,omitzero"`
 
-	ThinkingConfig *thinkingConfig `json:"thinkingConfig,omitempty"`
+	ThinkingConfig *thinkingConfig `json:"thinkingConfig,omitzero"`
 }
 
 // thinkingConfig controls reasoning.
@@ -149,8 +149,8 @@ type generationConfig struct {
 // ThinkingLevel instead and rejects a budget. IncludeThoughts asks for the
 // reasoning to be returned rather than only billed.
 type thinkingConfig struct {
-	IncludeThoughts bool   `json:"includeThoughts,omitempty"`
-	ThinkingBudget  *int64 `json:"thinkingBudget,omitempty"`
+	IncludeThoughts bool   `json:"includeThoughts,omitzero"`
+	ThinkingBudget  *int64 `json:"thinkingBudget,omitzero"`
 	ThinkingLevel   string `json:"thinkingLevel,omitempty"`
 }
 

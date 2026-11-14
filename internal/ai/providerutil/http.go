@@ -9,12 +9,14 @@ package providerutil
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -59,7 +61,7 @@ func (c *Client) PostJSON(
 	body any,
 	extraHeaders provider.Headers,
 ) (*http.Response, error) {
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(body, jsonopt.Write)
 	if err != nil {
 		return nil, fmt.Errorf("encoding request body: %w", err)
 	}
@@ -153,7 +155,7 @@ func ErrorFromResponse(resp *http.Response, url, requestBody string) error {
 	// Keep the structured payload when there is one: provider error bodies
 	// carry codes and retry hints that the flat message loses.
 	var data any
-	if json.Unmarshal(raw, &data) == nil {
+	if json.Unmarshal(raw, &data, jsonopt.Read) == nil {
 		apiErr.Data = data
 	}
 
@@ -169,11 +171,11 @@ func ErrorFromResponse(resp *http.Response, url, requestBody string) error {
 //	{"message": "..."}              Cohere and others
 func extractErrorMessage(body, status string) string {
 	var envelope struct {
-		Error   json.RawMessage `json:"error"`
-		Message string          `json:"message"`
-		Detail  string          `json:"detail"`
+		Error   jsontext.Value `json:"error"`
+		Message string         `json:"message"`
+		Detail  string         `json:"detail"`
 	}
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
+	if err := json.Unmarshal([]byte(body), &envelope, jsonopt.Read); err != nil {
 		return fallbackMessage(body, status)
 	}
 
@@ -181,11 +183,11 @@ func extractErrorMessage(body, status string) string {
 		var nested struct {
 			Message string `json:"message"`
 		}
-		if json.Unmarshal(envelope.Error, &nested) == nil && nested.Message != "" {
+		if json.Unmarshal(envelope.Error, &nested, jsonopt.Read) == nil && nested.Message != "" {
 			return nested.Message
 		}
 		var plain string
-		if json.Unmarshal(envelope.Error, &plain) == nil && plain != "" {
+		if json.Unmarshal(envelope.Error, &plain, jsonopt.Read) == nil && plain != "" {
 			return plain
 		}
 	}
@@ -216,7 +218,7 @@ func DecodeJSON(resp *http.Response, v any) error {
 	if err != nil {
 		return fmt.Errorf("reading response body: %w", err)
 	}
-	if err := json.Unmarshal(raw, v); err != nil {
+	if err := json.Unmarshal(raw, v, jsonopt.Read); err != nil {
 		return &provider.InvalidResponseError{
 			Message:  "could not decode provider response",
 			Response: string(raw),

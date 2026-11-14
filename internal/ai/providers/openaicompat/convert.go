@@ -2,10 +2,11 @@ package openaicompat
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -301,7 +302,7 @@ func assistantMessage(m provider.AssistantMessage, replay reasoningReplay) (apiM
 			reasoning.WriteString(p.Text)
 
 		case provider.ToolCallPart:
-			args, err := json.Marshal(p.Input)
+			args, err := json.Marshal(p.Input, jsonopt.Write)
 			if err != nil {
 				return apiMessage{}, nil, &provider.InvalidPromptError{
 					Message: fmt.Sprintf("encoding input for tool call %s", p.ToolCallID),
@@ -382,14 +383,14 @@ func toolResultContent(output provider.ToolResultOutput) (string, []provider.War
 		return "Error: " + o.Value, nil
 
 	case provider.ToolOutputJSON:
-		encoded, err := json.Marshal(o.Value)
+		encoded, err := json.Marshal(o.Value, jsonopt.Write)
 		if err != nil {
 			return fmt.Sprintf("Error: could not encode result: %v", err), nil
 		}
 		return string(encoded), nil
 
 	case provider.ToolOutputErrorJSON:
-		encoded, err := json.Marshal(o.Value)
+		encoded, err := json.Marshal(o.Value, jsonopt.Write)
 		if err != nil {
 			return fmt.Sprintf("Error: could not encode error: %v", err), nil
 		}
@@ -524,9 +525,9 @@ func convertUsage(u *apiUsage) provider.Usage {
 		usage.OutputTokens.Text = &text
 	}
 
-	if raw, err := json.Marshal(u); err == nil {
+	if raw, err := json.Marshal(u, jsonopt.Write); err == nil {
 		var obj provider.JSONObject
-		if json.Unmarshal(raw, &obj) == nil {
+		if json.Unmarshal(raw, &obj, jsonopt.Read) == nil {
 			usage.Raw = obj
 		}
 	}

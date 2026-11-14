@@ -2,13 +2,14 @@ package herdr
 
 import (
 	"bufio"
-	"encoding/json"
+	json "encoding/json/v2"
 	"net"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/status"
 )
 
@@ -47,7 +48,7 @@ func newFakeHerdr(t *testing.T) *fakeHerdr {
 					return
 				}
 				var req map[string]any
-				if json.Unmarshal(line, &req) == nil {
+				if json.Unmarshal(line, &req, jsonopt.Read) == nil {
 					f.mu.Lock()
 					f.reqs = append(f.reqs, req)
 					f.mu.Unlock()

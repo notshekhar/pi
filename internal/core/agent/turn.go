@@ -2,13 +2,15 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/session"
@@ -56,7 +58,7 @@ type UserMessageEvent struct {
 	ID   string          `json:"id"`
 	Text string          `json:"text"`
 	TS   int64           `json:"ts"`
-	Team *teams.TurnMeta `json:"team,omitempty"`
+	Team *teams.TurnMeta `json:"team,omitzero"`
 }
 
 // ToolInputStartEvent is a tool call beginning to stream its input.
@@ -74,14 +76,14 @@ type ToolInputDeltaEvent struct {
 // ToolCallEvent is a complete tool call.
 type ToolCallEvent struct {
 	ToolName   string `json:"toolName,omitempty"`
-	Input      any    `json:"input,omitempty"`
+	Input      any    `json:"input,omitzero"`
 	ToolCallID string `json:"toolCallId,omitempty"`
 }
 
 // ToolResultEvent is a tool's result.
 type ToolResultEvent struct {
 	ToolCallID string `json:"toolCallId,omitempty"`
-	Output     any    `json:"output,omitempty"`
+	Output     any    `json:"output,omitzero"`
 }
 
 // ToolErrorEvent is a tool that threw.
@@ -99,8 +101,8 @@ type StepUsageEvent struct {
 
 // FinishEvent ends a turn.
 type FinishEvent struct {
-	Usage         *session.Usage `json:"usage,omitempty"`
-	LastStepUsage *session.Usage `json:"lastStepUsage,omitempty"`
+	Usage         *session.Usage `json:"usage,omitzero"`
+	LastStepUsage *session.Usage `json:"lastStepUsage,omitzero"`
 }
 
 // CompactStartEvent / CompactEndEvent bracket a compaction.
@@ -122,8 +124,8 @@ type CompactEndEvent struct {
 	Summary      string `json:"summary"`
 	CutAt        int    `json:"cutAt"`
 	TokensBefore int    `json:"tokensBefore"`
-	TokensAfter  int    `json:"tokensAfter,omitempty"`
-	Aborted      bool   `json:"aborted,omitempty"`
+	TokensAfter  int    `json:"tokensAfter,omitzero"`
+	Aborted      bool   `json:"aborted,omitzero"`
 	Error        string `json:"error,omitempty"`
 	Handoff      string `json:"handoff,omitempty"`
 	Mode         string `json:"mode,omitempty"`
@@ -160,7 +162,7 @@ func decodeInput(raw string) any {
 		return map[string]any{}
 	}
 	var v any
-	if json.Unmarshal([]byte(raw), &v) != nil {
+	if json.Unmarshal([]byte(raw), &v, jsonopt.Read) != nil {
 		return raw
 	}
 	return v
@@ -557,7 +559,7 @@ func firstErr(errs ...error) error {
 }
 
 // tailContent is an unfinished step's partial output as AI SDK parts.
-func tailContent(text, reasoning string) json.RawMessage {
+func tailContent(text, reasoning string) jsontext.Value {
 	var parts []map[string]string
 	if strings.TrimSpace(reasoning) != "" {
 		parts = append(parts, map[string]string{"type": "reasoning", "text": reasoning})
@@ -566,9 +568,9 @@ func tailContent(text, reasoning string) json.RawMessage {
 		parts = append(parts, map[string]string{"type": "text", "text": text})
 	}
 	if len(parts) == 0 {
-		return json.RawMessage(`""`)
+		return jsontext.Value(`""`)
 	}
-	raw, _ := json.Marshal(parts)
+	raw, _ := json.Marshal(parts, jsonopt.Write)
 	return raw
 }
 
@@ -592,7 +594,7 @@ func (r *Run) persistStep(step ai.Step, usage *session.Usage, modelID string, ro
 	if billed < 0 && usage != nil {
 		// A step with no assistant message still billed real tokens.
 		batch = append([]session.Entry{{Type: session.TypeMessage, TS: time.Now().UnixMilli(), Role: "assistant",
-			Content: json.RawMessage(`[]`), Usage: usage, Model: modelID}}, batch...)
+			Content: jsontext.Value(`[]`), Usage: usage, Model: modelID}}, batch...)
 		billed = 0
 	}
 	if len(batch) == 0 {
@@ -658,7 +660,7 @@ func (r *Run) persistTodos(emit Emitter) {
 		return
 	}
 	items := r.Tools.Todos.Items()
-	payload, _ := json.Marshal(map[string]any{"kind": "todos", "items": items})
+	payload, _ := json.Marshal(map[string]any{"kind": "todos", "items": items}, jsonopt.Write)
 	r.Session.Lock()
 	_ = r.Session.AppendAll(session.Entry{Type: session.TypeCustom, TS: time.Now().UnixMilli(), Payload: payload})
 	r.Session.Unlock()

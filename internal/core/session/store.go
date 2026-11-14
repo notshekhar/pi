@@ -2,12 +2,13 @@ package session
 
 import (
 	"database/sql"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/db"
 )
 
@@ -297,7 +298,7 @@ func loadEntries(rowID int64) ([]Entry, int, error) {
 		}
 		seen++
 		var e Entry
-		if json.Unmarshal([]byte(payload), &e) == nil && e.Type != "" {
+		if json.Unmarshal([]byte(payload), &e, jsonopt.Read) == nil && e.Type != "" {
 			out = append(out, e)
 		}
 	}
@@ -390,7 +391,7 @@ func nullable[T comparable](p *T) any {
 }
 
 func insertEntry(tx *sql.Tx, rowID int64, e Entry) error {
-	payload, err := json.Marshal(e)
+	payload, err := json.Marshal(e, jsonopt.Write)
 	if err != nil {
 		return err
 	}

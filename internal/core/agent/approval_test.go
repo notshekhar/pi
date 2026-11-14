@@ -2,17 +2,19 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"strings"
 	"testing"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/permissions"
 )
 
 func call(tool string, args map[string]any) ai.ToolCall {
-	raw, _ := json.Marshal(args)
+	raw, _ := json.Marshal(args, jsonopt.Write)
 	return ai.ToolCall{ToolCallID: "c1", ToolName: tool, Input: raw}
 }
 
@@ -166,7 +168,7 @@ func TestUnparseableArgumentsDoNotBypassPolicy(t *testing.T) {
 	r := run(t, policy, nil)
 	needs, _ := r.approvalHooks()
 
-	broken := ai.ToolCall{ToolCallID: "c1", ToolName: "bash", Input: json.RawMessage("{not json")}
+	broken := ai.ToolCall{ToolCallID: "c1", ToolName: "bash", Input: jsontext.Value("{not json")}
 	ok, err := needs(context.Background(), broken)
 	if err != nil {
 		t.Fatal(err)

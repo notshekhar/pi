@@ -7,13 +7,14 @@ package projects
 
 import (
 	"database/sql"
-	"encoding/json"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/db"
 	"github.com/notshekhar/pi/internal/core/home"
 )
@@ -189,7 +190,7 @@ func providerModels(cwd string) map[string]string {
 	}
 	var raw sql.NullString
 	_ = h.QueryRow("SELECT provider_models FROM projects WHERE dir = ?", cwd).Scan(&raw)
-	_ = json.Unmarshal([]byte(raw.String), &out)
+	_ = json.Unmarshal([]byte(raw.String), &out, jsonopt.Read)
 	return out
 }
 
@@ -204,7 +205,7 @@ func SetModel(cwd, modelID string) error {
 	}
 	pm := providerModels(cwd)
 	pm[prov] = modelID
-	raw, _ := json.Marshal(pm)
+	raw, _ := json.Marshal(pm, jsonopt.Write)
 	h, err := db.Open()
 	if err != nil {
 		return err
@@ -227,7 +228,7 @@ func BashAllow(cwd string) []string {
 	var raw sql.NullString
 	_ = h.QueryRow("SELECT bash_allow FROM projects WHERE dir = ?", cwd).Scan(&raw)
 	var list []string
-	_ = json.Unmarshal([]byte(raw.String), &list)
+	_ = json.Unmarshal([]byte(raw.String), &list, jsonopt.Read)
 	out := list[:0]
 	for _, p := range list {
 		if p != "" {
@@ -242,7 +243,7 @@ func SetBashAllow(cwd string, patterns []string) error {
 	if err := upsert(cwd, nil, ""); err != nil {
 		return err
 	}
-	raw, _ := json.Marshal(patterns)
+	raw, _ := json.Marshal(patterns, jsonopt.Write)
 	h, err := db.Open()
 	if err != nil {
 		return err

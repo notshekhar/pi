@@ -1,6 +1,8 @@
 package bedrock
 
-import "encoding/json"
+import (
+	"encoding/json/jsontext"
+)
 
 // Bedrock's Converse API, which is the vendor-neutral shape: the same request
 // body drives Claude, Llama, Mistral and Nova, with per-model settings tucked
@@ -12,8 +14,8 @@ type converseRequest struct {
 	Messages []apiMessage  `json:"messages"`
 	System   []systemBlock `json:"system,omitempty"`
 
-	InferenceConfig *inferenceConfig `json:"inferenceConfig,omitempty"`
-	ToolConfig      *toolConfig      `json:"toolConfig,omitempty"`
+	InferenceConfig *inferenceConfig `json:"inferenceConfig,omitzero"`
+	ToolConfig      *toolConfig      `json:"toolConfig,omitzero"`
 
 	// AdditionalModelRequestFields carries settings Converse has no field for,
 	// which is where Anthropic's thinking configuration goes.
@@ -24,7 +26,7 @@ type converseRequest struct {
 	AdditionalModelResponseFieldPaths []string `json:"additionalModelResponseFieldPaths,omitempty"`
 
 	// ServiceTier selects a reserved-capacity or default serving tier.
-	ServiceTier *serviceTier `json:"serviceTier,omitempty"`
+	ServiceTier *serviceTier `json:"serviceTier,omitzero"`
 }
 
 // serviceTier names a Bedrock serving tier.
@@ -36,7 +38,7 @@ type serviceTier struct {
 type systemBlock struct {
 	Text string `json:"text,omitempty"`
 	// CachePoint marks everything before it as cacheable.
-	CachePoint *cachePoint `json:"cachePoint,omitempty"`
+	CachePoint *cachePoint `json:"cachePoint,omitzero"`
 }
 
 // cachePoint enables prompt caching up to this point.
@@ -55,18 +57,18 @@ type apiMessage struct {
 type apiBlock struct {
 	Text string `json:"text,omitempty"`
 
-	Image    *imageBlock    `json:"image,omitempty"`
-	Document *documentBlock `json:"document,omitempty"`
-	Video    *videoBlock    `json:"video,omitempty"`
+	Image    *imageBlock    `json:"image,omitzero"`
+	Document *documentBlock `json:"document,omitzero"`
+	Video    *videoBlock    `json:"video,omitzero"`
 
-	ToolUse    *toolUseBlock    `json:"toolUse,omitempty"`
-	ToolResult *toolResultBlock `json:"toolResult,omitempty"`
+	ToolUse    *toolUseBlock    `json:"toolUse,omitzero"`
+	ToolResult *toolResultBlock `json:"toolResult,omitzero"`
 
 	// ReasoningContent carries extended thinking, including the signature that
 	// has to survive a round trip.
-	ReasoningContent *reasoningBlock `json:"reasoningContent,omitempty"`
+	ReasoningContent *reasoningBlock `json:"reasoningContent,omitzero"`
 
-	CachePoint *cachePoint `json:"cachePoint,omitempty"`
+	CachePoint *cachePoint `json:"cachePoint,omitzero"`
 }
 
 // imageBlock is an inline image.
@@ -79,7 +81,7 @@ type imageBlock struct {
 // imageSource carries inline bytes or an S3 URI. Exactly one field is set.
 type imageSource struct {
 	Bytes      []byte      `json:"bytes,omitempty"`
-	S3Location *s3Location `json:"s3Location,omitempty"`
+	S3Location *s3Location `json:"s3Location,omitzero"`
 }
 
 // s3Location points at an object Bedrock fetches itself.
@@ -119,14 +121,14 @@ type toolResultBlock struct {
 // toolResultPart is one part of a tool result.
 type toolResultPart struct {
 	Text string `json:"text,omitempty"`
-	JSON any    `json:"json,omitempty"`
+	JSON any    `json:"json,omitzero"`
 	// Image lets a tool return a screenshot.
-	Image *imageBlock `json:"image,omitempty"`
+	Image *imageBlock `json:"image,omitzero"`
 }
 
 // reasoningBlock carries extended thinking.
 type reasoningBlock struct {
-	ReasoningText *reasoningText `json:"reasoningText,omitempty"`
+	ReasoningText *reasoningText `json:"reasoningText,omitzero"`
 	// RedactedContent is thinking the provider encrypted.
 	RedactedContent []byte `json:"redactedContent,omitempty"`
 }
@@ -139,23 +141,23 @@ type reasoningText struct {
 
 // inferenceConfig holds the sampling settings Converse understands.
 type inferenceConfig struct {
-	MaxTokens     *int64   `json:"maxTokens,omitempty"`
-	Temperature   *float64 `json:"temperature,omitempty"`
-	TopP          *float64 `json:"topP,omitempty"`
-	TopK          *int64   `json:"topK,omitempty"`
+	MaxTokens     *int64   `json:"maxTokens,omitzero"`
+	Temperature   *float64 `json:"temperature,omitzero"`
+	TopP          *float64 `json:"topP,omitzero"`
+	TopK          *int64   `json:"topK,omitzero"`
 	StopSequences []string `json:"stopSequences,omitempty"`
 }
 
 // toolConfig declares the tools and how the model may choose among them.
 type toolConfig struct {
 	Tools      []toolEntry     `json:"tools"`
-	ToolChoice *toolChoiceSpec `json:"toolChoice,omitempty"`
+	ToolChoice *toolChoiceSpec `json:"toolChoice,omitzero"`
 }
 
 // toolEntry is one tool declaration.
 type toolEntry struct {
-	ToolSpec   *toolSpec   `json:"toolSpec,omitempty"`
-	CachePoint *cachePoint `json:"cachePoint,omitempty"`
+	ToolSpec   *toolSpec   `json:"toolSpec,omitzero"`
+	CachePoint *cachePoint `json:"cachePoint,omitzero"`
 }
 
 // toolSpec describes a client-executed tool.
@@ -172,9 +174,9 @@ type toolSchema struct {
 
 // toolChoiceSpec constrains tool selection. Exactly one field is set.
 type toolChoiceSpec struct {
-	Auto *struct{}     `json:"auto,omitempty"`
-	Any  *struct{}     `json:"any,omitempty"`
-	Tool *namedToolRef `json:"tool,omitempty"`
+	Auto *struct{}     `json:"auto,omitzero"`
+	Any  *struct{}     `json:"any,omitzero"`
+	Tool *namedToolRef `json:"tool,omitzero"`
 }
 
 // namedToolRef forces one tool.
@@ -193,7 +195,7 @@ type converseResponse struct {
 	Metrics    *apiMetrics `json:"metrics"`
 
 	// AdditionalModelResponseFields carries per-model extras.
-	AdditionalModelResponseFields json.RawMessage `json:"additionalModelResponseFields"`
+	AdditionalModelResponseFields jsontext.Value `json:"additionalModelResponseFields"`
 }
 
 // apiUsage reports token counts.

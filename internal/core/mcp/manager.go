@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"math"
@@ -229,7 +229,7 @@ func (m *Manager) dial(ctx context.Context, cfg ServerConfig, gen int) (*Client,
 	ctx, cancel := context.WithTimeout(ctx, connectTimeout())
 	defer cancel()
 	client, err := Connect(ctx, cfg, cwd, ConnectOptions{
-		OnNotification: func(method string, _ json.RawMessage) { m.handleNotification(cfg.Name, gen, method) },
+		OnNotification: func(method string, _ jsontext.Value) { m.handleNotification(cfg.Name, gen, method) },
 		OnClose:        func(err error) { m.markDisconnected(cfg.Name, gen, err) },
 	})
 	var defs []ToolDef

@@ -18,7 +18,7 @@ const defaultFindLimit = 1000
 type findArgs struct {
 	Pattern string `json:"pattern"`
 	Path    string `json:"path,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
+	Limit   int    `json:"limit,omitzero"`
 }
 
 // Find returns the find tool: files by glob pattern.

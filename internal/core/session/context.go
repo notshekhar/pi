@@ -1,10 +1,12 @@
 package session
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -59,12 +61,12 @@ type contextEntry struct {
 	subagent      bool
 	agent, result string
 	role          string
-	content       json.RawMessage
+	content       jsontext.Value
 	interrupted   bool
 }
 
-func stringContent(s string) json.RawMessage {
-	raw, _ := json.Marshal(s)
+func stringContent(s string) jsontext.Value {
+	raw, _ := json.Marshal(s, jsonopt.Write)
 	return raw
 }
 
@@ -80,12 +82,12 @@ func latestCompact(branch []Entry) *Entry {
 	return latest
 }
 
-func todosOf(payload json.RawMessage) ([]TodoItem, bool) {
+func todosOf(payload jsontext.Value) ([]TodoItem, bool) {
 	var p struct {
 		Kind  string     `json:"kind"`
 		Items []TodoItem `json:"items"`
 	}
-	if json.Unmarshal(payload, &p) != nil || p.Kind != todosKind || p.Items == nil {
+	if json.Unmarshal(payload, &p, jsonopt.Read) != nil || p.Kind != todosKind || p.Items == nil {
 		return nil, false
 	}
 	return p.Items, true
@@ -164,7 +166,7 @@ func (s *Session) compactedContext() []contextEntry {
 // toModelMessages.
 func (s *Session) ModelMessages() []provider.Message {
 	var out []provider.Message
-	push := func(role string, content json.RawMessage) {
+	push := func(role string, content jsontext.Value) {
 		if m, ok := DecodeContent(role, content); ok {
 			out = append(out, m)
 		}
@@ -180,7 +182,7 @@ func (s *Session) ModelMessages() []provider.Message {
 			continue
 		}
 		var str string
-		if json.Unmarshal(m.content, &str) == nil {
+		if json.Unmarshal(m.content, &str, jsonopt.Read) == nil {
 			// Anthropic rejects empty text blocks: an empty string turn is
 			// dropped unless it was interrupted, when it becomes the note.
 			if strings.TrimSpace(str) == "" {
@@ -195,17 +197,17 @@ func (s *Session) ModelMessages() []provider.Message {
 			push(m.role, stringContent(str))
 			continue
 		}
-		var parts []json.RawMessage
-		if json.Unmarshal(m.content, &parts) == nil && len(parts) > 0 {
+		var parts []jsontext.Value
+		if json.Unmarshal(m.content, &parts, jsonopt.Read) == nil && len(parts) > 0 {
 			// A native agent's tool calls already ran inside it; no other
 			// model can answer them, so they travel as text.
 			if hasNativeAgentParts(parts) {
 				parts = flattenNativeAgentParts(parts)
 			}
 			if m.interrupted {
-				parts = append(parts, json.RawMessage(mustJSON(map[string]string{"type": "text", "text": interruptNote})))
+				parts = append(parts, jsontext.Value(mustJSON(map[string]string{"type": "text", "text": interruptNote})))
 			}
-			push(m.role, json.RawMessage(mustJSON(parts)))
+			push(m.role, jsontext.Value(mustJSON(parts)))
 		} else if m.interrupted {
 			push("assistant", stringContent(interruptNote))
 		}
@@ -214,16 +216,16 @@ func (s *Session) ModelMessages() []provider.Message {
 }
 
 func mustJSON(v any) string {
-	raw, _ := json.Marshal(v)
+	raw, _ := json.Marshal(v, jsonopt.Write)
 	return string(raw)
 }
 
 type nativePart struct {
-	Type            string                     `json:"type"`
-	ToolName        string                     `json:"toolName"`
-	Input           json.RawMessage            `json:"input"`
-	Output          json.RawMessage            `json:"output"`
-	ProviderOptions map[string]json.RawMessage `json:"providerOptions"`
+	Type            string                    `json:"type"`
+	ToolName        string                    `json:"toolName"`
+	Input           jsontext.Value            `json:"input"`
+	Output          jsontext.Value            `json:"output"`
+	ProviderOptions map[string]jsontext.Value `json:"providerOptions"`
 }
 
 func nativeProvider(p nativePart) string {
@@ -234,14 +236,14 @@ func nativeProvider(p nativePart) string {
 	var tag struct {
 		Provider string `json:"provider"`
 	}
-	_ = json.Unmarshal(raw, &tag)
+	_ = json.Unmarshal(raw, &tag, jsonopt.Read)
 	return tag.Provider
 }
 
-func hasNativeAgentParts(parts []json.RawMessage) bool {
+func hasNativeAgentParts(parts []jsontext.Value) bool {
 	for _, raw := range parts {
 		var p nativePart
-		if json.Unmarshal(raw, &p) == nil && nativeProvider(p) != "" {
+		if json.Unmarshal(raw, &p, jsonopt.Read) == nil && nativeProvider(p) != "" {
 			return true
 		}
 	}
@@ -249,19 +251,19 @@ func hasNativeAgentParts(parts []json.RawMessage) bool {
 }
 
 // stringifyJSON is loop's stringify: a string as-is, anything else as JSON.
-func stringifyJSON(raw json.RawMessage) string {
+func stringifyJSON(raw jsontext.Value) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return s
 	}
 	return string(raw)
 }
 
-func flattenNativeAgentParts(parts []json.RawMessage) []json.RawMessage {
-	var out []json.RawMessage
+func flattenNativeAgentParts(parts []jsontext.Value) []jsontext.Value {
+	var out []jsontext.Value
 	for _, raw := range parts {
 		var p nativePart
-		if json.Unmarshal(raw, &p) != nil {
+		if json.Unmarshal(raw, &p, jsonopt.Read) != nil {
 			out = append(out, raw)
 			continue
 		}
@@ -277,13 +279,13 @@ func flattenNativeAgentParts(parts []json.RawMessage) []json.RawMessage {
 		switch p.Type {
 		case "tool-call":
 			text := "[" + label + " ran " + p.ToolName + ": " + stringifyJSON(p.Input) + "]"
-			out = append(out, json.RawMessage(mustJSON(map[string]string{"type": "text", "text": text})))
+			out = append(out, jsontext.Value(mustJSON(map[string]string{"type": "text", "text": text})))
 		case "tool-result":
 			var o struct {
-				Value json.RawMessage `json:"value"`
+				Value jsontext.Value `json:"value"`
 			}
 			value := p.Output
-			if json.Unmarshal(p.Output, &o) == nil && len(o.Value) > 0 {
+			if json.Unmarshal(p.Output, &o, jsonopt.Read) == nil && len(o.Value) > 0 {
 				value = o.Value
 			}
 			result := stringifyJSON(value)
@@ -291,7 +293,7 @@ func flattenNativeAgentParts(parts []json.RawMessage) []json.RawMessage {
 				result = result[:nativeResultMax] + "…"
 			}
 			text := "[" + p.ToolName + " result]\n" + result
-			out = append(out, json.RawMessage(mustJSON(map[string]string{"type": "text", "text": text})))
+			out = append(out, jsontext.Value(mustJSON(map[string]string{"type": "text", "text": text})))
 		}
 	}
 	return out
@@ -327,13 +329,13 @@ type FileLists struct {
 func (e Entry) CompactDetails() FileLists {
 	var f FileLists
 	if raw, ok := e.Extra["details"]; ok {
-		_ = json.Unmarshal(raw, &f)
+		_ = json.Unmarshal(raw, &f, jsonopt.Read)
 	}
 	return f
 }
 
 // TodosOf is the checklist a todo custom entry's payload carries.
-func TodosOf(payload json.RawMessage) ([]TodoItem, bool) { return todosOf(payload) }
+func TodosOf(payload jsontext.Value) ([]TodoItem, bool) { return todosOf(payload) }
 
 // HasActiveTodos reports whether any item is still pending or in progress.
 func HasActiveTodos(items []TodoItem) bool { return hasActiveTodos(items) }

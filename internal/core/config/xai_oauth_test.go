@@ -2,12 +2,14 @@ package config
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 func authHome(t *testing.T) string {
@@ -72,7 +74,7 @@ func TestCredentialsRoundTripThroughTheSharedFile(t *testing.T) {
 			Provider string `json:"provider"`
 		} `json:"providers"`
 	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if err := json.Unmarshal(raw, &doc, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if doc.Providers["xai"].Mode != "oauth" || doc.Providers["xai"].Provider != "xai" {

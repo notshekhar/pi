@@ -1,9 +1,10 @@
 package agent
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"slices"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/skills"
 )
@@ -86,7 +87,7 @@ func BuildContextReport(r *Run, window int) ContextReport {
 	// session full of small tool calls is mostly envelope.
 	messageChars := 0
 	for _, msg := range r.Session.Messages {
-		if encoded, err := json.Marshal(msg); err == nil {
+		if encoded, err := json.Marshal(msg, jsonopt.Write); err == nil {
 			messageChars += len(encoded)
 		}
 	}

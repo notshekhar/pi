@@ -27,8 +27,8 @@ const exitStdioGrace = 100 * time.Millisecond
 
 type bashArgs struct {
 	Command         string  `json:"command"`
-	Timeout         float64 `json:"timeout,omitempty"`
-	RunInBackground bool    `json:"run_in_background,omitempty"`
+	Timeout         float64 `json:"timeout,omitzero"`
+	RunInBackground bool    `json:"run_in_background,omitzero"`
 }
 
 func resolveBashTimeout(seconds float64) time.Duration {

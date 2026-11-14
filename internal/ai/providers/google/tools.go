@@ -3,8 +3,9 @@ package google
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	json "encoding/json/v2"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -64,7 +65,7 @@ func hostedCodeCall(code executableCode) provider.ToolCall {
 	input, err := json.Marshal(map[string]string{
 		"language": code.Language,
 		"code":     code.Code,
-	})
+	}, jsonopt.Write)
 	if err != nil {
 		input = []byte("{}")
 	}

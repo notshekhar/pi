@@ -2,12 +2,13 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/session"
 	"github.com/notshekhar/pi/internal/core/tools"
 )
@@ -34,8 +35,8 @@ func taskStep(id string, input map[string]string) string { return toolCallStep("
 
 // toolCallStep is a scripted Anthropic step calling one tool.
 func toolCallStep(name, id string, input any) string {
-	raw, _ := json.Marshal(input)
-	quoted, _ := json.Marshal(string(raw))
+	raw, _ := json.Marshal(input, jsonopt.Write)
+	quoted, _ := json.Marshal(string(raw), jsonopt.Write)
 	return fmt.Sprintf(`event: message_start
 data: {"type":"message_start","message":{"id":"m1","type":"message","role":"assistant","model":"claude-x","content":[],"usage":{"input_tokens":10,"output_tokens":1}}}
 
@@ -58,7 +59,7 @@ data: {"type":"message_stop"}
 }
 
 func systemText(body map[string]any) string {
-	raw, _ := json.Marshal(body["system"])
+	raw, _ := json.Marshal(body["system"], jsonopt.Write)
 	return string(raw)
 }
 

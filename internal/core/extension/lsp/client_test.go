@@ -3,7 +3,8 @@ package lsp
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // The tests drive a REAL server process over a real pipe — the test binary
@@ -133,7 +136,7 @@ func TestConcurrentRequestsDoNotCross(t *testing.T) {
 			var out struct {
 				Value int `json:"value"`
 			}
-			_ = json.Unmarshal(raw, &out)
+			_ = json.Unmarshal(raw, &out, jsonopt.Read)
 			results[i] = fmt.Sprintf("%d", out.Value)
 			done <- i
 		}(i)
@@ -185,7 +188,7 @@ func runFixture(mode string) {
 	// corrupt stream — which looks exactly like a client bug.
 	var writeMu sync.Mutex
 	write := func(v any) {
-		body, _ := json.Marshal(v)
+		body, _ := json.Marshal(v, jsonopt.Write)
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n", len(body))
@@ -216,11 +219,11 @@ func runFixture(mode string) {
 			return
 		}
 		var msg struct {
-			ID     *json.RawMessage `json:"id"`
-			Method string           `json:"method"`
-			Params json.RawMessage  `json:"params"`
+			ID     *jsontext.Value `json:"id"`
+			Method string          `json:"method"`
+			Params jsontext.Value  `json:"params"`
 		}
-		if err := json.Unmarshal(body, &msg); err != nil {
+		if err := json.Unmarshal(body, &msg, jsonopt.Read); err != nil {
 			continue
 		}
 
@@ -246,7 +249,7 @@ func runFixture(mode string) {
 					URI string `json:"uri"`
 				} `json:"textDocument"`
 			}
-			_ = json.Unmarshal(msg.Params, &params)
+			_ = json.Unmarshal(msg.Params, &params, jsonopt.Read)
 			uri := params.TextDocument.URI
 			go func() {
 				time.Sleep(100 * time.Millisecond)
@@ -278,11 +281,11 @@ func runFixture(mode string) {
 			var params struct {
 				Value int `json:"value"`
 			}
-			_ = json.Unmarshal(msg.Params, &params)
+			_ = json.Unmarshal(msg.Params, &params, jsonopt.Read)
 			// Answered out of order on purpose: a client that assumed
 			// responses arrive in request order would pass every other test
 			// and fail this one.
-			go func(id *json.RawMessage, value int) {
+			go func(id *jsontext.Value, value int) {
 				time.Sleep(time.Duration(value%5) * 10 * time.Millisecond)
 				write(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"value": value}})
 			}(msg.ID, params.Value)

@@ -1,10 +1,12 @@
 package catalog
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"os"
 	"sort"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/home"
 	"github.com/notshekhar/pi/internal/core/jsonstore"
 )
@@ -15,20 +17,20 @@ import (
 
 func overridesPath() string { return home.Path("models.json") }
 
-func readOverrides() map[string]json.RawMessage {
-	out := map[string]json.RawMessage{}
+func readOverrides() map[string]jsontext.Value {
+	out := map[string]jsontext.Value{}
 	data, err := os.ReadFile(overridesPath())
 	if err != nil {
 		return out
 	}
-	_ = json.Unmarshal(data, &out)
+	_ = json.Unmarshal(data, &out, jsonopt.Read)
 	return out
 }
 
-func writeOverrides(o map[string]json.RawMessage) error {
+func writeOverrides(o map[string]jsontext.Value) error {
 	// loop: JSON.stringify(overrides, null, 2) + "\n". Go sorts map keys;
 	// loop keeps insertion order — harmless for an object keyed by id.
-	data, err := json.MarshalIndent(o, "", "  ")
+	data, err := json.Marshal(o, jsonopt.Write, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}
@@ -81,7 +83,7 @@ func AddCustomModel(in CustomModelInput) (string, error) {
 		"contextWindow": ctx, "maxOutput": maxOut,
 		"cost":      map[string]float64{"input": in.InputCost, "output": in.OutputCost, "cacheRead": 0, "cacheWrite": 0},
 		"reasoning": false, "modalities": []string{"text"}, "available": true,
-	})
+	}, jsonopt.Write)
 	o := readOverrides()
 	o[id] = raw
 	defer Bust()

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +12,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // The UI serve hosts: the desktop app's own React app (loop apps/web), whose
@@ -65,7 +67,7 @@ func unpackWebApp(packed []byte) (packApp, error) {
 		Offset int    `json:"offset"`
 		Length int    `json:"length"`
 	}
-	if err := json.Unmarshal(raw[4:4+n], &header); err != nil {
+	if err := json.Unmarshal(raw[4:4+n], &header, jsonopt.Read); err != nil {
 		return nil, err
 	}
 	body := raw[4+n:]

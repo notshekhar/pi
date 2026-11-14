@@ -1,10 +1,12 @@
 package tui
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // TestThemeParityWithLoop compares every slot and every escape against
@@ -20,7 +22,7 @@ func TestThemeParityWithLoop(t *testing.T) {
 		Fg   map[string]map[string]any    `json:"fg"`
 		Bg   map[string]map[string]string `json:"bg"`
 	}
-	if err := json.Unmarshal(raw, &fixture); err != nil {
+	if err := json.Unmarshal(raw, &fixture, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	build := func(key string) ThemeJSON {

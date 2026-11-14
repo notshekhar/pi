@@ -2,13 +2,14 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providers/openairesponses"
 	"github.com/notshekhar/pi/internal/core/session"
@@ -52,11 +53,11 @@ func TestSummaryMessagesFilterTheSpan(t *testing.T) {
 	if len(msgs) != 3 {
 		t.Fatalf("messages = %d", len(msgs))
 	}
-	all, _ := json.Marshal(msgs[1].parts)
+	all, _ := json.Marshal(msgs[1].parts, jsonopt.Write)
 	if strings.Contains(string(all), "SECRET") {
 		t.Error("reasoning reached the summarizer")
 	}
-	res, _ := json.Marshal(msgs[2].parts)
+	res, _ := json.Marshal(msgs[2].parts, jsonopt.Write)
 	if !strings.Contains(string(res), "more characters truncated") || strings.Contains(string(res), "TAIL") {
 		t.Errorf("tool result not capped: %.200s", res)
 	}
@@ -116,7 +117,7 @@ func TestCompactionSendsRealMessages(t *testing.T) {
 		t.Fatal("no summary request")
 	}
 	body := bodies[0]
-	raw, _ := json.Marshal(body["messages"])
+	raw, _ := json.Marshal(body["messages"], jsonopt.Write)
 	for _, want := range []string{`"type":"tool_use"`, `"type":"tool_result"`, "request a ", "The conversation to summarize follows."} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("summary messages lack %s", want)
@@ -132,7 +133,7 @@ func TestCompactionSendsRealMessages(t *testing.T) {
 		t.Errorf("tools = %v", body["tools"])
 	}
 	msgs, _ := body["messages"].([]any)
-	last, _ := json.Marshal(msgs[len(msgs)-1])
+	last, _ := json.Marshal(msgs[len(msgs)-1], jsonopt.Write)
 	if !strings.Contains(string(last), "## Critical Context") {
 		t.Errorf("the instructions are not last: %.200s", last)
 	}
@@ -185,7 +186,7 @@ func TestSummaryMessagesDropStoredProviderIDs(t *testing.T) {
 			all = append(all, m.parts)
 		}
 		return all
-	}())
+	}(), jsonopt.Write)
 	if strings.Contains(string(raw), "providerOptions") || strings.Contains(string(raw), "msg_1") {
 		t.Errorf("stored provider metadata reached the summarizer: %s", raw)
 	}

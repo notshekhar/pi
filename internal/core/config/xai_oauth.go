@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,6 +13,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // Signing in to xAI with a SuperGrok subscription, rather than with an API
@@ -155,7 +157,7 @@ func xaiDiscover(ctx context.Context) (xaiEndpoints, error) {
 		return xaiEndpoints{}, fmt.Errorf("xai: discovery returned %d", resp.StatusCode)
 	}
 	var e xaiEndpoints
-	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &e, jsonopt.Read); err != nil {
 		return xaiEndpoints{}, fmt.Errorf("xai: discovery is not readable: %w", err)
 	}
 	if err := validateXaiEndpoint(e.Authorization, "authorization_endpoint"); err != nil {
@@ -353,7 +355,7 @@ func postForm(ctx context.Context, endpoint string, form url.Values) (map[string
 	}
 	defer resp.Body.Close()
 	var payload map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &payload, jsonopt.Read); err != nil {
 		return nil, fmt.Errorf("status %d, and the body is not readable", resp.StatusCode)
 	}
 	if resp.StatusCode != http.StatusOK {

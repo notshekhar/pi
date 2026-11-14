@@ -2,13 +2,15 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/agents"
 	"github.com/notshekhar/pi/internal/core/config"
@@ -54,7 +56,7 @@ type taskArgs struct {
 type SubagentStats struct {
 	Steps      int      `json:"steps"`
 	DurationMs int64    `json:"durationMs"`
-	USD        *float64 `json:"usd,omitempty"`
+	USD        *float64 `json:"usd,omitzero"`
 	Model      string   `json:"model"`
 }
 
@@ -63,7 +65,7 @@ type SubagentStats struct {
 type SubagentOutput struct {
 	History Activity       `json:"history"`
 	Report  string         `json:"report"`
-	Stats   *SubagentStats `json:"stats,omitempty"`
+	Stats   *SubagentStats `json:"stats,omitzero"`
 }
 
 // TaskTool returns the task tool for a parent run. parentTools caps what a
@@ -83,16 +85,16 @@ func TaskTool(parent *Run, progress TaskProgress, parentTools []string) ai.Tool 
 func taskDef() tools.Def {
 	def := tools.LoopDef("task")
 	var schema map[string]any
-	raw, _ := json.Marshal(def.Schema)
-	if json.Unmarshal(raw, &schema) != nil {
+	raw, _ := json.Marshal(def.Schema, jsonopt.Write)
+	if json.Unmarshal(raw, &schema, jsonopt.Read) != nil {
 		return def
 	}
 	props, _ := schema["properties"].(map[string]any)
 	if agent, ok := props["agent"].(map[string]any); ok {
 		agent["description"] = "Optional named agent to run instead of a fork of yourself (its prompt applies; its tools are capped to yours). One of: " + strings.Join(agentNames(), ", ")
 	}
-	patched, _ := json.Marshal(schema)
-	_ = json.Unmarshal(patched, &def.Schema)
+	patched, _ := json.Marshal(schema, jsonopt.Write)
+	_ = json.Unmarshal(patched, &def.Schema, jsonopt.Read)
 	return def
 }
 
@@ -389,9 +391,9 @@ func (s *subagentRun) save(prompt, report string, b subagentBilling, stats *Suba
 	if s.followUpOf != "" {
 		extra["followUpOf"] = s.followUpOf
 	}
-	entry := session.Entry{Type: session.TypeSubagent, Agent: s.name, Prompt: prompt, Result: result, Model: stats.Model, Extra: map[string]json.RawMessage{}}
+	entry := session.Entry{Type: session.TypeSubagent, Agent: s.name, Prompt: prompt, Result: result, Model: stats.Model, Extra: map[string]jsontext.Value{}}
 	for k, v := range extra {
-		entry.Extra[k], _ = json.Marshal(v)
+		entry.Extra[k], _ = json.Marshal(v, jsonopt.Write)
 	}
 	usage := StampUsage(stats.Model, ToUsage(b.usage))
 	entry.Usage = &usage

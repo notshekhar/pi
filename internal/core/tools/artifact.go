@@ -2,12 +2,13 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/url"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/artifacts"
 )
 
@@ -24,8 +25,8 @@ const artifactResultSeparator = "\n artifact:"
 type artifactArgs struct {
 	Title       string  `json:"title"`
 	Kind        string  `json:"kind,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Favicon     *string `json:"favicon,omitempty"`
+	Description *string `json:"description,omitzero"`
+	Favicon     *string `json:"favicon,omitzero"`
 	ID          string  `json:"id,omitempty"`
 }
 
@@ -93,6 +94,6 @@ func artifactCard(meta artifacts.Meta) string {
 	raw, _ := json.Marshal(artifactPayload{
 		ID: meta.ID, Title: meta.Title, Kind: meta.Kind, Description: meta.Description, Favicon: meta.Favicon,
 		Path: path, URL: (&url.URL{Scheme: "file", Path: path}).String(),
-	})
+	}, jsonopt.Write)
 	return string(raw)
 }

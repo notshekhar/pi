@@ -23,16 +23,16 @@ type AskQuestion struct {
 	Question    string      `json:"question"`
 	Header      string      `json:"header"`
 	Options     []AskOption `json:"options"`
-	MultiSelect bool        `json:"multiSelect,omitempty"`
+	MultiSelect bool        `json:"multiSelect,omitzero"`
 }
 
 // AskAnswer is what the user did with one question.
 type AskAnswer struct {
 	Answers []string `json:"answers"`
 	// Custom: the answer is the user's own text, not one of the options.
-	Custom bool `json:"custom,omitempty"`
+	Custom bool `json:"custom,omitzero"`
 	// Declined: the user skipped this question.
-	Declined bool `json:"declined,omitempty"`
+	Declined bool `json:"declined,omitzero"`
 	// Note is free text the user attached to a picked option.
 	Note string `json:"note,omitempty"`
 }

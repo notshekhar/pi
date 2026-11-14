@@ -1,14 +1,17 @@
 package jsonschema
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"testing"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 type readFileArgs struct {
 	Path   string `json:"path" jsonschema:"description=Absolute path to the file"`
-	Offset *int   `json:"offset,omitempty" jsonschema:"description=Line to start at,minimum=0"`
-	Limit  int    `json:"limit,omitempty"`
+	Offset *int   `json:"offset,omitzero" jsonschema:"description=Line to start at,minimum=0"`
+	Limit  int    `json:"limit,omitzero"`
 	Mode   string `json:"mode" jsonschema:"enum=read,enum=write,default=read"`
 	secret string
 }
@@ -16,7 +19,7 @@ type readFileArgs struct {
 func TestReflectStruct(t *testing.T) {
 	s := Reflect[readFileArgs]()
 
-	got, err := json.Marshal(s)
+	got, err := json.Marshal(s, jsonopt.Write)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +108,7 @@ func TestScalarAndContainerKinds(t *testing.T) {
 		Tags   []string          `json:"tags"`
 		Meta   map[string]string `json:"meta"`
 		Blob   []byte            `json:"blob"`
-		Raw    json.RawMessage   `json:"raw"`
+		Raw    jsontext.Value    `json:"raw"`
 		Ratio  float64           `json:"ratio"`
 		Active bool              `json:"active"`
 	}

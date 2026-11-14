@@ -12,7 +12,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"flag"
 	"fmt"
 	"os"
@@ -22,6 +22,7 @@ import (
 	"syscall"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providers/anthropic"
 	"github.com/notshekhar/pi/internal/ai/providers/bedrock"
@@ -201,7 +202,7 @@ func run(ctx context.Context, model provider.LanguageModel, prompt, reasoning st
 
 		case provider.Raw:
 			if dump != nil {
-				if encoded, err := json.Marshal(v.RawValue); err == nil {
+				if encoded, err := json.Marshal(v.RawValue, jsonopt.Write); err == nil {
 					fmt.Fprintf(dump, "%s\n", encoded)
 				}
 			}

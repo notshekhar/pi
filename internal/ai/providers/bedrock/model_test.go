@@ -2,13 +2,14 @@ package bedrock
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
@@ -124,7 +125,7 @@ func TestGenerateToolCall(t *testing.T) {
 	}
 
 	var req converseRequest
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if req.ToolConfig == nil || len(req.ToolConfig.Tools) != 1 {
@@ -162,11 +163,16 @@ func TestStructuredOutputUsesJSONTool(t *testing.T) {
 	}
 
 	var req converseRequest
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if req.ToolConfig == nil || req.ToolConfig.Tools[0].ToolSpec.Name != jsonToolName {
 		t.Fatalf("expected forced json tool, got %+v", req.ToolConfig)
+	}
+	// The choice is an empty object; json/v2's omitempty would drop it and
+	// leave the model free not to call the tool.
+	if !strings.Contains(string(*sent), `"toolChoice":{"any":{}}`) {
+		t.Errorf("forced tool choice missing from the body: %s", *sent)
 	}
 }
 
@@ -185,7 +191,7 @@ func TestNativeStructuredOutputOnSonnet45(t *testing.T) {
 	}
 
 	var req converseRequest
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ := req.AdditionalModelRequestFields["output_config"].(map[string]any)
@@ -213,7 +219,7 @@ func TestThinkingOnClaude45UsesBudget(t *testing.T) {
 	}
 
 	var req converseRequest
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	thinking, _ := req.AdditionalModelRequestFields["thinking"].(map[string]any)
@@ -250,7 +256,7 @@ func TestBedrockReasoningByFamily(t *testing.T) {
 			t.Fatal(err)
 		}
 		var req converseRequest
-		_ = json.Unmarshal(*sent, &req)
+		_ = json.Unmarshal(*sent, &req, jsonopt.Read)
 		if !check(req.AdditionalModelRequestFields) {
 			t.Errorf("%s: fields = %v", model, req.AdditionalModelRequestFields)
 		}
@@ -270,7 +276,7 @@ func TestThinkingOnClaude5UsesAdaptive(t *testing.T) {
 	}
 
 	var req converseRequest
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	thinking, _ := req.AdditionalModelRequestFields["thinking"].(map[string]any)
@@ -303,7 +309,7 @@ func TestTemperatureClamped(t *testing.T) {
 	}
 
 	var req converseRequest
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if req.InferenceConfig == nil || req.InferenceConfig.Temperature == nil || *req.InferenceConfig.Temperature != 1 {
@@ -327,7 +333,7 @@ func TestHostedToolWarns(t *testing.T) {
 	}
 
 	var req converseRequest
-	if err := json.Unmarshal(*sent, &req); err != nil {
+	if err := json.Unmarshal(*sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if req.ToolConfig != nil {

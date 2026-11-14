@@ -1,10 +1,11 @@
 package agent
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"slices"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/agents"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/memory"
@@ -199,7 +200,7 @@ func toolSchemaChars(toolset []ai.Tool) int {
 	total := 0
 	for _, t := range toolset {
 		total += len(t.Name()) + len(t.Description())
-		if schema, err := json.Marshal(t.InputSchema()); err == nil {
+		if schema, err := json.Marshal(t.InputSchema(), jsonopt.Write); err == nil {
 			total += len(schema)
 		}
 	}

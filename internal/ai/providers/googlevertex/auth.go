@@ -8,7 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	json "encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"net/http"
@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // cloudPlatformScope is the OAuth scope Vertex AI requires.
@@ -148,7 +150,7 @@ func tokenFromFile(ctx context.Context, client *http.Client, path string) (strin
 	}
 
 	var creds credentialsFile
-	if err := json.Unmarshal(raw, &creds); err != nil {
+	if err := json.Unmarshal(raw, &creds, jsonopt.Read); err != nil {
 		return "", time.Time{}, fmt.Errorf("googlevertex: parsing credentials %s: %w", path, err)
 	}
 
@@ -236,7 +238,7 @@ func exchange(ctx context.Context, client *http.Client, endpoint string, form ur
 		Error       string `json:"error"`
 		ErrorDesc   string `json:"error_description"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &body, jsonopt.Read); err != nil {
 		return "", time.Time{}, fmt.Errorf("googlevertex: decoding token response: %w", err)
 	}
 
@@ -311,7 +313,7 @@ func tokenFromMetadata(ctx context.Context, client *http.Client) (string, time.T
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int64  `json:"expires_in"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &body, jsonopt.Read); err != nil {
 		return "", time.Time{}, fmt.Errorf("googlevertex: decoding metadata token: %w", err)
 	}
 	if body.AccessToken == "" {
@@ -376,11 +378,11 @@ func parsePrivateKey(pemKey string) (*rsa.PrivateKey, error) {
 
 // signJWT builds an RS256 JSON Web Token.
 func signJWT(claims map[string]any, key *rsa.PrivateKey) (string, error) {
-	header, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"})
+	header, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"}, jsonopt.Write)
 	if err != nil {
 		return "", err
 	}
-	payload, err := json.Marshal(claims)
+	payload, err := json.Marshal(claims, jsonopt.Write)
 	if err != nil {
 		return "", err
 	}
@@ -416,7 +418,7 @@ func projectFromCredentials() string {
 		ProjectID      string `json:"project_id"`
 		QuotaProjectID string `json:"quota_project_id"`
 	}
-	if json.Unmarshal(raw, &creds) != nil {
+	if json.Unmarshal(raw, &creds, jsonopt.Read) != nil {
 		return ""
 	}
 	if creds.ProjectID != "" {

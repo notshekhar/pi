@@ -2,12 +2,13 @@ package google
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -49,7 +50,7 @@ func (m *languageModel) DoStream(ctx context.Context, opts provider.CallOptions)
 		s.run(body)
 	}()
 
-	requestBody, _ := json.Marshal(req)
+	requestBody, _ := json.Marshal(req, jsonopt.Write)
 
 	return &provider.StreamResult{
 		Stream:  out,
@@ -105,7 +106,7 @@ func (s *streamState) run(body io.ReadCloser) {
 		}
 
 		var chunk generateResponse
-		if err := json.Unmarshal([]byte(ev.Data), &chunk); err != nil {
+		if err := json.Unmarshal([]byte(ev.Data), &chunk, jsonopt.Read); err != nil {
 			s.emit(provider.ErrorPart{Err: &provider.InvalidResponseError{
 				Message:  "could not decode stream chunk",
 				Response: ev.Data,
@@ -116,7 +117,7 @@ func (s *streamState) run(body io.ReadCloser) {
 
 		if s.raw {
 			var rawValue any
-			if json.Unmarshal([]byte(ev.Data), &rawValue) == nil {
+			if json.Unmarshal([]byte(ev.Data), &rawValue, jsonopt.Read) == nil {
 				s.emit(provider.Raw{RawValue: rawValue})
 			}
 		}
@@ -177,7 +178,7 @@ func (s *streamState) handlePart(p part) {
 		s.closeBlocks()
 		s.toolCallSeen = true
 
-		args, err := json.Marshal(p.FunctionCall.Args)
+		args, err := json.Marshal(p.FunctionCall.Args, jsonopt.Write)
 		if err != nil {
 			args = []byte("{}")
 		}

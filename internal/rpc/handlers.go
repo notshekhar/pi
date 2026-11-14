@@ -2,13 +2,15 @@ package rpc
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/agent"
 	"github.com/notshekhar/pi/internal/core/agents"
@@ -20,18 +22,18 @@ import (
 // ─── small helpers ───────────────────────────────────────────────────────
 
 func toMap(v any) map[string]any {
-	raw, _ := json.Marshal(v)
+	raw, _ := json.Marshal(v, jsonopt.Write)
 	out := map[string]any{}
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonopt.Read)
 	return out
 }
 
 // snapshot freezes a value into JSON now, so it cannot change while the
 // response is written.
-func snapshot(v any) json.RawMessage {
-	raw, err := json.Marshal(v)
+func snapshot(v any) jsontext.Value {
+	raw, err := json.Marshal(v, jsonopt.Write)
 	if err != nil {
-		return json.RawMessage("null")
+		return jsontext.Value("null")
 	}
 	return raw
 }
@@ -286,7 +288,7 @@ func (s *Server) settingsHandlers() map[string]handler {
 				"agents": len(agents.List()), "providers": len(usableProviders())}, nil
 		},
 		"hello": func(p map[string]any, _ Transport) (any, error) {
-			client, ok := parseProtocol(p["protocol"])
+			client, ok := ParseProtocol(p["protocol"])
 			if !ok {
 				client = [2]int{1, 0}
 			}

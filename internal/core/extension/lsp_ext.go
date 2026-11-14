@@ -184,9 +184,9 @@ func (x *lspExt) Tools(ctx *tools.Context) []ai.Tool {
 type lspArgs struct {
 	Operation string `json:"operation" jsonschema:"description=Which question to answer — goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls"`
 	FilePath  string `json:"filePath,omitempty" jsonschema:"description=Path to the file. For workspaceSymbol this may be a directory or omitted — it only selects which language server answers."`
-	Line      int    `json:"line,omitempty" jsonschema:"description=Line number, 1-based, exactly as read and grep report it. Required for position operations."`
+	Line      int    `json:"line,omitzero" jsonschema:"description=Line number, 1-based, exactly as read and grep report it. Required for position operations."`
 	Symbol    string `json:"symbol,omitempty" jsonschema:"description=The name at that line to point at, e.g. runTurn — its column is resolved for you, so you never have to count characters. First occurrence on the line wins. Preferred over character."`
-	Character int    `json:"character,omitempty" jsonschema:"description=Column, 1-based. Only needed when you already know the exact column, e.g. to reach the second occurrence of a name on one line."`
+	Character int    `json:"character,omitzero" jsonschema:"description=Column, 1-based. Only needed when you already know the exact column, e.g. to reach the second occurrence of a name on one line."`
 	Query     string `json:"query,omitempty" jsonschema:"description=Search query for workspaceSymbol. An empty string requests every symbol."`
 }
 

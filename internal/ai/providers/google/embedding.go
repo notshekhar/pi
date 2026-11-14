@@ -71,7 +71,7 @@ type embedContentRequest struct {
 	Content              content `json:"content"`
 	TaskType             string  `json:"taskType,omitempty"`
 	Title                string  `json:"title,omitempty"`
-	OutputDimensionality *int    `json:"outputDimensionality,omitempty"`
+	OutputDimensionality *int    `json:"outputDimensionality,omitzero"`
 }
 
 // batchEmbedResponse is the reply. Order matches the requests.

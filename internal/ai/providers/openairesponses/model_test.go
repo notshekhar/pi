@@ -3,7 +3,7 @@ package openairesponses
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providertest"
 )
@@ -46,7 +47,7 @@ func serve(t *testing.T, body string) (*Provider, *[]map[string]any) {
 		}
 		raw, _ := io.ReadAll(r.Body)
 		var req map[string]any
-		_ = json.Unmarshal(raw, &req)
+		_ = json.Unmarshal(raw, &req, jsonopt.Read)
 		sent = append(sent, req)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, body)
@@ -167,7 +168,7 @@ func TestRequestShape(t *testing.T) {
 	}
 	parts(t, res)
 	req := (*sent)[0]
-	got, _ := json.Marshal(req["input"])
+	got, _ := json.Marshal(req["input"], jsonopt.Write)
 	want := `[{"content":"be brief","role":"developer"},{"content":[{"text":"add","type":"input_text"}],"role":"user"},` +
 		`{"id":"rs_1","type":"item_reference"},{"arguments":"{\"a\":1}","call_id":"call_1","name":"calculator","type":"function_call"},` +
 		`{"call_id":"call_1","output":"2","type":"function_call_output"}]`
@@ -218,7 +219,7 @@ func TestXAIRequestShape(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		var req map[string]any
-		_ = json.Unmarshal(raw, &req)
+		_ = json.Unmarshal(raw, &req, jsonopt.Read)
 		sent = append(sent, req)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, fixtureSSE(t, "openai-error.1.chunks.txt"))
@@ -261,7 +262,7 @@ func TestXAIRequestShape(t *testing.T) {
 			t.Errorf("%s: effort %q, want %q", c.model, got, c.want)
 		}
 	}
-	got, _ := json.Marshal(sent[0]["input"])
+	got, _ := json.Marshal(sent[0]["input"], jsonopt.Write)
 	want := `[{"content":"sys","role":"system"},{"content":[{"text":"q","type":"input_text"}],"role":"user"},` +
 		`{"encrypted_content":"enc","id":"rs_1","status":"completed","summary":[{"text":"think","type":"summary_text"}],"type":"reasoning"},` +
 		`{"arguments":"{}","call_id":"call_1","id":"fc_1","name":"ls","status":"completed","type":"function_call"},` +

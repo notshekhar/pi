@@ -2,13 +2,14 @@ package google
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providertest"
@@ -209,7 +210,7 @@ func TestGemini3UsesThinkingLevel(t *testing.T) {
 	collect(t, res)
 
 	var sent generateRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	cfg := sent.GenerationConfig.ThinkingConfig
@@ -240,7 +241,7 @@ func TestGemini25UsesThinkingBudget(t *testing.T) {
 	collect(t, res)
 
 	var sent generateRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	cfg := sent.GenerationConfig.ThinkingConfig
@@ -277,7 +278,7 @@ func TestToolResultsBecomeFunctionResponseUserTurns(t *testing.T) {
 	collect(t, res)
 
 	var sent generateRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 
@@ -315,7 +316,7 @@ func TestSystemInstructionIsSeparated(t *testing.T) {
 	collect(t, res)
 
 	var sent generateRequest
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if sent.SystemInstruction == nil || sent.SystemInstruction.Parts[0].Text != "be terse" {
@@ -329,7 +330,7 @@ func TestSystemInstructionIsSeparated(t *testing.T) {
 func TestToolSchemaIsConvertedToOpenAPI(t *testing.T) {
 	type args struct {
 		Path  string `json:"path" jsonschema:"description=A path"`
-		Depth *int   `json:"depth,omitempty"`
+		Depth *int   `json:"depth,omitzero"`
 		Mode  string `json:"mode" jsonschema:"enum=read,enum=write"`
 	}
 
@@ -349,7 +350,7 @@ func TestToolSchemaIsConvertedToOpenAPI(t *testing.T) {
 	collect(t, res)
 
 	var raw map[string]any
-	if err := json.Unmarshal(*body, &raw); err != nil {
+	if err := json.Unmarshal(*body, &raw, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 
@@ -398,7 +399,7 @@ func TestEmptyToolSchemaOmitsParameters(t *testing.T) {
 	collect(t, res)
 
 	var raw map[string]any
-	if err := json.Unmarshal(*body, &raw); err != nil {
+	if err := json.Unmarshal(*body, &raw, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	decl := raw["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)
@@ -455,7 +456,7 @@ func TestHostedSearchRequestShape(t *testing.T) {
 	var sent struct {
 		Tools []map[string]any `json:"tools"`
 	}
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if len(sent.Tools) != 1 {
@@ -507,7 +508,7 @@ func TestHostedSearchUsesLegacyShapeOnOldModels(t *testing.T) {
 	var sent struct {
 		Tools []map[string]any `json:"tools"`
 	}
-	if err := json.Unmarshal(*body, &sent); err != nil {
+	if err := json.Unmarshal(*body, &sent, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := sent.Tools[0]["googleSearchRetrieval"]; !ok {
@@ -624,7 +625,7 @@ func TestImagenRequestShapeAndFilteredPredictions(t *testing.T) {
 			AspectRatio string `json:"aspectRatio"`
 		} `json:"parameters"`
 	}
-	if err := json.Unmarshal(sent, &req); err != nil {
+	if err := json.Unmarshal(sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if len(req.Instances) != 1 || req.Instances[0].Prompt != "a lighthouse" {
@@ -675,7 +676,7 @@ func TestEmbeddingRequestCarriesTaskTypePerValue(t *testing.T) {
 			} `json:"content"`
 		} `json:"requests"`
 	}
-	if err := json.Unmarshal(sent, &req); err != nil {
+	if err := json.Unmarshal(sent, &req, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if len(req.Requests) != 2 {

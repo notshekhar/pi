@@ -2,7 +2,7 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +29,7 @@ func TestEditToolPreservesUntouchedQuotes(t *testing.T) {
 
 	tool := Edit(tc)
 	input := `{"path":"f.go","edits":[{"oldText":"hello \"world\"","newText":"hello there"}]}`
-	res, err := tool.Execute(context.Background(), json.RawMessage(input))
+	res, err := tool.Execute(context.Background(), jsontext.Value(input))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestEditToolRequiresRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	tool := Edit(&Context{CWD: dir, Registry: NewRegistry()})
-	res, err := tool.Execute(context.Background(), json.RawMessage(
+	res, err := tool.Execute(context.Background(), jsontext.Value(
 		`{"path":"f.go","edits":[{"oldText":"hello","newText":"hi"}]}`,
 	))
 	if err != nil {

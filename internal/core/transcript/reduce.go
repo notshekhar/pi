@@ -1,10 +1,12 @@
 package transcript
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // The live half (reduce.ts). The rules are the terminal's: text accumulates
@@ -22,12 +24,12 @@ func normalize(data any) any {
 	case nil, string, map[string]any, []any:
 		return data
 	}
-	raw, err := json.Marshal(data)
+	raw, err := json.Marshal(data, jsonopt.Write)
 	if err != nil {
 		return nil
 	}
 	var out any
-	if json.Unmarshal(raw, &out) != nil {
+	if json.Unmarshal(raw, &out, jsonopt.Read) != nil {
 		return nil
 	}
 	return out
@@ -152,7 +154,7 @@ func errorText(e any) string {
 			return fmt.Sprint(msg)
 		}
 	}
-	raw, err := json.Marshal(e)
+	raw, err := json.Marshal(e, jsonopt.Write)
 	if err != nil {
 		return fmt.Sprint(e)
 	}
@@ -503,8 +505,8 @@ func (t *Transcript) Apply(ev Event, at int64) {
 		m.Parts = append(m.Parts, &Part{Type: "data-recap", Data: map[string]any{"text": text}})
 	case "todo-update":
 		var items []Todo
-		raw, _ := json.Marshal(rec["items"])
-		_ = json.Unmarshal(raw, &items)
+		raw, _ := json.Marshal(rec["items"], jsonopt.Write)
+		_ = json.Unmarshal(raw, &items, jsonopt.Read)
 		if items == nil {
 			items = []Todo{}
 		}

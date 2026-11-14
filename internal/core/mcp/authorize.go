@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"html"
@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // The interactive OAuth login for one server (loop's mcp/authorize.ts):
@@ -138,7 +140,7 @@ func discoverResourceHints(ctx context.Context, server *url.URL, headers map[str
 				Scopes []string `json:"scopes_supported"`
 			}
 			if r.StatusCode == http.StatusOK {
-				_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body)
+				_ = json.UnmarshalRead(io.LimitReader(r.Body, 1<<20), &body, jsonopt.Read)
 			}
 			drain(r)
 			for _, s := range body.Scopes {

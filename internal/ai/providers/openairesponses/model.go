@@ -2,13 +2,15 @@ package openairesponses
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -237,12 +239,12 @@ func convertTools(tools []provider.Tool) ([]any, error) {
 		}
 		params := map[string]any{"type": "object", "properties": map[string]any{}}
 		if t.InputSchema != nil {
-			raw, err := json.Marshal(t.InputSchema)
+			raw, err := json.Marshal(t.InputSchema, jsonopt.Write)
 			if err != nil {
 				return nil, fmt.Errorf("openairesponses: encoding schema for tool %q: %w", t.Name, err)
 			}
 			params = map[string]any{}
-			if err := json.Unmarshal(raw, &params); err != nil {
+			if err := json.Unmarshal(raw, &params, jsonopt.Read); err != nil {
 				return nil, err
 			}
 			delete(params, "$schema")
@@ -262,12 +264,12 @@ func (m *languageModel) DoStream(ctx context.Context, opts provider.CallOptions)
 	if err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(req)
+	body, err := json.Marshal(req, jsonopt.Write)
 	if err != nil {
 		return nil, err
 	}
 	resp, err := providerutil.Retry(ctx, m.provider.retry, func(ctx context.Context) (io.ReadCloser, error) {
-		httpResp, err := m.provider.client.PostJSON(ctx, responsesPath, json.RawMessage(body), opts.Headers)
+		httpResp, err := m.provider.client.PostJSON(ctx, responsesPath, jsontext.Value(body), opts.Headers)
 		if err != nil {
 			return nil, err
 		}

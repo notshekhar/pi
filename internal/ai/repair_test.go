@@ -2,7 +2,7 @@ package ai_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"strings"
 	"testing"
@@ -42,7 +42,7 @@ func TestRepairFixesUnparseableArguments(t *testing.T) {
 		RepairToolCall: func(_ context.Context, rc ai.RepairContext) (*ai.ToolCall, error) {
 			seen = rc
 			fixed := rc.Call
-			fixed.Input = json.RawMessage(`{"path":"/tmp/a"}`)
+			fixed.Input = jsontext.Value(`{"path":"/tmp/a"}`)
 			return &fixed, nil
 		},
 	})

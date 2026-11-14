@@ -1,8 +1,9 @@
 package anthropic
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -112,7 +113,7 @@ type searchResult struct {
 // decodeSearchResults reads the result array, returning nil when the content
 // is the error object rather than a list of hits.
 func decodeSearchResults(content any) ([]searchResult, error) {
-	raw, err := json.Marshal(content)
+	raw, err := json.Marshal(content, jsonopt.Write)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +122,7 @@ func decodeSearchResults(content any) ([]searchResult, error) {
 	}
 
 	var results []searchResult
-	if err := json.Unmarshal(raw, &results); err != nil {
+	if err := json.Unmarshal(raw, &results, jsonopt.Read); err != nil {
 		return nil, err
 	}
 	return results, nil

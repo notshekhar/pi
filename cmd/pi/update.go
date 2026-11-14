@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // /update and `pi upgrade` — loop's updateApp/runUpgrade, pointed at pi's own
@@ -54,7 +56,7 @@ func fetchLatestTag(ctx context.Context) string {
 	var j struct {
 		TagName string `json:"tag_name"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&j)
+	_ = json.UnmarshalRead(r.Body, &j, jsonopt.Read)
 	return j.TagName
 }
 

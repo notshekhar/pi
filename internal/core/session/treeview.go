@@ -1,10 +1,13 @@
 package session
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"regexp"
 	"strings"
 	"unicode/utf16"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // buildSessionTreeView (sessions/tree-view.ts): every branch of a session,
@@ -26,16 +29,16 @@ type TreeRow struct {
 	Type        string     `json:"type"`
 	Role        string     `json:"role,omitempty"`
 	Text        string     `json:"text,omitempty"`
-	Truncated   bool       `json:"truncated,omitempty"`
+	Truncated   bool       `json:"truncated,omitzero"`
 	Tools       []TreeTool `json:"tools,omitempty"`
-	Label       *string    `json:"label,omitempty"`
+	Label       *string    `json:"label,omitzero"`
 	Indent      int        `json:"indent"`
 	Depth       int        `json:"depth"`
-	BranchStart bool       `json:"branchStart,omitempty"`
-	LastSibling bool       `json:"lastSibling,omitempty"`
+	BranchStart bool       `json:"branchStart,omitzero"`
+	LastSibling bool       `json:"lastSibling,omitzero"`
 	OnPath      bool       `json:"onPath"`
 	ChildCount  int        `json:"childCount"`
-	Interrupted bool       `json:"interrupted,omitempty"`
+	Interrupted bool       `json:"interrupted,omitzero"`
 }
 
 // TreeView is loop's SessionTreeView.
@@ -46,22 +49,22 @@ type TreeView struct {
 }
 
 type block struct {
-	Type       string          `json:"type"`
-	Text       *string         `json:"text"`
-	ToolName   string          `json:"toolName"`
-	ToolCallID string          `json:"toolCallId"`
-	Input      json.RawMessage `json:"input"`
+	Type       string         `json:"type"`
+	Text       *string        `json:"text"`
+	ToolName   string         `json:"toolName"`
+	ToolCallID string         `json:"toolCallId"`
+	Input      jsontext.Value `json:"input"`
 }
 
-func blocksOf(raw json.RawMessage) []block {
+func blocksOf(raw jsontext.Value) []block {
 	var out []block
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonopt.Read)
 	return out
 }
 
-func treeText(raw json.RawMessage) string {
+func treeText(raw jsontext.Value) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return s
 	}
 	var b strings.Builder
@@ -73,12 +76,12 @@ func treeText(raw json.RawMessage) string {
 	return b.String()
 }
 
-func inputValue(raw json.RawMessage) any {
+func inputValue(raw jsontext.Value) any {
 	if len(raw) == 0 || string(raw) == "null" {
 		return map[string]any{}
 	}
 	var v any
-	if json.Unmarshal(raw, &v) != nil {
+	if json.Unmarshal(raw, &v, jsonopt.Read) != nil {
 		return map[string]any{}
 	}
 	return v

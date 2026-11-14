@@ -21,7 +21,7 @@
 package herdr
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"math/rand"
 	"net"
@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/status"
 )
 
@@ -245,7 +246,7 @@ func (r *Reporter) drain() {
 // the ack, close. No persistent connection, so a herdr restart costs one
 // dropped report instead of a dead socket and a reconnect state machine.
 func (r *Reporter) send(req map[string]any) {
-	line, err := json.Marshal(req)
+	line, err := json.Marshal(req, jsonopt.Write)
 	if err != nil {
 		return
 	}

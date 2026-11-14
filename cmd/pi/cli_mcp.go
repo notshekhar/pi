@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/home"
 	"github.com/notshekhar/pi/internal/core/jsonstore"
@@ -83,7 +85,7 @@ func allMCPServers(cwd string) []scopedServer {
 }
 
 // keyOrder is the keys of a JSON object as written; nil for anything else.
-func keyOrder(raw json.RawMessage) []string {
+func keyOrder(raw jsontext.Value) []string {
 	if raw == nil {
 		return nil
 	}
@@ -201,9 +203,9 @@ func mcpAddJSON(cwd string, args []string) error {
 		return usageErrorf("usage: %s mcp add-json <name> '<json>' [--scope user|project]", productName)
 	}
 	name, raw := pos[0], pos[1]
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
-		if _, isSyntax := err.(*json.SyntaxError); isSyntax {
+	var probe map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(raw), &probe, jsonopt.Read); err != nil {
+		if _, isSyntax := errors.AsType[*jsontext.SyntacticError](err); isSyntax {
 			return usageErrorf("invalid JSON: %s", err)
 		}
 		return usageErrorf("JSON must be a server config object")
@@ -211,7 +213,7 @@ func mcpAddJSON(cwd string, args []string) error {
 	_, hasURL := probe["url"]
 	_, hasCommand := probe["command"]
 	var cfg mcp.ServerConfig
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+	if err := json.Unmarshal([]byte(raw), &cfg, jsonopt.Read); err != nil {
 		return usageErrorf("invalid JSON: %s", err)
 	}
 	if err := refuseUnsupported(cfg); err != nil {
@@ -260,10 +262,9 @@ func mcpGet(cwd string, args []string) error {
 		}
 		// Redacted: this lands in scrollback, screen shares and bug reports.
 		fmt.Printf("%s  [scope: %s]\n%s\n", name, s.scope, describeTarget(s.cfg))
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false) // "<redacted>" must print as written
-		enc.SetIndent("", "  ")
-		return enc.Encode(redactServerConfig(s.cfg))
+		// v2 never HTML-escapes, so "<redacted>" prints as written.
+		enc := jsontext.NewEncoder(os.Stdout, jsontext.WithIndent("  "))
+		return json.MarshalEncode(enc, redactServerConfig(s.cfg), jsonopt.Write)
 	}
 	return usageErrorf("no MCP server named %q", name)
 }

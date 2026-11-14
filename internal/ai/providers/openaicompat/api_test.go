@@ -1,10 +1,11 @@
 package openaicompat
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"strings"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 )
 
@@ -24,7 +25,7 @@ func TestCachedInputTokensSpellings(t *testing.T) {
 func usageOf(t *testing.T, raw string) provider.Usage {
 	t.Helper()
 	var u apiUsage
-	if err := json.Unmarshal([]byte(raw), &u); err != nil {
+	if err := json.Unmarshal([]byte(raw), &u, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	return convertUsage(&u)
@@ -85,7 +86,7 @@ func TestCacheControlMarksTheLastPart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := json.Marshal(msgs)
+	raw, _ := json.Marshal(msgs, jsonopt.Write)
 	want := `[{"role":"system","content":[{"type":"text","text":"sys","cache_control":{"type":"ephemeral"}}]},` +
 		`{"role":"user","content":"plain"},{"role":"tool","content":"one","tool_call_id":"a"},` +
 		`{"role":"tool","content":[{"type":"text","text":"two","cache_control":{"type":"ephemeral"}}],"tool_call_id":"b"}]`
@@ -130,7 +131,7 @@ func TestReasoningReplay(t *testing.T) {
 			t.Fatal(err)
 		}
 		for i, w := range want {
-			raw, _ := json.Marshal(msgs[i+1])
+			raw, _ := json.Marshal(msgs[i+1], jsonopt.Write)
 			got := strings.Contains(string(raw), "reasoning_content")
 			if (w == "") == got && !(w != "" && strings.Contains(string(raw), w)) {
 				t.Errorf("replay %d, turn %d: %s", replay, i, raw)
@@ -146,13 +147,13 @@ func TestReasoningReplay(t *testing.T) {
 // reasoning instead of failing the chunk.
 func TestContentPartsDecode(t *testing.T) {
 	var m apiMessageOut
-	if err := json.Unmarshal([]byte(`{"content":[{"type":"thinking","thinking":[{"type":"text","text":"hmm"}]},{"type":"text","text":"ok"}]}`), &m); err != nil {
+	if err := json.Unmarshal([]byte(`{"content":[{"type":"thinking","thinking":[{"type":"text","text":"hmm"}]},{"type":"text","text":"ok"}]}`), &m, jsonopt.Read); err != nil {
 		t.Fatal(err)
 	}
 	if m.Content != "ok" || m.reasoningText() != "hmm" {
 		t.Errorf("content %q reasoning %q", m.Content, m.reasoningText())
 	}
-	if err := json.Unmarshal([]byte(`{"content":"plain","tool_calls":[{"id":"x","type":"function","function":{"name":"f","arguments":"{}"}}]}`), &m); err != nil || m.Content != "plain" || len(m.ToolCalls) != 1 {
+	if err := json.Unmarshal([]byte(`{"content":"plain","tool_calls":[{"id":"x","type":"function","function":{"name":"f","arguments":"{}"}}]}`), &m, jsonopt.Read); err != nil || m.Content != "plain" || len(m.ToolCalls) != 1 {
 		t.Errorf("string content: %v %+v", err, m)
 	}
 }
@@ -181,7 +182,7 @@ func TestMistralRequest(t *testing.T) {
 	}
 	body, _ := marshalRequest(req)
 	var got map[string]any
-	_ = json.Unmarshal(body, &got)
+	_ = json.Unmarshal(body, &got, jsonopt.Read)
 	if got["random_seed"] != float64(7) || got["seed"] != nil || got["tool_choice"] != "any" || got["reasoning_effort"] != "high" {
 		t.Errorf("args: seed %v/%v choice %v effort %v", got["random_seed"], got["seed"], got["tool_choice"], got["reasoning_effort"])
 	}
@@ -189,7 +190,7 @@ func TestMistralRequest(t *testing.T) {
 		t.Errorf("tools not narrowed: %v", tools)
 	}
 	msgs := got["messages"].([]any)
-	thinking, _ := json.Marshal(msgs[1].(map[string]any)["content"])
+	thinking, _ := json.Marshal(msgs[1].(map[string]any)["content"], jsonopt.Write)
 	if string(thinking) != `[{"closed":true,"thinking":[{"text":"t","type":"text"}],"type":"thinking"}]` {
 		t.Errorf("reasoned turn = %s", thinking)
 	}
@@ -212,7 +213,7 @@ func bodyOf(t *testing.T, p *Provider, model string, opts provider.CallOptions) 
 	}
 	raw, _ := marshalRequest(req)
 	var out map[string]any
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonopt.Read)
 	return out
 }
 

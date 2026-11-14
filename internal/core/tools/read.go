@@ -18,8 +18,8 @@ const loopScheme = "loop://"
 
 type readArgs struct {
 	Path   string `json:"path"`
-	Offset int    `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	Offset int    `json:"offset,omitzero"`
+	Limit  int    `json:"limit,omitzero"`
 }
 
 // Read returns the read tool: a local file, a URL, or loop's internal docs.

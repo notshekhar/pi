@@ -1,9 +1,10 @@
 package tools
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"testing"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/datasources"
 )
 
@@ -21,7 +22,7 @@ func TestFormatRowsKeepsColumnOrder(t *testing.T) {
 		t.Errorf("empty = %q", empty)
 	}
 	var back []map[string]any
-	if json.Unmarshal([]byte(out[len("1 row(s):\n"):]), &back) != nil {
+	if json.Unmarshal([]byte(out[len("1 row(s):\n"):]), &back, jsonopt.Read) != nil {
 		t.Error("rows are not valid JSON")
 	}
 }

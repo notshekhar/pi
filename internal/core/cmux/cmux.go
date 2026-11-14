@@ -41,7 +41,7 @@ package cmux
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"net"
 	"os"
@@ -52,6 +52,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/hooks"
 	"github.com/notshekhar/pi/internal/core/status"
 )
@@ -260,7 +261,7 @@ func bounded(value any, maxBytes int) any {
 	if value == nil {
 		return nil
 	}
-	b, err := json.Marshal(value)
+	b, err := json.Marshal(value, jsonopt.Write)
 	if err != nil {
 		return nil // unserializable — the field is optional
 	}
@@ -297,7 +298,7 @@ func (r *Reporter) push(ctx context.Context, event map[string]any, requestID str
 		"id":     source + "-" + id,
 		"method": "feed.push",
 		"params": map[string]any{"event": event, "wait_timeout_seconds": waitSeconds},
-	})
+	}, jsonopt.Write)
 	if err != nil {
 		return nil
 	}
@@ -331,7 +332,7 @@ func (r *Reporter) push(ctx context.Context, event map[string]any, requestID str
 				Decision *Decision `json:"decision"`
 			} `json:"result"`
 		}
-		if json.Unmarshal([]byte(line), &msg) != nil {
+		if json.Unmarshal([]byte(line), &msg, jsonopt.Read) != nil {
 			continue // a frame we don't understand is not a reason to hang
 		}
 		if msg.Result != nil && msg.Result.Status == "resolved" {

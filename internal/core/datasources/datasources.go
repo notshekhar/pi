@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/url"
@@ -21,6 +21,7 @@ import (
 	mysqldriver "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/jsonstore"
 )
@@ -32,8 +33,8 @@ type Config struct {
 	Port     int     `json:"port"`
 	Database string  `json:"database"`
 	User     string  `json:"user"`
-	Password *string `json:"password,omitempty"`
-	SSL      bool    `json:"ssl,omitempty"`
+	Password *string `json:"password,omitzero"`
+	SSL      bool    `json:"ssl,omitzero"`
 }
 
 // Max is loop's MAX_DATASOURCES.
@@ -339,8 +340,8 @@ func (r Row) MarshalJSON() ([]byte, error) {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		key, _ := json.Marshal(col)
-		value, err := json.Marshal(r.Values[i])
+		key, _ := json.Marshal(col, jsonopt.Write)
+		value, err := json.Marshal(r.Values[i], jsonopt.Write)
 		if err != nil {
 			return nil, err
 		}

@@ -2,12 +2,13 @@ package session
 
 import (
 	"database/sql"
-	"encoding/json"
+	json "encoding/json/v2"
 	"math"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/db"
 	"github.com/notshekhar/pi/internal/core/jsonstore"
 )
@@ -191,7 +192,7 @@ func readBaseline(h *sql.DB) costBaseline {
 	var b costBaseline
 	var raw string
 	if h.QueryRow("SELECT value FROM meta WHERE key = 'cost_baseline'").Scan(&raw) == nil {
-		_ = json.Unmarshal([]byte(raw), &b)
+		_ = json.Unmarshal([]byte(raw), &b, jsonopt.Read)
 	}
 	clean := func(m map[string]float64) map[string]float64 {
 		out := map[string]float64{}
@@ -206,7 +207,7 @@ func readBaseline(h *sql.DB) costBaseline {
 	var ordered struct {
 		Daily jsonstore.Object `json:"daily"`
 	}
-	if json.Unmarshal([]byte(raw), &ordered) == nil {
+	if json.Unmarshal([]byte(raw), &ordered, jsonopt.Read) == nil {
 		for _, k := range ordered.Daily.Keys() {
 			if _, ok := b.Daily[k]; ok {
 				b.dailyOrder = append(b.dailyOrder, k)

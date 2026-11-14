@@ -2,7 +2,7 @@ package config
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,7 +31,7 @@ type CustomProvider struct {
 	BaseURL string `json:"baseURL"`
 	// APIKey is loop's legacy flat key, mirrored from an apikey Auth.
 	APIKey  string            `json:"apiKey"`
-	Auth    *CustomAuth       `json:"auth,omitempty"`
+	Auth    *CustomAuth       `json:"auth,omitzero"`
 	Headers map[string]string `json:"headers,omitempty"`
 	Models  []CustomModel     `json:"models,omitempty"`
 }
@@ -39,30 +39,30 @@ type CustomProvider struct {
 // CustomAuth is loop's CustomProviderAuth union, flattened.
 type CustomAuth struct {
 	// Kind is apikey | bearer | env | helper | oauth | none.
-	Kind    string          `json:"kind"`
-	APIKey  string          `json:"apiKey,omitempty"`
-	Token   string          `json:"token,omitempty"`
-	Var     string          `json:"var,omitempty"`
-	Command string          `json:"command,omitempty"`
-	TTLMs   int64           `json:"ttlMs,omitempty"`
-	OAuth   json.RawMessage `json:"oauth,omitempty"`
+	Kind    string         `json:"kind"`
+	APIKey  string         `json:"apiKey,omitempty"`
+	Token   string         `json:"token,omitempty"`
+	Var     string         `json:"var,omitempty"`
+	Command string         `json:"command,omitempty"`
+	TTLMs   int64          `json:"ttlMs,omitzero"`
+	OAuth   jsontext.Value `json:"oauth,omitzero"`
 }
 
 // CustomModel is one model a custom provider exposes.
 type CustomModel struct {
 	ID            string      `json:"id"`
 	Name          string      `json:"name,omitempty"`
-	ContextWindow int         `json:"contextWindow,omitempty"`
-	MaxOutput     int         `json:"maxOutput,omitempty"`
-	Cost          *CustomCost `json:"cost,omitempty"`
+	ContextWindow int         `json:"contextWindow,omitzero"`
+	MaxOutput     int         `json:"maxOutput,omitzero"`
+	Cost          *CustomCost `json:"cost,omitzero"`
 }
 
 // CustomCost is $/MTok.
 type CustomCost struct {
-	Input      float64 `json:"input,omitempty"`
-	Output     float64 `json:"output,omitempty"`
-	CacheRead  float64 `json:"cacheRead,omitempty"`
-	CacheWrite float64 `json:"cacheWrite,omitempty"`
+	Input      float64 `json:"input,omitzero"`
+	Output     float64 `json:"output,omitzero"`
+	CacheRead  float64 `json:"cacheRead,omitzero"`
+	CacheWrite float64 `json:"cacheWrite,omitzero"`
 }
 
 // ID is the provider id: "custom:<name>".

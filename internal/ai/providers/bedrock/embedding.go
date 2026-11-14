@@ -2,11 +2,13 @@ package bedrock
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/ai/providerutil"
 )
@@ -162,7 +164,7 @@ type embeddingResponse struct {
 	InputTextTokenCount *int64    `json:"inputTextTokenCount"`
 
 	// Cohere v3: [][]float; Cohere v4: {float: [][]float}; Nova: [{embedding}]
-	Embeddings json.RawMessage `json:"embeddings"`
+	Embeddings jsontext.Value `json:"embeddings"`
 
 	// Nova
 	InputTokenCount *int64 `json:"inputTokenCount"`
@@ -181,7 +183,7 @@ func (r *embeddingResponse) vectors() ([]provider.Embedding, error) {
 
 	// Cohere v3: [[...], [...]]
 	var asArrays [][]float32
-	if json.Unmarshal(r.Embeddings, &asArrays) == nil && len(asArrays) > 0 {
+	if json.Unmarshal(r.Embeddings, &asArrays, jsonopt.Read) == nil && len(asArrays) > 0 {
 		out := make([]provider.Embedding, len(asArrays))
 		for i, v := range asArrays {
 			out[i] = provider.Embedding(v)
@@ -193,7 +195,7 @@ func (r *embeddingResponse) vectors() ([]provider.Embedding, error) {
 	var asObject struct {
 		Float [][]float32 `json:"float"`
 	}
-	if json.Unmarshal(r.Embeddings, &asObject) == nil && len(asObject.Float) > 0 {
+	if json.Unmarshal(r.Embeddings, &asObject, jsonopt.Read) == nil && len(asObject.Float) > 0 {
 		out := make([]provider.Embedding, len(asObject.Float))
 		for i, v := range asObject.Float {
 			out[i] = provider.Embedding(v)
@@ -205,7 +207,7 @@ func (r *embeddingResponse) vectors() ([]provider.Embedding, error) {
 	var asNova []struct {
 		Embedding []float32 `json:"embedding"`
 	}
-	if json.Unmarshal(r.Embeddings, &asNova) == nil && len(asNova) > 0 {
+	if json.Unmarshal(r.Embeddings, &asNova, jsonopt.Read) == nil && len(asNova) > 0 {
 		out := make([]provider.Embedding, 0, len(asNova))
 		for _, v := range asNova {
 			out = append(out, provider.Embedding(v.Embedding))
@@ -251,7 +253,7 @@ func blockValue(block provider.JSONObject, key string) any {
 
 // postJSONValue is Provider.post for an already-built value.
 func (p *Provider) postJSONValue(ctx context.Context, path string, body any, extra provider.Headers) (*http.Response, error) {
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(body, jsonopt.Write)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: encoding request body: %w", err)
 	}

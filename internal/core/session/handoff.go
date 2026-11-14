@@ -1,11 +1,13 @@
 package session
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
 	"unicode/utf16"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // u16 slices s by UTF-16 code units, as JavaScript's slice does.
@@ -35,7 +37,7 @@ func ConversationExcerpt(entries []Entry) string {
 		switch e.Type {
 		case TypeMessage:
 			var content string
-			if json.Unmarshal(e.Content, &content) != nil {
+			if json.Unmarshal(e.Content, &content, jsonopt.Read) != nil {
 				content = string(e.Content)
 			}
 			if u16len(content) > 8000 {
@@ -76,7 +78,7 @@ func CreateHandoff(source *Session, provider, model, cwd, brief string) (*Sessio
 	name := u16("Handoff: "+label, 0, 100)
 	messageID := newEntryID(func(id string) bool { return id == info.ID })
 	nameID := newEntryID(func(id string) bool { return id == info.ID || id == messageID })
-	content, _ := json.Marshal(brief)
+	content, _ := json.Marshal(brief, jsonopt.Write)
 	entries := []Entry{
 		infoEntry(info),
 		{Type: TypeMessage, TS: now, Role: "user", Content: content, ID: messageID, ParentID: info.ID},

@@ -2,9 +2,10 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/jsonschema"
 )
 
@@ -64,7 +65,7 @@ func (r *runner) repairCall(ctx context.Context, plan stepPlan, call ToolCall, c
 	// the model actually made, or the provider rejects the pairing.
 	repaired.ToolCallID = call.ToolCallID
 	if len(repaired.Input) == 0 {
-		repaired.Input = json.RawMessage("{}")
+		repaired.Input = jsontext.Value("{}")
 	}
 
 	return *repaired, true, nil
@@ -85,7 +86,7 @@ func (r *runner) brokenCall(plan stepPlan, call ToolCall) error {
 	if len(call.Input) == 0 || string(call.Input) == "null" {
 		return nil
 	}
-	if !json.Valid(call.Input) {
+	if !call.Input.IsValid(jsonopt.Read) {
 		return fmt.Errorf("arguments for %s are not valid JSON: %s",
 			call.ToolName, truncate(string(call.Input), 200))
 	}

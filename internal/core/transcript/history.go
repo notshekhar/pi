@@ -1,39 +1,41 @@
 package transcript
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/core/session"
 )
 
 // The saved half (history.ts): a branch, root to leaf, as a transcript.
 
 type contentPart struct {
-	Type       string          `json:"type"`
-	Text       string          `json:"text"`
-	ToolName   string          `json:"toolName"`
-	ToolCallID string          `json:"toolCallId"`
-	Input      json.RawMessage `json:"input"`
-	Output     json.RawMessage `json:"output"`
-	Image      json.RawMessage `json:"image"`
-	MediaType  string          `json:"mediaType"`
+	Type       string         `json:"type"`
+	Text       string         `json:"text"`
+	ToolName   string         `json:"toolName"`
+	ToolCallID string         `json:"toolCallId"`
+	Input      jsontext.Value `json:"input"`
+	Output     jsontext.Value `json:"output"`
+	Image      jsontext.Value `json:"image"`
+	MediaType  string         `json:"mediaType"`
 }
 
-func decodeAny(raw json.RawMessage) any {
+func decodeAny(raw jsontext.Value) any {
 	if len(raw) == 0 {
 		return nil
 	}
 	var v any
-	if json.Unmarshal(raw, &v) != nil {
+	if json.Unmarshal(raw, &v, jsonopt.Read) != nil {
 		return nil
 	}
 	return v
 }
 
 // unwrapOutput is a saved tool output as the live `tool-result` carries it.
-func unwrapOutput(raw json.RawMessage) (any, string, bool) {
+func unwrapOutput(raw jsontext.Value) (any, string, bool) {
 	out := decodeAny(raw)
 	if o, ok := out.(map[string]any); ok {
 		if typ, ok := o["type"].(string); ok {
@@ -43,7 +45,7 @@ func unwrapOutput(raw json.RawMessage) (any, string, bool) {
 				if s, ok := v.(string); ok {
 					return v, s, true
 				}
-				b, _ := json.Marshal(v)
+				b, _ := json.Marshal(v, jsonopt.Write)
 				return v, string(b), true
 			case "text", "json", "content":
 				v := o["value"]
@@ -60,17 +62,17 @@ func unwrapOutput(raw json.RawMessage) (any, string, bool) {
 	return out, "", false
 }
 
-func userParts(raw json.RawMessage) []*Part {
+func userParts(raw jsontext.Value) []*Part {
 	parts := []*Part{}
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		if s != "" {
 			parts = append(parts, &Part{Type: "text", Text: strPtr(s), State: Done})
 		}
 		return parts
 	}
 	var cps []contentPart
-	if json.Unmarshal(raw, &cps) != nil {
+	if json.Unmarshal(raw, &cps, jsonopt.Read) != nil {
 		return parts
 	}
 	for _, p := range cps {
@@ -83,7 +85,7 @@ func userParts(raw json.RawMessage) []*Part {
 			}
 		case p.Type == "image" || p.Type == "file":
 			var url string
-			if json.Unmarshal(p.Image, &url) == nil {
+			if json.Unmarshal(p.Image, &url, jsonopt.Read) == nil {
 				mt := p.MediaType
 				if mt == "" {
 					mt = "image/*"
@@ -98,7 +100,7 @@ func userParts(raw json.RawMessage) []*Part {
 func extraString(e session.Entry, key string) string {
 	var s string
 	if raw, ok := e.Extra[key]; ok {
-		_ = json.Unmarshal(raw, &s)
+		_ = json.Unmarshal(raw, &s, jsonopt.Read)
 	}
 	return s
 }
@@ -115,7 +117,7 @@ func subagentRun(e session.Entry) *SubagentRun {
 		Summary any    `json:"summary"`
 	}
 	if raw, ok := e.Extra["activity"]; ok {
-		_ = json.Unmarshal(raw, &activity)
+		_ = json.Unmarshal(raw, &activity, jsonopt.Read)
 	}
 	for _, a := range activity {
 		switch {
@@ -133,7 +135,7 @@ func subagentRun(e session.Entry) *SubagentRun {
 	}
 	if raw, ok := e.Extra["steps"]; ok {
 		var n int
-		if json.Unmarshal(raw, &n) == nil {
+		if json.Unmarshal(raw, &n, jsonopt.Read) == nil {
 			run.StepCount = &n
 		}
 	}
@@ -142,22 +144,22 @@ func subagentRun(e session.Entry) *SubagentRun {
 		run.USD = &v
 	} else if raw, ok := e.Extra["usd"]; ok {
 		var v float64
-		if json.Unmarshal(raw, &v) == nil {
+		if json.Unmarshal(raw, &v, jsonopt.Read) == nil {
 			run.USD = &v
 		}
 	}
 	if raw, ok := e.Extra["durationMs"]; ok {
 		var v int64
-		if json.Unmarshal(raw, &v) == nil {
+		if json.Unmarshal(raw, &v, jsonopt.Read) == nil {
 			run.DurationMs = &v
 		}
 	}
 	return run
 }
 
-func payloadKind(raw json.RawMessage) (string, map[string]any) {
+func payloadKind(raw jsontext.Value) (string, map[string]any) {
 	var p map[string]any
-	if json.Unmarshal(raw, &p) != nil {
+	if json.Unmarshal(raw, &p, jsonopt.Read) != nil {
 		return "", nil
 	}
 	k, _ := p["kind"].(string)
@@ -290,10 +292,10 @@ func FromEntries(entries []session.Entry, running bool, todos []Todo) *Transcrip
 			if e.Role == "user" {
 				var meta map[string]any
 				if raw, ok := e.Extra["team"]; ok {
-					_ = json.Unmarshal(raw, &meta)
+					_ = json.Unmarshal(raw, &meta, jsonopt.Read)
 				}
 				var text string
-				_ = json.Unmarshal(e.Content, &text)
+				_ = json.Unmarshal(e.Content, &text, jsonopt.Read)
 				team = teamPartOf(meta, text)
 			}
 			switch {
@@ -319,9 +321,9 @@ func FromEntries(entries []session.Entry, running bool, todos []Todo) *Transcrip
 				}
 				durations := append([]int64(nil), e.ReasoningMs...)
 				var cps []contentPart
-				if json.Unmarshal(e.Content, &cps) != nil {
+				if json.Unmarshal(e.Content, &cps, jsonopt.Read) != nil {
 					var s string
-					_ = json.Unmarshal(e.Content, &s)
+					_ = json.Unmarshal(e.Content, &s, jsonopt.Read)
 					cps = []contentPart{{Type: "text", Text: s}}
 				}
 				for _, p := range cps {
@@ -360,7 +362,7 @@ func FromEntries(entries []session.Entry, running bool, todos []Todo) *Transcrip
 			case e.Role == "tool":
 				target := currentReply(at)
 				var cps []contentPart
-				if json.Unmarshal(e.Content, &cps) != nil {
+				if json.Unmarshal(e.Content, &cps, jsonopt.Read) != nil {
 					continue
 				}
 				for _, p := range cps {
@@ -402,7 +404,7 @@ func FromEntries(entries []session.Entry, running bool, todos []Todo) *Transcrip
 				var p struct {
 					Items []Todo `json:"items"`
 				}
-				if json.Unmarshal(e.Payload, &p) == nil && p.Items != nil {
+				if json.Unmarshal(e.Payload, &p, jsonopt.Read) == nil && p.Items != nil {
 					branchTodos = p.Items
 				}
 			case "recap":
@@ -449,7 +451,7 @@ func LatestTodos(entries []session.Entry) []Todo {
 			Kind  string `json:"kind"`
 			Items []Todo `json:"items"`
 		}
-		if json.Unmarshal(e.Payload, &p) == nil && p.Kind == "todos" && p.Items != nil {
+		if json.Unmarshal(e.Payload, &p, jsonopt.Read) == nil && p.Kind == "todos" && p.Items != nil {
 			return p.Items
 		}
 	}

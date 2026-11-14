@@ -2,10 +2,13 @@ package lsp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // The nine navigation operations behind the `lsp` tool, and how their results
@@ -119,13 +122,13 @@ func tryRel(base, path string) (string, bool) {
 //
 // Servers genuinely differ, and a client that handled only one shape would
 // look like it worked until someone pointed it at a different language.
-func toLocations(raw json.RawMessage) []Location {
+func toLocations(raw jsontext.Value) []Location {
 	if len(raw) == 0 {
 		return nil
 	}
-	var items []json.RawMessage
-	if err := json.Unmarshal(raw, &items); err != nil {
-		items = []json.RawMessage{raw}
+	var items []jsontext.Value
+	if err := json.Unmarshal(raw, &items, jsonopt.Read); err != nil {
+		items = []jsontext.Value{raw}
 	}
 	var out []Location
 	for _, item := range items {
@@ -136,7 +139,7 @@ func toLocations(raw json.RawMessage) []Location {
 			TargetRange          *Range `json:"targetRange"`
 			TargetSelectionRange *Range `json:"targetSelectionRange"`
 		}
-		if err := json.Unmarshal(item, &loc); err != nil {
+		if err := json.Unmarshal(item, &loc, jsonopt.Read); err != nil {
 			continue
 		}
 		switch {
@@ -219,7 +222,7 @@ func prepare(ctx context.Context, c *Client, in Input) []CallHierarchyItem {
 	raw := c.Send(ctx, "textDocument/prepareCallHierarchy", positionParams(in), RequestTimeout)
 	var items []CallHierarchyItem
 	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &items)
+		_ = json.Unmarshal(raw, &items, jsonopt.Read)
 	}
 	return items
 }
@@ -247,7 +250,7 @@ func callHierarchy(ctx context.Context, c *Client, in Input, direction, cwd stri
 			From *CallHierarchyItem `json:"from"`
 			To   *CallHierarchyItem `json:"to"`
 		}
-		if err := json.Unmarshal(raw, &calls); err != nil {
+		if err := json.Unmarshal(raw, &calls, jsonopt.Read); err != nil {
 			continue
 		}
 		for _, call := range calls {
@@ -298,7 +301,7 @@ func Run(ctx context.Context, c *Client, in Input, cwd string) Result {
 		var hover struct {
 			Contents any `json:"contents"`
 		}
-		if err := json.Unmarshal(raw, &hover); err != nil {
+		if err := json.Unmarshal(raw, &hover, jsonopt.Read); err != nil {
 			return Result{}
 		}
 		text := HoverText(hover.Contents)
@@ -319,11 +322,11 @@ func Run(ctx context.Context, c *Client, in Input, cwd string) Result {
 		// natively — flattening the nested one would throw away the structure
 		// that makes an outline readable.
 		var nested []DocumentSymbol
-		if err := json.Unmarshal(raw, &nested); err == nil && len(nested) > 0 && nested[0].SelectionRange != (Range{}) {
+		if err := json.Unmarshal(raw, &nested, jsonopt.Read); err == nil && len(nested) > 0 && nested[0].SelectionRange != (Range{}) {
 			return Result{Lines: renderOutline(nested, 0)}
 		}
 		var flat []SymbolInformation
-		if err := json.Unmarshal(raw, &flat); err != nil {
+		if err := json.Unmarshal(raw, &flat, jsonopt.Read); err != nil {
 			return Result{}
 		}
 		return Result{Lines: renderFlatSymbols(cwd, flat)}
@@ -332,7 +335,7 @@ func Run(ctx context.Context, c *Client, in Input, cwd string) Result {
 		raw := c.Send(ctx, "workspace/symbol", map[string]any{"query": in.Query}, RequestTimeout)
 		var symbols []SymbolInformation
 		if len(raw) > 0 {
-			_ = json.Unmarshal(raw, &symbols)
+			_ = json.Unmarshal(raw, &symbols, jsonopt.Read)
 		}
 		if len(symbols) > maxWorkspaceSymbols {
 			symbols = symbols[:maxWorkspaceSymbols]
@@ -348,7 +351,7 @@ func Run(ctx context.Context, c *Client, in Input, cwd string) Result {
 	return Result{}
 }
 
-func locationLines(cwd string, raw json.RawMessage) []string {
+func locationLines(cwd string, raw jsontext.Value) []string {
 	locations := toLocations(raw)
 	out := make([]string, 0, len(locations))
 	for _, l := range locations {

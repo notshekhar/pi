@@ -2,7 +2,8 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/session"
@@ -203,9 +205,9 @@ func truncationRecord(dropped []session.Entry, previousBody string) string {
 // ErrNothingToCompact is a compaction with nothing older than the kept window.
 var ErrNothingToCompact = errors.New("nothing to compact")
 
-func contentText(raw json.RawMessage) string {
+func contentText(raw jsontext.Value) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return s
 	}
 	return string(raw)
@@ -245,25 +247,25 @@ func clipMiddle(text string, head, tail int) string {
 }
 
 type part struct {
-	Type     string          `json:"type"`
-	Text     string          `json:"text"`
-	ToolName string          `json:"toolName"`
-	Input    json.RawMessage `json:"input"`
-	Output   json.RawMessage `json:"output"`
+	Type     string         `json:"type"`
+	Text     string         `json:"text"`
+	ToolName string         `json:"toolName"`
+	Input    jsontext.Value `json:"input"`
+	Output   jsontext.Value `json:"output"`
 }
 
-func partsOf(raw json.RawMessage) ([]part, bool) {
+func partsOf(raw jsontext.Value) ([]part, bool) {
 	var ps []part
-	if json.Unmarshal(raw, &ps) != nil {
+	if json.Unmarshal(raw, &ps, jsonopt.Read) != nil {
 		return nil, false
 	}
 	return ps, true
 }
 
 // textOf is the text parts of a message's content, joined by newlines.
-func textOf(raw json.RawMessage) string {
+func textOf(raw jsontext.Value) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return s
 	}
 	ps, _ := partsOf(raw)
@@ -277,29 +279,29 @@ func textOf(raw json.RawMessage) string {
 }
 
 // toolOutputText is a stored tool output as plain text.
-func toolOutputText(raw json.RawMessage) string {
+func toolOutputText(raw jsontext.Value) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonopt.Read) == nil {
 		return s
 	}
 	var o struct {
-		Type  string          `json:"type"`
-		Value json.RawMessage `json:"value"`
+		Type  string         `json:"type"`
+		Value jsontext.Value `json:"value"`
 	}
-	if json.Unmarshal(raw, &o) != nil {
+	if json.Unmarshal(raw, &o, jsonopt.Read) != nil {
 		return ""
 	}
 	switch o.Type {
 	case "text", "error-text":
 		var v string
-		_ = json.Unmarshal(o.Value, &v)
+		_ = json.Unmarshal(o.Value, &v, jsonopt.Read)
 		return v
 	case "content":
 		var items []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		}
-		_ = json.Unmarshal(o.Value, &items)
+		_ = json.Unmarshal(o.Value, &items, jsonopt.Read)
 		var lines []string
 		for _, it := range items {
 			if it.Type == "text" {
@@ -357,9 +359,9 @@ func serializeMessage(e session.Entry) string {
 				if p.Type != "tool-call" {
 					continue
 				}
-				var input map[string]json.RawMessage
+				var input map[string]jsontext.Value
 				args := string(p.Input)
-				if json.Unmarshal(p.Input, &input) == nil {
+				if json.Unmarshal(p.Input, &input, jsonopt.Read) == nil {
 					keys := make([]string, 0, len(input))
 					for k := range input {
 						keys = append(keys, k)
@@ -436,7 +438,7 @@ func collectFileLists(msgs []session.Entry, prev session.FileLists) session.File
 			var in struct {
 				Path *string `json:"path"`
 			}
-			if json.Unmarshal(p.Input, &in) != nil || in.Path == nil {
+			if json.Unmarshal(p.Input, &in, jsonopt.Read) != nil || in.Path == nil {
 				continue
 			}
 			switch {
@@ -716,20 +718,20 @@ func Compact(ctx context.Context, r *Run, opts CompactOptions) (CompactResult, e
 	for _, m := range msgs[cut:] {
 		tokensAfter += messageTokens(m)
 	}
-	details, _ := json.Marshal(files)
+	details, _ := json.Marshal(files, jsonopt.Write)
 	entry := session.Entry{
 		Type: session.TypeCompact, Summary: text, CutAt: cut,
 		TokensBefore: tokensBefore, TokensAfter: &tokensAfter,
-		Extra: map[string]json.RawMessage{"details": details},
+		Extra: map[string]jsontext.Value{"details": details},
 	}
 	if opts.Trigger != "" {
-		entry.Extra["trigger"], _ = json.Marshal(opts.Trigger)
+		entry.Extra["trigger"], _ = json.Marshal(opts.Trigger, jsonopt.Write)
 	}
 	if truncated != "" {
-		entry.Extra["truncated"], _ = json.Marshal(truncated)
+		entry.Extra["truncated"], _ = json.Marshal(truncated, jsonopt.Write)
 	}
 	if focus != "" {
-		entry.Extra["focus"], _ = json.Marshal(focus)
+		entry.Extra["focus"], _ = json.Marshal(focus, jsonopt.Write)
 	}
 	if usage != nil {
 		stamped := StampUsage(modelID, *usage)

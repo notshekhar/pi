@@ -1,10 +1,12 @@
 package tui
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // How a tool call is summarised on one line — the single source of truth,
@@ -181,7 +183,7 @@ func FormatToolArgs(toolName string, args map[string]any, cwd string) string {
 	case "plan", "exit_plan_mode":
 		return clamp(strings.TrimSpace(headingPrefix.ReplaceAllString(first(argStr(args, "plan")), "")))
 	}
-	encoded, err := json.Marshal(args)
+	encoded, err := json.Marshal(args, jsonopt.Write)
 	if err != nil {
 		return ""
 	}

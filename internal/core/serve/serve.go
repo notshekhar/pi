@@ -17,12 +17,15 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"net"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // DefaultPort is what `/serve` binds when none is given.
@@ -96,7 +99,7 @@ func (s *Server) Start(host string, port int) error {
 	mux.HandleFunc("/events", s.auth(s.handleEvents))
 	mux.HandleFunc("/prompt", s.auth(s.handlePrompt))
 	mux.HandleFunc("/health", s.auth(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		json.MarshalEncode(jsontext.NewEncoder(w), map[string]string{"status": "ok"}, jsonopt.Write)
 	}))
 
 	ln, err := net.Listen("tcp", addr)
@@ -192,7 +195,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			if !open {
 				return
 			}
-			data, err := json.Marshal(e)
+			data, err := json.Marshal(e, jsonopt.Write)
 			if err != nil {
 				continue
 			}
@@ -211,7 +214,7 @@ func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Prompt string `json:"prompt"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+	if err := json.UnmarshalRead(http.MaxBytesReader(w, r.Body, 1<<20), &body, jsonopt.Read); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -222,7 +225,7 @@ func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
 	if s.onPrompt != nil {
 		s.onPrompt(body.Prompt)
 	}
-	json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	json.MarshalEncode(jsontext.NewEncoder(w), map[string]string{"status": "accepted"}, jsonopt.Write)
 }
 
 // URL is the address a client should use, token included.

@@ -1,8 +1,10 @@
 package ai
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
+
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 )
 
 // completeJSON turns the prefix of a JSON document into a parseable document,
@@ -162,7 +164,7 @@ func (s *jsonScanner) scan() {
 			// A literal that runs to the end of the input may still be growing
 			// ("1" becoming "12"), so it only counts once it is well-formed and
 			// something follows it.
-			if end < len(s.input) && json.Valid([]byte(s.input[i:end])) {
+			if end < len(s.input) && jsontext.Value(s.input[i:end]).IsValid(jsonopt.Read) {
 				s.mark(end)
 			}
 			if end == i {

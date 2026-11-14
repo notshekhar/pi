@@ -2,10 +2,11 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/ai/jsonopt"
 	"github.com/notshekhar/pi/internal/ai/provider"
 	"github.com/notshekhar/pi/internal/core/config"
 	"github.com/notshekhar/pi/internal/core/session"
@@ -87,7 +88,7 @@ func CollectEntriesForBranchSummary(s *session.Session, oldLeaf, target string) 
 }
 
 func userEntry(text string) session.Entry {
-	raw, _ := json.Marshal(text)
+	raw, _ := json.Marshal(text, jsonopt.Write)
 	return session.Entry{Type: session.TypeMessage, Role: "user", Content: raw}
 }
 

@@ -72,6 +72,10 @@ func (t *repl) runExtensionCommand(parent context.Context, cmd extension.Command
 		// and race this one for the keyboard.
 		t.inPanel.Store(true)
 		defer t.inPanel.Store(false)
+		if cmd.Import != nil {
+			t.runImportCommand(parent, cmd, rest)
+			return
+		}
 		out, prompt, err := cmd.Run(parent, t.cfg.CWD, rest)
 		if err != nil {
 			t.fail("%s", err)

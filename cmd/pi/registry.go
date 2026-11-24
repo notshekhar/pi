@@ -117,7 +117,7 @@ func commands() []command {
 		{"handoff", "Continue in a fresh session with an editable brief and model/agent choice (optional focus)", func(t *repl, ctx context.Context, rest string) { t.handoffCmd(ctx, rest) }},
 		{"team", "Thread team: see every thread and jump to one (/team stop stops them all)", arg((*repl).teamCmd)},
 		{"lead", "Back to the thread that started this one (thread teams)", bare((*repl).leadCmd)},
-		{"shells", "Background shells: /shells lists · /shells run <cmd> · /shells <id> shows output · /shells kill <id>|all", arg((*repl).shellsCmd)},
+		{"shells", "Background shells: /shells picks one to stop or read · /shells run <cmd> · /shells <id> · /shells kill <id>|all", arg((*repl).shellsCmd)},
 		{"notes", "This session's notes: /notes opens them (submit or delete one, remove all) · /notes <text> adds one", arg((*repl).notesCmd)},
 		{"note", "Add a note to this session: /note <text>", arg((*repl).notesCmd)},
 		{"sound", "Interface chimes: /sound · /sound on|off|max", arg((*repl).soundCmd)},

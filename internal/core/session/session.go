@@ -113,6 +113,19 @@ func New(model, cwd string) *Session {
 	return newSession(info, nil)
 }
 
+// Preview is a session that is never written: entries held in memory so they
+// can be replayed into the transcript before anyone decides to keep them
+// (an imported chat). Appending to it would start a real row, so callers only
+// read it. The entries are copied — tree ids are stamped on the copy.
+func Preview(model, cwd string, entries []Entry) *Session {
+	copied := append([]Entry(nil), entries...)
+	ensureTreeFields(copied)
+	s := New(model, cwd)
+	s.entries = copied
+	s.rebuild()
+	return s
+}
+
 // Create is New, written immediately — loop's SessionManager.create.
 func Create(model, cwd string) (*Session, error) {
 	s := New(model, cwd)

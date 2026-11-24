@@ -300,3 +300,26 @@ func TestRealLoopDatabase(t *testing.T) {
 		t.Fail()
 	}
 }
+
+// A preview replays like a session and is never written: nothing exists in
+// the database for it, and the caller's entries are not stamped.
+func TestPreviewIsNeverWritten(t *testing.T) {
+	withSessionHome(t)
+	entries := []Entry{
+		{Type: TypeMessage, Role: "user", Content: jsontext.Value(`"hi"`), TS: 1},
+		{Type: TypeMessage, Role: "assistant", Content: jsontext.Value(`[{"type":"text","text":"hello"}]`), TS: 2},
+	}
+	p := Preview("xai/m", "/tmp/preview", entries)
+	if got := len(p.CurrentBranch()); got != 2 {
+		t.Fatalf("branch has %d entries, want 2", got)
+	}
+	if p.Saved() {
+		t.Error("a preview has a database row")
+	}
+	if list, _ := ListScope("/tmp/preview", Active); len(list) != 0 {
+		t.Errorf("a preview was listed: %+v", list)
+	}
+	if entries[0].ID != "" {
+		t.Error("the caller's entries were stamped")
+	}
+}

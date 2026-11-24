@@ -38,6 +38,11 @@ func (s ShellRow) running() bool { return s.Status == "running" }
 // maxShellRows caps the panel, like maxTodoRows.
 const maxShellRows = 4
 
+// ShellsHint is the panel's last row: where to go to stop one. Shown whenever
+// the panel has rows at all — tying it to "something is running" would make
+// the panel shrink mid-turn the moment the last shell exits.
+const ShellsHint = "/shells to stop one or read its output"
+
 const (
 	shellMarkerWidth = 4 // "[~] "
 	shellGap         = 2 // between the command, the hint and the status
@@ -89,9 +94,11 @@ func renderShells(t *Theme, shells []ShellRow, width int, now time.Time) []strin
 	for _, s := range shown {
 		rows = append(rows, shellRow(t, s, width, now))
 	}
+	more := ""
 	if hidden := len(ordered) - len(shown); hidden > 0 {
-		rows = append(rows, t.Fg(SlotDim, fmt.Sprintf("    +%d more", hidden)))
+		more = fmt.Sprintf("+%d more · ", hidden)
 	}
+	rows = append(rows, t.Fg(SlotDim, truncateToWidth("    "+more+ShellsHint, width, "…")))
 	return rows
 }
 

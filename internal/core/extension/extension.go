@@ -31,6 +31,7 @@ import (
 	"sort"
 
 	"github.com/notshekhar/pi/internal/ai"
+	"github.com/notshekhar/pi/internal/core/chatimport"
 	"github.com/notshekhar/pi/internal/core/tools"
 )
 
@@ -197,6 +198,10 @@ type Command struct {
 	// sent to the model as though the user had typed it, which is how a
 	// command like /wayfinder works.
 	Run func(ctx context.Context, cwd, rest string) (output string, prompt string, err error)
+	// Import, set instead of Run, reads another agent's chat for the host to
+	// preview and then save or discard (/claude-import). A nil chat with a
+	// note is "nothing to import", said in a sentence.
+	Import func(ctx context.Context, cwd, rest string) (chat *chatimport.Chat, note string, err error)
 }
 
 // builtins is every extension compiled into the binary, in listing order.
@@ -223,7 +228,7 @@ func All() []Extension {
 
 // loopOrder is the order loop registers its builtins (builtin/index.ts), so
 // every list of them reads the same in both.
-var loopOrder = []string{"lsp", "ponytail", "caveman", "wayfinder", "anatomy", "rtk", "relay", "statusline-themes"}
+var loopOrder = []string{"lsp", "ponytail", "caveman", "wayfinder", "anatomy", "rtk", "relay", "chat-import", "statusline-themes"}
 
 // Find returns a builtin by name.
 func Find(name string) (Extension, bool) {
